@@ -1,5 +1,5 @@
 {
-  "name": "scaffold_tmp",
+  "name": "metrosync",
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
@@ -9,14 +9,19 @@
     "react-native": "0.86.0"
   },
   "devDependencies": {
+    "@types/node": "^26.1.1",
     "@types/react": "~19.2.2",
-    "typescript": "~6.0.3"
+    "tsx": "^4.23.1",
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.10"
   },
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "compile-graph": "tsx scripts/compile-graph.ts",
+    "test": "vitest run"
   },
   "private": true
 }

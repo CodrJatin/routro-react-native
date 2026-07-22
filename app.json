@@ -1,22 +1,34 @@
 {
   "expo": {
-    "name": "_scaffold_tmp",
-    "slug": "_scaffold_tmp",
+    "name": "MetroSync",
+    "slug": "metrosync",
+    "scheme": "metrosync",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#0B0F14",
+    "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.metrosync.app",
+      "config": {
+        "usesNonExfiltratableKeys": false
+      },
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "MetroSync uses your location to show your position on the metro map and to share it with friends you choose to broadcast to."
+      }
     },
     "android": {
+      "package": "com.metrosync.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0B0F14",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
     },
     "web": {
       "favicon": "./assets/favicon.png"

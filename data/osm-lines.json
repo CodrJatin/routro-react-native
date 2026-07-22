@@ -1,0 +1,92 @@
+{
+  "blue-line": {
+    "id": "blue-line",
+    "name": "Blue Line",
+    "color": "#366FA8",
+    "highlightColor": "#4169E1"
+  },
+  "red-line": {
+    "id": "red-line",
+    "name": "Red Line",
+    "color": "#B83232",
+    "highlightColor": "#FF4040"
+  },
+  "yellow-line": {
+    "id": "yellow-line",
+    "name": "Yellow Line",
+    "color": "#CCA010",
+    "highlightColor": "#FFDF00"
+  },
+  "airport-express-line": {
+    "id": "airport-express-line",
+    "name": "Airport Express Line",
+    "color": "#C45A1B",
+    "highlightColor": "#FF8C00"
+  },
+  "violet-line": {
+    "id": "violet-line",
+    "name": "Violet Line",
+    "color": "#7B4199",
+    "highlightColor": "#553592"
+  },
+  "green-line": {
+    "id": "green-line",
+    "name": "Green Line",
+    "color": "#288746",
+    "highlightColor": "#008000"
+  },
+  "rapid-metrorail-gurgaon-s55-sikandarpur": {
+    "id": "rapid-metrorail-gurgaon-s55-sikandarpur",
+    "name": "Rapid MetroRail Gurgaon: S55 → Sikandarpur",
+    "color": "#34658B",
+    "highlightColor": "#gray"
+  },
+  "rapid-metrorail-gurgaon-sikandarpur-s55": {
+    "id": "rapid-metrorail-gurgaon-sikandarpur-s55",
+    "name": "Rapid MetroRail Gurgaon: Sikandarpur → S55",
+    "color": "#34658B",
+    "highlightColor": "#gray"
+  },
+  "grey-line": {
+    "id": "grey-line",
+    "name": "Grey Line",
+    "color": "#707B7C",
+    "highlightColor": "#838996"
+  },
+  "magenta-line": {
+    "id": "magenta-line",
+    "name": "Magenta Line",
+    "color": "#8C2D5C",
+    "highlightColor": "#CC338B"
+  },
+  "pink-line": {
+    "id": "pink-line",
+    "name": "Pink Line",
+    "color": "#B83B7A",
+    "highlightColor": "#FC8EAC"
+  },
+  "delhi-meerut-rrts": {
+    "id": "delhi-meerut-rrts",
+    "name": "Delhi–Meerut RRTS",
+    "color": "#707B7C",
+    "highlightColor": "#F0631E"
+  },
+  "aqua-line-noida-sector-51-depot": {
+    "id": "aqua-line-noida-sector-51-depot",
+    "name": "Aqua Line: Noida Sector 51 → Depot",
+    "color": "#278E96",
+    "highlightColor": "#aqua"
+  },
+  "aqua-line-depot-noida-sector-51": {
+    "id": "aqua-line-depot-noida-sector-51",
+    "name": "Aqua Line: Depot → Noida Sector 51",
+    "color": "#278E96",
+    "highlightColor": "#aqua"
+  },
+  "line-1": {
+    "id": "line-1",
+    "name": "Line 1",
+    "color": "#707B7C",
+    "highlightColor": "#d8514d"
+  }
+}
