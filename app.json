@@ -8,13 +8,9 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#0B0F14",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.metrosync.app",
-      "config": {
-        "usesNonExfiltratableKeys": false
-      },
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "MetroSync uses your location to show your position on the metro map and to share it with friends you choose to broadcast to."
       }
@@ -28,10 +24,26 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "@maplibre/maplibre-react-native",
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "MetroSync uses your location to show your position on the metro map and to share it with friends you choose to broadcast to."
+        }
+      ],
+      "expo-font",
+      "expo-web-browser",
+      "expo-secure-store"
+    ]
   }
 }
