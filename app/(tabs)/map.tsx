@@ -7,7 +7,6 @@ import {
   Layer,
   LocationManager,
   Map as MapLibreMap,
-  UserLocation,
   useCurrentPosition,
 } from '@maplibre/maplibre-react-native';
 import { useLocalSearchParams } from 'expo-router';
@@ -17,12 +16,13 @@ import tracksGeoJSON from '../../assets/data/tracks.json';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { getStation } from '../../src/engine/graph';
 import type { CompiledStation, RouteMode } from '../../src/engine/types';
+import { FriendFocusStack, type ActiveFriend } from '../../src/map/FriendFocusStack';
 import { FriendsLayer } from '../../src/map/FriendsLayer';
 import { DEFAULT_ZOOM, DELHI_CENTER, emptyOfflineStyle } from '../../src/map/mapStyle';
-import { PulsingDot } from '../../src/map/PulsingDot';
 import { buildRoutePolylineGeoJSON, computeBounds } from '../../src/map/routePolyline';
 import { buildStationsGeoJSON } from '../../src/map/stationsGeoJSON';
 import { StationDetailSheet } from '../../src/map/StationDetailSheet';
+import { UserLocationPin } from '../../src/map/UserLocationPin';
 import { locationChannelManager } from '../../src/realtime/locationChannel';
 import { useLocationStore } from '../../src/realtime/locationStore';
 import { colors } from '../../src/theme/colors';
@@ -101,6 +101,14 @@ export default function MapScreen() {
     locationChannelManager.setBroadcasting(!isBroadcasting);
   }
 
+  function handleFocusFriend(friend: ActiveFriend) {
+    cameraRef.current?.flyTo({
+      center: [friend.lon, friend.lat],
+      zoom: 15,
+      duration: 800,
+    });
+  }
+
   return (
     <View style={styles.container}>
       <MapLibreMap style={styles.map} mapStyle={emptyOfflineStyle} logo={false} attribution={false}>
@@ -173,10 +181,10 @@ export default function MapScreen() {
 
         <FriendsLayer />
 
-        <UserLocation animated accuracy>
-          <PulsingDot />
-        </UserLocation>
+        <UserLocationPin />
       </MapLibreMap>
+
+      {isConfigured && session && <FriendFocusStack onSelectFriend={handleFocusFriend} />}
 
       {isConfigured && session && (
         <Pressable

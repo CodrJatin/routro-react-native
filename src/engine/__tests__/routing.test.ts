@@ -15,14 +15,41 @@ describe('findRoute', () => {
     expect(findRoute('rithala', 'shalimar-bagh-metro-station', 'fastest')).toBeNull();
   });
 
-  it('finds a same-line adjacent-station route with zero interchanges matching the raw edge time', () => {
+  it('finds a same-line multi-stop route with zero interchanges and all intermediate stops', () => {
+    // Ramesh Nagar and Patel Nagar are four stops apart on the Blue Line
+    // (Shadipur, Kirti Nagar, Moti Nagar in between) -- not adjacent. The graph
+    // must expose every intermediate stop, not a single collapsed "skip" edge.
     const result = findRoute('ramesh-nagar', 'patel-nagar', 'fastest');
     expect(result).not.toBeNull();
     expect(result!.interchanges).toBe(0);
-    expect(result!.totalTimeSeconds).toBe(387);
+    // 387s of raw inter-station run time + 20s station dwell on each of the 4 hops.
+    expect(result!.totalTimeSeconds).toBe(387 + 4 * 20);
     expect(result!.legs).toHaveLength(1);
     expect(result!.legs[0].line).toBe('blue-line');
-    expect(result!.legs[0].intermediateStations).toHaveLength(0);
+    expect(result!.legs[0].intermediateStations.map((s) => s.stationId)).toEqual([
+      'moti-nagar',
+      'kirti-nagar',
+      'shadipur',
+    ]);
+  });
+
+  it('routes a long same-line trip as one direct Blue Line leg (regression: scrambled adjacency)', () => {
+    // Ramakrishna Ashram Marg -> Dwarka Mor is a real-world direct Blue Line
+    // ride with zero interchanges (~19 stations, ~18 km). The pre-fix graph
+    // dropped every station inside each OSM "way", turning this into an absurd
+    // 4-interchange, cross-city detour. Both modes must now return one leg.
+    for (const mode of ['fastest', 'min-interchange'] as const) {
+      const result = findRoute('ramakrishna-ashram-marg', 'dwarka-mor', mode);
+      expect(result, mode).not.toBeNull();
+      expect(result!.interchanges, mode).toBe(0);
+      expect(result!.legs, mode).toHaveLength(1);
+      expect(result!.legs[0].line, mode).toBe('blue-line');
+      // 19 stations end-to-end (17 intermediate). Assert a tight lower bound so
+      // a future re-scramble that skips stations fails loudly.
+      expect(result!.stationsPassed, mode).toBeGreaterThanOrEqual(18);
+      // ~18.7 km; nowhere near the cross-city distance the buggy route implied.
+      expect(result!.distanceMeters, mode).toBeLessThan(25000);
+    }
   });
 
   it('routes through a merged single-node interchange (Kashmere Gate) correctly', () => {

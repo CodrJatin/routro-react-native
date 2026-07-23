@@ -31,12 +31,24 @@ import type {
   RawStations,
   StationId,
 } from '../src/engine/types';
+import {
+  buildRawGraphFromTracks,
+  type TrackCollection,
+  type WayTimes,
+} from './lib/track-adjacency';
 
 const ROOT = resolve(__dirname, '..');
 const DATA_DIR = resolve(ROOT, 'data');
 const OUT_PATH = resolve(ROOT, 'assets/data/metro-graph.json');
 
 const TRANSFER_WALK_SECONDS = 150; // co-located platforms (same station complex)
+/** Time a train sits stopped at each station (doors open, boarding). Added to
+ * every ride edge so a hop = run time + dwell at the station it pulls into.
+ * The scraped OSM times are pure inter-station run times, which made whole
+ * trips read a few minutes short of real DMRC journey times; ~20s/stop closes
+ * that gap. Folded into the edge cost (not just the displayed total) so
+ * "fastest" routing accounts for the cost of extra stops too. */
+const STATION_DWELL_SECONDS = 20;
 const STITCH_MAX_METERS = 350; // ceiling for auto-stitching disconnected components
 const WALK_SPEED_M_PER_S = 1.2;
 const STITCH_BUFFER_SECONDS = 60;
@@ -103,12 +115,26 @@ function main() {
   const rawStations: RawStations = JSON.parse(
     readFileSync(resolve(DATA_DIR, 'osm-stations.json'), 'utf-8'),
   );
-  const rawGraph: RawGraph = JSON.parse(
-    readFileSync(resolve(DATA_DIR, 'osm-graph.json'), 'utf-8'),
-  );
   const rawLines: RawLines = JSON.parse(
     readFileSync(resolve(DATA_DIR, 'osm-lines.json'), 'utf-8'),
   );
+
+  // The pre-generated osm-graph.json connects each OSM way by its two endpoint
+  // stations only, silently dropping every station in between (see
+  // track-adjacency.ts). We keep it solely as the per-way travel-time source
+  // and rebuild the actual topology by projecting stations onto the real track
+  // geometry in osm-tracks.geojson.
+  const sourceGraph: RawGraph = JSON.parse(
+    readFileSync(resolve(DATA_DIR, 'osm-graph.json'), 'utf-8'),
+  );
+  const tracks: TrackCollection = JSON.parse(
+    readFileSync(resolve(DATA_DIR, 'osm-tracks.geojson'), 'utf-8'),
+  );
+  const wayTimes: WayTimes = new Map();
+  for (const [from, edges] of Object.entries(sourceGraph)) {
+    for (const e of edges) wayTimes.set(`${from}|${e.to}`, e.time_seconds);
+  }
+  const rawGraph: RawGraph = buildRawGraphFromTracks(tracks, rawStations, wayTimes);
 
   const lint: LintReport = {
     longEdges: [],
@@ -197,7 +223,12 @@ function main() {
   for (const id of Object.keys(rawStations)) nodes[id] = [];
   for (const [from, edges] of Object.entries(rawGraph)) {
     for (const e of edges) {
-      nodes[from].push({ to: e.to, time: e.time_seconds, line: e.line, isTransfer: false });
+      nodes[from].push({
+        to: e.to,
+        time: e.time_seconds + STATION_DWELL_SECONDS,
+        line: e.line,
+        isTransfer: false,
+      });
     }
   }
 

@@ -1,0 +1,142 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import type { Profile } from '../auth/AuthProvider';
+import { useAuth } from '../auth/AuthProvider';
+import { useFriendshipsContext } from '../friends/FriendshipsProvider';
+import { otherParty } from '../friends/useFriendships';
+import { useLocationStore } from '../realtime/locationStore';
+import { colors } from '../theme/colors';
+
+/** A friend is "active" (shown here, tappable) only while we hold a live,
+ * non-stale location broadcast for them -- matching the pins on the map and
+ * ensuring the tap always has somewhere to fly the camera to. */
+const STALE_AFTER_MS = 30_000;
+const STALE_CHECK_INTERVAL_MS = 10_000;
+
+export interface ActiveFriend {
+  userId: string;
+  lat: number;
+  lon: number;
+  profile: Profile;
+}
+
+function initialsOf(profile: Profile): string {
+  const source = profile.display_name?.trim() || profile.email;
+  const parts = source.split(/[\s@._-]+/).filter(Boolean);
+  const letters = (parts[0]?.[0] ?? '') + (parts.length > 1 ? (parts[1]?.[0] ?? '') : '');
+  return letters.toUpperCase() || '?';
+}
+
+/**
+ * Vertical stack of active friends' profile icons, anchored above the
+ * broadcast button. Tapping one asks the map to fly to that friend. Renders
+ * nothing when no friend is currently broadcasting a live location.
+ */
+export function FriendFocusStack({
+  onSelectFriend,
+}: {
+  onSelectFriend: (friend: ActiveFriend) => void;
+}) {
+  const { session } = useAuth();
+  const selfUserId = session?.user.id;
+  const { rows } = useFriendshipsContext();
+  const friendLocations = useLocationStore((state) => state.friendLocations);
+  const [now, setNow] = useState(() => Date.now());
+
+  const hasLocations = Object.keys(friendLocations).length > 0;
+  useEffect(() => {
+    if (!hasLocations) return;
+    const interval = setInterval(() => setNow(Date.now()), STALE_CHECK_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [hasLocations]);
+
+  const profilesByUserId = useMemo(() => {
+    const map = new Map<string, Profile>();
+    if (!selfUserId) return map;
+    for (const row of rows) {
+      if (row.status !== 'accepted') continue;
+      const friend = otherParty(row, selfUserId);
+      map.set(friend.id, friend);
+    }
+    return map;
+  }, [rows, selfUserId]);
+
+  const activeFriends = useMemo<ActiveFriend[]>(() => {
+    return Object.values(friendLocations)
+      .filter((loc) => now - loc.ts <= STALE_AFTER_MS && profilesByUserId.has(loc.userId))
+      .map((loc) => ({
+        userId: loc.userId,
+        lat: loc.lat,
+        lon: loc.lon,
+        profile: profilesByUserId.get(loc.userId)!,
+      }));
+  }, [friendLocations, profilesByUserId, now]);
+
+  if (activeFriends.length === 0) return null;
+
+  return (
+    <View style={styles.stack} pointerEvents="box-none">
+      {activeFriends.map((friend) => (
+        <Pressable
+          key={friend.userId}
+          style={styles.avatarButton}
+          onPress={() => onSelectFriend(friend)}
+          accessibilityRole="button"
+          accessibilityLabel={`Focus map on ${friend.profile.display_name ?? friend.profile.email}`}
+        >
+          {friend.profile.avatar_url ? (
+            <Image source={{ uri: friend.profile.avatar_url }} style={styles.avatarImage} />
+          ) : (
+            <View style={[styles.avatarImage, styles.avatarFallback]}>
+              <Text style={styles.avatarInitials}>{initialsOf(friend.profile)}</Text>
+            </View>
+          )}
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+const AVATAR_SIZE = 44;
+
+const styles = StyleSheet.create({
+  // Anchored by its bottom edge just above the broadcast button (bottom 84 +
+  // its 48px height), growing upward as more friends become active.
+  stack: {
+    position: 'absolute',
+    right: 16,
+    bottom: 140,
+    alignItems: 'center',
+    gap: 10,
+  },
+  avatarButton: {
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
+    borderWidth: 2,
+    borderColor: colors.success,
+    backgroundColor: colors.surfaceElevated,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  avatarFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  avatarInitials: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+});

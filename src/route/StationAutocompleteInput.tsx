@@ -32,7 +32,11 @@ export function StationAutocompleteInput({
   const showDropdown = isFocused && !selectedStation && results.length > 0;
 
   return (
-    <View style={styles.container}>
+    // While the dropdown is open this input must stack above the sibling input
+    // below it, or the "To" field paints over the "From" field's results.
+    // Bumping both zIndex (iOS) and elevation (Android) does that; the
+    // container has no background so the elevation casts no visible shadow.
+    <View style={[styles.container, showDropdown && styles.containerActive]}>
       <Text style={styles.label}>{label}</Text>
 
       {selectedStation ? (
@@ -91,6 +95,10 @@ const styles = StyleSheet.create({
   container: {
     position: 'relative',
     zIndex: 1,
+  },
+  containerActive: {
+    zIndex: 20,
+    elevation: 20,
   },
   label: {
     ...shared.sectionLabel,
