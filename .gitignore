@@ -30,6 +30,16 @@ yarn-error.*
 .DS_Store
 *.pem
 
+# Windows
+Thumbs.db
+
+# Editors
+.vscode/
+
+# Claude Code local runtime state (settings.json itself is shared/tracked)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
 # local env files
 .env
 .env*.local
@@ -43,3 +53,4 @@ yarn-error.*
 
 # Supabase CLI local state
 /supabase/.temp
+todo.md
