@@ -21,6 +21,7 @@ import {
   Linking,
   Pressable,
   StyleSheet,
+  Text,
   View,
 } from 'react-native';
 import tracksGeoJSON from '../../assets/data/tracks.json';
@@ -51,6 +52,7 @@ export default function MapScreen() {
 
   const { isConfigured, session } = useAuth();
   const isBroadcasting = useLocationStore((state) => state.isBroadcasting);
+  const connectionState = useLocationStore((state) => state.connectionState);
 
   // Drives a smooth color crossfade on the button fill instead of an instant
   // snap when broadcasting toggles on/off.
@@ -322,6 +324,17 @@ export default function MapScreen() {
         <UserLocationPin position={currentPosition} />
       </MapLibreMap>
 
+      {/* Without this, a dropped realtime connection is indistinguishable
+          from "nobody is sharing right now" -- the map just quietly empties. */}
+      {isConfigured && session && connectionState === 'error' && (
+        <View style={styles.connectionBanner} pointerEvents="none">
+          <Ionicons name="cloud-offline-outline" size={14} color={colors.onSurfaceVariant} />
+          <Text style={styles.connectionBannerText}>
+            Live connection lost — friend locations may be out of date
+          </Text>
+        </View>
+      )}
+
       {isConfigured && session && <FriendFocusStack onSelectFriend={handleFocusFriend} />}
 
       {isConfigured && session && (
@@ -462,6 +475,27 @@ function createStyles(colors: ColorTokens) {
       shadowRadius: 6,
       shadowOffset: { width: 0, height: 2 },
       elevation: 4,
+    },
+    connectionBanner: {
+      position: 'absolute',
+      top: 12,
+      left: 16,
+      right: 16,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 8,
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: colors.border,
+      zIndex: 3,
+    },
+    connectionBannerText: {
+      flex: 1,
+      fontSize: 12,
+      color: colors.onSurfaceVariant,
     },
     broadcastButton: {
       bottom: 84,
