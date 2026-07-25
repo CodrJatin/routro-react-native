@@ -51,6 +51,11 @@ export interface LocationManagerHandlers {
   onConnectionChange(state: ConnectionState): void;
 }
 
+/** Why a broadcast toggle didn't take effect, so the UI can say so instead
+ * of just failing to light up. `ok` is also true for benign no-ops (the call
+ * was superseded, or the app backgrounded mid-flight). */
+export type BroadcastResult = { ok: true } | { ok: false; reason: string };
+
 const noopHandlers: LocationManagerHandlers = {
   onBroadcastingChange() {},
   onFriendLocation() {},
@@ -74,12 +79,10 @@ class LocationChannelManager {
   private handlers: LocationManagerHandlers = noopHandlers;
   private ownUserId: string | null = null;
   private ownChannel: RealtimeChannel | null = null;
-  /** Settles once, the first time the current `ownChannel` either reaches
-   * SUBSCRIBED (true) or definitively fails to (false). Exists so
-   * `setBroadcasting(true)` can wait for an actual join before it starts
-   * sending -- otherwise realtime-js silently falls back to one REST POST
-   * per message while the channel can't push yet. */
-  private ownChannelReady: Promise<boolean> | null = null;
+  /** Message from the last CHANNEL_ERROR, so a refused broadcast can tell
+   * the user *why* rather than just failing to turn green. Cleared on a
+   * successful join. */
+  private lastChannelError: string | null = null;
   private friendChannels = new Map<string, RealtimeChannel>();
   private locationSubscription: Location.LocationSubscription | null = null;
   private isBroadcasting = false;
@@ -112,13 +115,7 @@ class LocationChannelManager {
     });
     this.handlers.onConnectionChange('connecting');
 
-    let settleReady: ((ok: boolean) => void) | null = null;
-    const ready = new Promise<boolean>((resolve) => {
-      settleReady = resolve;
-    });
-    this.ownChannelReady = ready;
-
-    channel.subscribe(async (status) => {
+    channel.subscribe(async (status, error) => {
       if (myGeneration !== this.generation) return; // superseded
 
       if (status === 'SUBSCRIBED') {
@@ -126,21 +123,30 @@ class LocationChannelManager {
         // this callback also fires on every reconnect, and a network blip
         // must not silently downgrade an active broadcaster to 'online'.
         await channel.track({ status: this.isBroadcasting ? 'broadcasting' : 'online' satisfies PresenceStatus });
+        this.lastChannelError = null;
         this.handlers.onConnectionChange('connected');
-        settleReady?.(true);
-        settleReady = null;
         return;
       }
 
-      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-        // A denied/failed/dropped join means nothing is transmitting --
-        // stop the watcher so `isBroadcasting` (now false) matches reality
-        // instead of a ghost watcher silently resuming sends on reconnect.
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        // A denied or failed join means nothing is transmitting -- stop the
+        // watcher so `isBroadcasting` (now false) matches reality instead of
+        // a ghost watcher silently resuming sends on reconnect.
         this.stopLocationWatcher();
         this.setIsBroadcasting(false);
+        this.lastChannelError = error?.message ?? status;
         this.handlers.onConnectionChange('error');
-        settleReady?.(false);
-        settleReady = null;
+        return;
+      }
+
+      if (status === 'CLOSED') {
+        // NOT an error: CLOSED is a normal lifecycle event (socket drop,
+        // rejoin, leave) and realtime-js reconnects on its own. Treating it
+        // as fatal is what previously left the connection banner stuck on
+        // and every later broadcast attempt refused.
+        this.stopLocationWatcher();
+        this.setIsBroadcasting(false);
+        this.handlers.onConnectionChange('connecting');
       }
     });
 
@@ -174,7 +180,7 @@ class LocationChannelManager {
       this.setIsBroadcasting(false);
       const channel = this.ownChannel;
       this.ownChannel = null;
-      this.ownChannelReady = null;
+      this.lastChannelError = null;
       this.ownUserId = null;
       if (channel) {
         await channel.untrack();
@@ -189,60 +195,89 @@ class LocationChannelManager {
     return next;
   }
 
-  async setBroadcasting(enabled: boolean): Promise<void> {
+  /** Resolves true once the own channel is actually joined, false if it
+   * hasn't got there within `timeoutMs`.
+   *
+   * Deliberately polls the channel's *current* state on every call rather
+   * than awaiting a promise settled once at join time: a one-shot promise
+   * latched a transient failure forever, so after a single early
+   * disconnect every later broadcast attempt was refused even once the
+   * channel had long since recovered. */
+  private waitForOwnChannelJoined(timeoutMs = 6000): Promise<boolean> {
+    const channel = this.ownChannel;
+    if (!channel) return Promise.resolve(false);
+    if (channel.state === 'joined') return Promise.resolve(true);
+
+    return new Promise((resolve) => {
+      const startedAt = Date.now();
+      const poll = () => {
+        // Channel was replaced (sign-out, rejoin) -- this wait is moot.
+        if (this.ownChannel !== channel) return resolve(false);
+        if (channel.state === 'joined') return resolve(true);
+        if (Date.now() - startedAt >= timeoutMs) return resolve(false);
+        setTimeout(poll, 150);
+      };
+      setTimeout(poll, 150);
+    });
+  }
+
+  async setBroadcasting(enabled: boolean): Promise<BroadcastResult> {
     const myBroadcastGeneration = ++this.broadcastGeneration;
 
     if (!this.ownChannel) {
       this.setIsBroadcasting(false);
-      return;
+      return { ok: false, reason: "You're not connected to the location service yet." };
     }
 
     if (!enabled) {
       this.stopLocationWatcher();
       await this.ownChannel.track({ status: 'online' satisfies PresenceStatus });
-      if (myBroadcastGeneration !== this.broadcastGeneration) return; // superseded
+      if (myBroadcastGeneration !== this.broadcastGeneration) return { ok: true };
       this.setIsBroadcasting(false);
-      return;
+      return { ok: true };
     }
 
     // Already broadcasting with a live watcher -- nothing to do, and
     // re-requesting permission/re-tracking would be redundant.
-    if (this.isBroadcasting && this.locationSubscription) return;
+    if (this.isBroadcasting && this.locationSubscription) return { ok: true };
 
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (myBroadcastGeneration !== this.broadcastGeneration) return; // superseded while awaiting permission
+    if (myBroadcastGeneration !== this.broadcastGeneration) return { ok: true }; // superseded
     if (status !== 'granted') {
       this.setIsBroadcasting(false);
-      return;
+      return { ok: false, reason: 'Location permission is needed to share your location.' };
     }
     // Presenting the permission alert can itself background the app; don't
     // start transmitting from the background just because the prompt
     // resolved after the fact.
     if (AppState.currentState !== 'active') {
       this.setIsBroadcasting(false);
-      return;
+      return { ok: true }; // backgrounded, not a failure worth alerting about
     }
 
     // Wait for the channel to have actually joined before installing the
     // watcher -- sending while still joining/reconnecting makes realtime-js
     // silently fall back to one REST POST per message.
-    if (this.ownChannelReady) {
-      const ready = await this.ownChannelReady;
-      if (myBroadcastGeneration !== this.broadcastGeneration) return; // superseded
-      if (!ready || !this.ownChannel) {
-        this.setIsBroadcasting(false);
-        return;
-      }
+    const joined = await this.waitForOwnChannelJoined();
+    if (myBroadcastGeneration !== this.broadcastGeneration) return { ok: true }; // superseded
+    if (!joined || !this.ownChannel) {
+      this.setIsBroadcasting(false);
+      return {
+        ok: false,
+        reason: this.lastChannelError
+          ? `Couldn't connect to the location service: ${this.lastChannelError}`
+          : "Couldn't reach the location service. Check your connection and try again.",
+      };
     }
     // Re-check once more: the ready-wait above can itself span a
     // backgrounding event that the earlier check missed.
     if (AppState.currentState !== 'active') {
       this.setIsBroadcasting(false);
-      return;
+      return { ok: true };
     }
 
     await this.ownChannel.track({ status: 'broadcasting' satisfies PresenceStatus });
-    if (myBroadcastGeneration !== this.broadcastGeneration) return; // superseded, don't install a watcher
+    if (myBroadcastGeneration !== this.broadcastGeneration) return { ok: true }; // superseded
 
     // Belt-and-suspenders: guarantee any previous watcher is gone before
     // assigning a new one, however it might have gotten there.
@@ -275,11 +310,12 @@ class LocationChannelManager {
       // Superseded while awaiting watchPositionAsync -- remove what was just
       // created instead of leaking a watcher with no handle left to stop it.
       subscription.remove();
-      return;
+      return { ok: true };
     }
 
     this.locationSubscription = subscription;
     this.setIsBroadcasting(true);
+    return { ok: true };
   }
 
   private setIsBroadcasting(enabled: boolean): void {

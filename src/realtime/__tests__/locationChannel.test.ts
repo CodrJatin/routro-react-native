@@ -245,6 +245,65 @@ describe('locationChannelManager', () => {
     expect(watchers.every((w) => w.removed)).toBe(true);
   });
 
+  it('can still start broadcasting after a transient close', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    const channel = ownChannel();
+
+    // A close before the user ever taps -- socket blip on startup, say.
+    await channel.emit('CLOSED');
+    channel.state = 'closed';
+
+    // Fake timers so the join-wait's poll doesn't burn real seconds.
+    vi.useFakeTimers();
+    const refusedPromise = locationChannelManager.setBroadcasting(true);
+    await vi.advanceTimersByTimeAsync(7000);
+    const refused = await refusedPromise;
+    vi.useRealTimers();
+    expect(refused.ok).toBe(false);
+
+    // The channel recovers on its own, as realtime-js does.
+    await channel.emit('SUBSCRIBED');
+
+    // This must now succeed. Latching the first failure is what previously
+    // left the button dead for the rest of the session.
+    const accepted = await locationChannelManager.setBroadcasting(true);
+    expect(accepted.ok).toBe(true);
+    expect(watchers.filter((w) => !w.removed)).toHaveLength(1);
+  });
+
+  it('reports a reason when it cannot reach the channel', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    const channel = ownChannel();
+    await channel.emit('CHANNEL_ERROR');
+
+    vi.useFakeTimers();
+    const pending = locationChannelManager.setBroadcasting(true);
+    await vi.advanceTimersByTimeAsync(7000);
+    const result = await pending;
+    vi.useRealTimers();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain('CHANNEL_ERROR');
+  });
+
+  it('treats CLOSED as reconnecting rather than a hard error', async () => {
+    const states: string[] = [];
+    locationChannelManager.setHandlers({
+      onBroadcastingChange() {},
+      onFriendLocation() {},
+      onFriendPresence() {},
+      onFriendRemoved() {},
+      onConnectionChange: (state) => states.push(state),
+    });
+
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('CLOSED');
+
+    // Showing "connection lost" for a routine socket cycle is what put the
+    // banner on screen and left it there.
+    expect(states.at(-1)).toBe('connecting');
+  });
+
   it('rejects malformed friend payloads before they reach the store', async () => {
     const received: unknown[] = [];
     locationChannelManager.setHandlers({

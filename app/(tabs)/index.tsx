@@ -212,7 +212,12 @@ export default function MapScreen() {
     if (isPendingBroadcast) return;
     setIsPendingBroadcast(true);
     try {
-      await locationChannelManager.setBroadcasting(!isBroadcasting);
+      const result = await locationChannelManager.setBroadcasting(!isBroadcasting);
+      // A button that spins and then just doesn't light up tells the user
+      // nothing -- say why it couldn't start.
+      if (!result.ok) {
+        Alert.alert("Couldn't start sharing", result.reason);
+      }
     } finally {
       setIsPendingBroadcast(false);
     }
