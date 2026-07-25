@@ -23,7 +23,13 @@ export function RouteSummaryCard({
   const { colors, radius, typography } = useTheme();
   const styles = useMemo(() => createStyles(colors, radius.none, typography), [colors, radius, typography]);
   const minutes = Math.max(1, Math.round(route.totalTimeSeconds / 60));
+  // Swatch colours come from the legs (one per boarding after the first);
+  // the count itself comes from the engine, which is authoritative.
   const interchangeColors = route.legs.slice(1).map((leg) => lines[leg.line]?.color ?? colors.accent);
+  const distanceLabel =
+    route.distanceMeters < 1000
+      ? `${Math.round(route.distanceMeters)} m`
+      : `${(route.distanceMeters / 1000).toFixed(1)} km`;
 
   return (
     <View style={styles.card}>
@@ -31,7 +37,7 @@ export function RouteSummaryCard({
         <Metric value={`${minutes}`} unit="MIN" label="Time" styles={styles} />
         <Metric value={`₹${route.fareRupees}`} label="Fare" styles={styles} />
         <View style={styles.interchangeGroup}>
-          <Text style={styles.metricLabel}>Interchanges ({interchangeColors.length})</Text>
+          <Text style={styles.metricLabel}>Interchanges ({route.interchanges})</Text>
           <View style={styles.swatchRow}>
             {interchangeColors.length === 0 ? (
               <Text style={styles.directText}>Direct</Text>
@@ -43,6 +49,14 @@ export function RouteSummaryCard({
           </View>
         </View>
       </View>
+
+      {/* Distance and station count were computed by the engine and never
+          shown. A quiet secondary line rather than a fourth headline metric:
+          four 30px display values don't fit a phone width without cramping. */}
+      <Text style={styles.metaLine}>
+        {distanceLabel} · {route.stationsPassed} stations
+      </Text>
+
       <View style={styles.actionRow}>
         <Pressable
           style={({ pressed }) => [styles.goToMapButton, pressed && styles.pressed]}
@@ -122,6 +136,13 @@ function createStyles(colors: ColorTokens, radiusNone: number, typography: Recor
     metricUnit: {
       ...typography.dataSm,
       color: colors.textSecondary,
+    },
+    metaLine: {
+      ...typography.dataSm,
+      color: colors.textSecondary,
+      // Pulls up against the metrics row so it reads as their footnote
+      // rather than as a third, equally-weighted block.
+      marginTop: -8,
     },
     interchangeGroup: {
       alignItems: 'flex-end',

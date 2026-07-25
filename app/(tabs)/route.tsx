@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -44,8 +44,16 @@ export default function RouteScreen() {
   const route = mode === 'fastest' ? fastestRoute : minInterchangeRoute;
 
   // Captured once per computed route so the itinerary's clock times read as
-  // "if you left now" rather than drifting on every re-render.
-  const startMs = useMemo(() => Date.now(), [route]);
+  // "if you left now" rather than drifting on every re-render -- and
+  // re-captured on focus, so a screen left open for an hour doesn't keep
+  // showing departure times from an hour ago.
+  const [startMs, setStartMs] = useState(() => Date.now());
+  useEffect(() => setStartMs(Date.now()), [route]);
+  useFocusEffect(
+    useCallback(() => {
+      setStartMs(Date.now());
+    }, []),
+  );
 
   const lines = useMemo(() => getCompiledGraph().lines, []);
 
@@ -66,7 +74,9 @@ export default function RouteScreen() {
 
   function handleGoToMap() {
     if (!origin || !destination) return;
-    router.push({
+    // navigate, not push: pushing a tab route stacks a second instance of
+    // the map instead of switching to the existing one.
+    router.navigate({
       pathname: '/(tabs)',
       params: { originId: origin.id, destinationId: destination.id, mode },
     });
@@ -173,7 +183,7 @@ export default function RouteScreen() {
                 <Ionicons name="navigate-outline" size={28} color={colors.textSecondary} />
                 <Text style={styles.emptyTitle}>Plan your journey</Text>
                 <Text style={styles.emptyNote}>
-                  Choose a origin and destination station above to see route options.
+                  Choose an origin and destination station above to see route options.
                 </Text>
               </Animated.View>
             )}
