@@ -221,12 +221,21 @@ class LocationChannelManager {
     });
   }
 
+  /** Every path that ends without broadcasting reports itself, with a short
+   * code in the log and a plain-English reason for the user. A toggle that
+   * spins and then silently does nothing is impossible to diagnose from
+   * either side of the screen. */
+  private refuse(code: string, reason: string): BroadcastResult {
+    console.warn(`[broadcast] refused (${code})`);
+    this.setIsBroadcasting(false);
+    return { ok: false, reason };
+  }
+
   async setBroadcasting(enabled: boolean): Promise<BroadcastResult> {
     const myBroadcastGeneration = ++this.broadcastGeneration;
 
     if (!this.ownChannel) {
-      this.setIsBroadcasting(false);
-      return { ok: false, reason: "You're not connected to the location service yet." };
+      return this.refuse('no-channel', "You're not connected to the location service yet.");
     }
 
     if (!enabled) {
@@ -241,39 +250,50 @@ class LocationChannelManager {
     // re-requesting permission/re-tracking would be redundant.
     if (this.isBroadcasting && this.locationSubscription) return { ok: true };
 
+    console.warn(
+      `[broadcast] starting appState=${String(AppState.currentState)} channelState=${this.ownChannel.state}`,
+    );
+
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (myBroadcastGeneration !== this.broadcastGeneration) return { ok: true }; // superseded
+    if (myBroadcastGeneration !== this.broadcastGeneration) {
+      return this.refuse('superseded-permission', 'Sharing was interrupted. Try again.');
+    }
     if (status !== 'granted') {
-      this.setIsBroadcasting(false);
-      return { ok: false, reason: 'Location permission is needed to share your location.' };
+      return this.refuse(
+        'permission-denied',
+        'Location permission is needed to share your location.',
+      );
     }
     // Presenting the permission alert can itself background the app; don't
     // start transmitting from the background just because the prompt
     // resolved after the fact.
     if (AppState.currentState !== 'active') {
-      this.setIsBroadcasting(false);
-      return { ok: true }; // backgrounded, not a failure worth alerting about
+      return this.refuse(
+        `not-active:${String(AppState.currentState)}`,
+        'The app left the foreground before sharing could start. Try again.',
+      );
     }
 
     // Wait for the channel to have actually joined before installing the
     // watcher -- sending while still joining/reconnecting makes realtime-js
     // silently fall back to one REST POST per message.
     const joined = await this.waitForOwnChannelJoined();
-    if (myBroadcastGeneration !== this.broadcastGeneration) return { ok: true }; // superseded
+    if (myBroadcastGeneration !== this.broadcastGeneration) {
+      return this.refuse('superseded-join', 'Sharing was interrupted. Try again.');
+    }
     if (!joined || !this.ownChannel) {
-      this.setIsBroadcasting(false);
-      return {
-        ok: false,
-        reason: this.lastChannelError
+      return this.refuse(
+        'not-joined',
+        this.lastChannelError
           ? `Couldn't connect to the location service: ${this.lastChannelError}`
           : "Couldn't reach the location service. Check your connection and try again.",
-      };
+      );
     }
-    // Re-check once more: the ready-wait above can itself span a
-    // backgrounding event that the earlier check missed.
     if (AppState.currentState !== 'active') {
-      this.setIsBroadcasting(false);
-      return { ok: true };
+      return this.refuse(
+        `not-active-late:${String(AppState.currentState)}`,
+        'The app left the foreground before sharing could start. Try again.',
+      );
     }
 
     await this.ownChannel.track({ status: 'broadcasting' satisfies PresenceStatus });
@@ -310,7 +330,7 @@ class LocationChannelManager {
       // Superseded while awaiting watchPositionAsync -- remove what was just
       // created instead of leaking a watcher with no handle left to stop it.
       subscription.remove();
-      return { ok: true };
+      return this.refuse('superseded-watcher', 'Sharing was interrupted. Try again.');
     }
 
     this.locationSubscription = subscription;
