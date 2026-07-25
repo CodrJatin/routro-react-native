@@ -25,7 +25,7 @@ export function RouteSummaryCard({
   const minutes = Math.max(1, Math.round(route.totalTimeSeconds / 60));
   // Swatch colours come from the legs (one per boarding after the first);
   // the count itself comes from the engine, which is authoritative.
-  const interchangeColors = route.legs.slice(1).map((leg) => lines[leg.line]?.color ?? colors.accent);
+  const interchangeColors = route.legs.slice(1).map((leg) => lines?.[leg.line]?.color ?? colors.accent);
   const distanceLabel =
     route.distanceMeters < 1000
       ? `${Math.round(route.distanceMeters)} m`
