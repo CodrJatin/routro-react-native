@@ -43,6 +43,7 @@ export default function SettingsScreen() {
   const [avatarUrlInput, setAvatarUrlInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
 
@@ -70,6 +71,18 @@ export default function SettingsScreen() {
       setSaveError(result.error);
     } else {
       setIsEditing(false);
+    }
+  }
+
+  /** The press state only lasts as long as the finger is down, but signing out
+   * is a network round trip -- without an in-flight state the button springs
+   * back to "Sign Out" and looks like nothing happened. */
+  async function handleSignOut() {
+    setIsSigningOut(true);
+    try {
+      await signOut();
+    } finally {
+      setIsSigningOut(false);
     }
   }
 
@@ -201,9 +214,30 @@ export default function SettingsScreen() {
         </View>
 
         {isConfigured && profile && (
-          <Pressable style={styles.signOutButton} onPress={signOut}>
-            <Ionicons name="log-out-outline" size={18} color={colors.danger} />
-            <Text style={styles.signOutText}>Sign Out</Text>
+          <Pressable
+            style={({ pressed }) => [styles.signOutButton, pressed && styles.signOutButtonPressed]}
+            onPress={handleSignOut}
+            disabled={isSigningOut}
+          >
+            {/* Children as a function: the icon and label are tinted per-press
+             * too, so the outline button inverts as a whole rather than just
+             * swapping its background out from under a red label. */}
+            {({ pressed }) => (
+              <>
+                {isSigningOut ? (
+                  <ActivityIndicator color={colors.danger} size="small" />
+                ) : (
+                  <Ionicons
+                    name="log-out-outline"
+                    size={18}
+                    color={pressed ? colors.onError : colors.danger}
+                  />
+                )}
+                <Text style={[styles.signOutText, pressed && styles.signOutTextPressed]}>
+                  {isSigningOut ? 'Signing Out' : 'Sign Out'}
+                </Text>
+              </>
+            )}
           </Pressable>
         )}
       </ScrollView>
@@ -377,10 +411,18 @@ function createStyles(colors: ColorTokens, radiusNone: number, shared: ReturnTyp
       borderRadius: radiusNone,
       paddingVertical: 12,
     },
+    // Pressing fills the outline in: the same shape language as the rest of
+    // the app, and a destructive action deserves a press state you can't miss.
+    signOutButtonPressed: {
+      backgroundColor: colors.danger,
+    },
     signOutText: {
       color: colors.danger,
       fontSize: 14,
       fontWeight: '700',
+    },
+    signOutTextPressed: {
+      color: colors.onError,
     },
   });
 }
