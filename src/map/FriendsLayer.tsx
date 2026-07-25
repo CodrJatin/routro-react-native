@@ -1,63 +1,148 @@
-import { GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
+import { Marker } from '@maplibre/maplibre-react-native';
 import { useEffect, useMemo, useState } from 'react';
-import { useLocationStore, type FriendLocation } from '../realtime/locationStore';
+import { Image, StyleSheet, Text, View } from 'react-native';
+import type { Profile } from '../auth/AuthProvider';
+import { useAuth } from '../auth/AuthProvider';
+import { friendColorFor } from '../friends/friendColor';
+import { useFriendshipsContext } from '../friends/FriendshipsProvider';
+import { otherParty } from '../friends/useFriendships';
+import { useFriendStatuses, useLocationStore } from '../realtime/locationStore';
 import { useTheme } from '../theme/ThemeProvider';
+import { useInterpolatedPositions } from './useInterpolatedPositions';
 
-const STALE_AFTER_MS = 30_000;
-const STALE_CHECK_INTERVAL_MS = 10_000;
+const PIN_SIZE = 34;
 
-interface FriendPointProperties {
-  userId: string;
-  isStale: boolean;
+/** Same derivation as the focus stack's thumbnails, so a friend's fallback
+ * initials are identical wherever they appear. */
+function initialsOf(profile: Profile): string {
+  const source = profile.display_name?.trim() || profile.email;
+  const parts = source.split(/[\s@._-]+/).filter(Boolean);
+  const letters = (parts[0]?.[0] ?? '') + (parts.length > 1 ? (parts[1]?.[0] ?? '') : '');
+  return letters.toUpperCase() || '?';
 }
 
-function buildGeoJSON(
-  friendLocations: Record<string, FriendLocation>,
-  now: number,
-): GeoJSON.FeatureCollection<GeoJSON.Point, FriendPointProperties> {
-  return {
-    type: 'FeatureCollection',
-    features: Object.values(friendLocations).map((loc) => ({
-      type: 'Feature',
-      properties: { userId: loc.userId, isStale: now - loc.ts > STALE_AFTER_MS },
-      geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] },
-    })),
-  };
-}
-
-/** Renders live friend positions as a single GeoJSON source driven by the
- * Zustand location store, subscribed via a selector so a location tick only
- * re-renders this leaf component -- not the map canvas, tracks, or stations
- * layers above it. Markers jump discretely between broadcast intervals
- * rather than gliding: smooth interpolation would mean per-friend Reanimated
- * views, which reintroduces the RN-view-marker cost this design avoids. */
+/**
+ * Live friend positions, drawn as avatar pins ringed in that friend's own
+ * colour (see friendColor.ts) so two people broadcasting at once can be told
+ * apart -- previously every friend was the same anonymous green dot.
+ *
+ * These are `Marker`s (real RN views) rather than a GeoJSON circle layer.
+ * That trades some per-marker cost for the ability to show an actual avatar
+ * with a coloured ring, which a circle layer cannot do. The trade is only
+ * sound because the marker count is bounded by a person's accepted-friends
+ * list, and only friends actively broadcasting are drawn at all.
+ *
+ * Staleness and removal come from the shared `useFriendStatuses` selector in
+ * locationStore.ts, so this and the Friends tab can never disagree about who
+ * is live.
+ */
 export function FriendsLayer() {
   const { colors } = useTheme();
+  const { session } = useAuth();
+  const selfUserId = session?.user.id;
+  const { rows } = useFriendshipsContext();
   const friendLocations = useLocationStore((state) => state.friendLocations);
-  const hasFriendLocations = Object.keys(friendLocations).length > 0;
-  const [now, setNow] = useState(() => Date.now());
+  const statuses = useFriendStatuses();
 
-  useEffect(() => {
-    if (!hasFriendLocations) return;
-    const interval = setInterval(() => setNow(Date.now()), STALE_CHECK_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [hasFriendLocations]);
+  const profilesByUserId = useMemo(() => {
+    const map = new Map<string, Profile>();
+    if (!selfUserId) return map;
+    for (const row of rows) {
+      if (row.status !== 'accepted') continue;
+      const friend = otherParty(row, selfUserId);
+      map.set(friend.id, friend);
+    }
+    return map;
+  }, [rows, selfUserId]);
 
-  const geojson = useMemo(() => buildGeoJSON(friendLocations, now), [friendLocations, now]);
+  const pins = useMemo(
+    () =>
+      Object.values(friendLocations)
+        // 'offline' covers both "presence says they stopped" and "past the
+        // hard TTL" -- either way the pin goes, rather than lingering dimmed
+        // at a last known position forever.
+        .filter((loc) => statuses[loc.userId] !== 'offline' && profilesByUserId.has(loc.userId))
+        .map((loc) => ({
+          location: loc,
+          profile: profilesByUserId.get(loc.userId)!,
+          isStale: statuses[loc.userId] === 'stale',
+        })),
+    [friendLocations, statuses, profilesByUserId],
+  );
+
+  const positions = useInterpolatedPositions(pins.map((pin) => pin.location));
 
   return (
-    <GeoJSONSource id="friends" data={geojson}>
-      <Layer
-        id="friends-circle"
-        type="circle"
-        paint={{
-          'circle-radius': 10,
-          'circle-color': colors.success,
-          'circle-opacity': ['case', ['get', 'isStale'], 0.35, 1],
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#FFFFFF',
-        }}
-      />
-    </GeoJSONSource>
+    <>
+      {pins.map(({ location, profile, isStale }) => (
+        <Marker
+          key={location.userId}
+          id={`friend-${location.userId}`}
+          lngLat={positions[location.userId] ?? [location.lon, location.lat]}
+        >
+          <View
+            style={[
+              styles.pin,
+              {
+                borderColor: friendColorFor(location.userId),
+                backgroundColor: colors.surface,
+              },
+              // Faded rather than removed: a friend whose last fix is going
+              // cold still reads as "was here a moment ago" until the hard
+              // TTL drops them entirely.
+              isStale && styles.stale,
+            ]}
+          >
+            <FriendPinAvatar profile={profile} textColor={colors.textPrimary} />
+          </View>
+        </Marker>
+      ))}
+    </>
   );
 }
+
+/** Avatar image when there is one, initials when there isn't -- or when it
+ * fails to load, so a broken avatar_url never leaves a blank pin. */
+function FriendPinAvatar({ profile, textColor }: { profile: Profile; textColor: string }) {
+  const [hasError, setHasError] = useState(false);
+  useEffect(() => setHasError(false), [profile.avatar_url]);
+
+  if (profile.avatar_url && !hasError) {
+    return (
+      <Image
+        source={{ uri: profile.avatar_url }}
+        style={styles.avatar}
+        onError={() => setHasError(true)}
+      />
+    );
+  }
+  return <Text style={[styles.initials, { color: textColor }]}>{initialsOf(profile)}</Text>;
+}
+
+const styles = StyleSheet.create({
+  pin: {
+    width: PIN_SIZE,
+    height: PIN_SIZE,
+    borderRadius: PIN_SIZE / 2,
+    borderWidth: 3,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  stale: {
+    opacity: 0.45,
+  },
+  avatar: {
+    width: '100%',
+    height: '100%',
+  },
+  initials: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+});

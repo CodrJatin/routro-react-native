@@ -42,7 +42,7 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     Outfit_400Regular,
     Outfit_600SemiBold,
     Outfit_700Bold,
@@ -50,7 +50,13 @@ export default function RootLayout() {
     SpaceMono_700Bold,
   });
 
-  if (!fontsLoaded) {
+  if (fontError) {
+    // Fall through and render with system fonts rather than staying blank
+    // forever -- a failed download/parse shouldn't brick the whole app.
+    console.error('Failed to load custom fonts, falling back to system fonts:', fontError);
+  }
+
+  if (!fontsLoaded && !fontError) {
     return null;
   }
 

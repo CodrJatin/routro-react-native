@@ -1,4 +1,4 @@
-import { GeoJSONSource, Layer, useCurrentPosition } from '@maplibre/maplibre-react-native';
+import { GeoJSONSource, Layer, type GeolocationPosition } from '@maplibre/maplibre-react-native';
 import { useMemo } from 'react';
 import { useTheme } from '../theme/ThemeProvider';
 
@@ -8,11 +8,16 @@ import { useTheme } from '../theme/ThemeProvider';
  * GeoJSONSource, so a custom child only shows if it is itself a GL layer --
  * handing it a plain React Native view (an animated pulsing dot) renders
  * nothing, which is why the pin was invisible. Driving our own CircleLayers
- * off useCurrentPosition() guarantees the pin is always visible whenever a
- * location fix is available, the same mechanism the friend pins use. */
-export function UserLocationPin() {
+ * off a position fix guarantees the pin is always visible whenever one is
+ * available, the same mechanism the friend pins use.
+ *
+ * The fix arrives as a prop rather than from this component's own
+ * useCurrentPosition() call: that hook starts a *native* GPS watcher, and
+ * calling it here as well as on the map screen registered two of them. The
+ * map screen owns the single call and passes the result down. */
+export function UserLocationPin({ position }: { position: GeolocationPosition | undefined }) {
   const { colors } = useTheme();
-  const currentPosition = useCurrentPosition();
+  const currentPosition = position;
 
   const geojson = useMemo<GeoJSON.FeatureCollection<GeoJSON.Point> | null>(() => {
     if (!currentPosition?.coords) return null;

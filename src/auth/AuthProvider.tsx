@@ -29,8 +29,6 @@ interface AuthContextValue {
   isLoading: boolean;
   session: Session | null;
   profile: Profile | null;
-  signInWithEmail: (email: string, password: string) => Promise<AuthResult>;
-  signUpWithEmail: (email: string, password: string) => Promise<AuthResult>;
   signInWithGoogle: () => Promise<AuthResult>;
   signOut: () => Promise<void>;
   updateProfile: (updates: ProfileUpdate) => Promise<AuthResult>;
@@ -65,13 +63,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
 
+    // getSession() races onAuthStateChange: an OAuth deep link can install a
+    // session before the (slower) getSession call resolves, and its stale
+    // result would then clobber the newer one. Once any auth event has
+    // arrived, that is the source of truth.
+    let hasAuthEvent = false;
+
     supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
+      if (!hasAuthEvent) setSession(data.session);
       setIsLoading(false);
     });
 
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      hasAuthEvent = true;
       setSession(nextSession);
+      setIsLoading(false);
     });
 
     return () => subscription.subscription.unsubscribe();
@@ -110,7 +116,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [session?.user]);
+    // Keyed by id, not the user object: that object is a fresh reference on
+    // every hourly token refresh, which refetched the profile for nothing.
+  }, [session?.user?.id]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -118,16 +126,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading,
       session,
       profile,
-
-      async signInWithEmail(email, password) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        return { error: error?.message ?? null };
-      },
-
-      async signUpWithEmail(email, password) {
-        const { error } = await supabase.auth.signUp({ email, password });
-        return { error: error?.message ?? null };
-      },
 
       async signInWithGoogle() {
         const redirectTo = Linking.createURL('auth/callback');

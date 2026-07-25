@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -11,6 +11,8 @@ import {
   Text,
   View,
 } from 'react-native';
+import * as Location from 'expo-location';
+import { useFocusEffect, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, type Profile } from '../../src/auth/AuthProvider';
@@ -19,15 +21,16 @@ import { PlaceholderScreen } from '../../src/components/PlaceholderScreen';
 import { getCompiledGraph } from '../../src/engine/graph';
 import type { RawLines } from '../../src/engine/types';
 import { useFriendshipsContext } from '../../src/friends/FriendshipsProvider';
+import { inferCurrentLine } from '../../src/friends/currentLine';
+import { estimateFriendEta } from '../../src/friends/friendEta';
 import { findNearestStation, type NearestStation } from '../../src/friends/nearestStation';
 import { otherParty } from '../../src/friends/useFriendships';
-import { useLocationStore, type FriendLocation, type PresenceStatus } from '../../src/realtime/locationStore';
+import { useFriendStatuses, useLocationStore, type FriendLocation, type FriendStatus } from '../../src/realtime/locationStore';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import { useSharedStyles } from '../../src/theme/sharedStyles';
 import type { ColorTokens, TypeStyle } from '../../src/theme/tokens';
 import { AnimatedTextInput, useFocusAnimation } from '../../src/theme/useFocusAnimation';
 
-const STALE_CHECK_INTERVAL_MS = 10_000;
 /** Beyond this, the nearest station is no longer a meaningful "current line"
  * -- e.g. a friend who isn't near the metro at all. Roughly the outer edge
  * of typical inter-station spacing, so it doesn't hide legitimate matches. */
@@ -60,45 +63,73 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
     [colors, radius, typography, shared],
   );
   const lines = useMemo(() => getCompiledGraph().lines, []);
-  const { rows, isLoading, refetch, sendRequest, acceptRequest, removeFriendship } =
-    useFriendshipsContext();
+  const {
+    rows,
+    isRefreshing,
+    error: listError,
+    refetch,
+    sendRequest,
+    acceptRequest,
+    removeFriendship,
+  } = useFriendshipsContext();
   const [handle, setHandle] = useState('');
   const [sendError, setSendError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const handleFocus = useFocusAnimation();
+  const router = useRouter();
 
-  // Only used to keep the "updated Xs ago" text ticking -- membership in
-  // Active vs. Inactive is driven by presence below, not by this clock.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), STALE_CHECK_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, []);
+  // The user's own position, for the "how far is this friend from me"
+  // estimate. Deliberately a last-known read on focus rather than a live
+  // watcher: this screen doesn't need tracking, and starting a second GPS
+  // subscription here is exactly what the map screen was fixed to avoid.
+  const [selfPosition, setSelfPosition] = useState<{ lat: number; lon: number } | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      Location.getLastKnownPositionAsync()
+        .then((position) => {
+          if (!cancelled && position) {
+            setSelfPosition({ lat: position.coords.latitude, lon: position.coords.longitude });
+          }
+        })
+        .catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
+
+  // Read fresh on every render rather than ticked via a local setInterval --
+  // useFriendStatuses() below already re-renders this component on the one
+  // shared clock tick, so this stays reasonably fresh for the "updated Xs
+  // ago" text without a second, duplicated timer.
+  const now = Date.now();
 
   const friendLocations = useLocationStore((state) => state.friendLocations);
-  const friendPresence = useLocationStore((state) => state.friendPresence);
+  const statuses = useFriendStatuses();
 
   const accepted = rows.filter((r) => r.status === 'accepted');
   const incoming = rows.filter((r) => r.status === 'pending' && r.addressee_id === selfUserId);
   const outgoing = rows.filter((r) => r.status === 'pending' && r.requester_id === selfUserId);
 
-  // "Active" tracks the friend's live presence broadcast (flips the instant
-  // they toggle broadcasting off/on), not a staleness guess off the last
-  // location timestamp -- that's what previously left friends stuck in
-  // Active after they stopped sharing. Presence flips to 'broadcasting'
-  // before the first GPS fix arrives, so location can briefly be null right
-  // after a friend turns broadcasting on -- that's still Active, just shown
-  // as "waiting for location" rather than requiring a coordinate to exist.
+  // Active/Inactive comes from the single shared status selector (see
+  // locationStore.ts) rather than raw presence or a local staleness guess --
+  // this is what keeps the map and this list from ever disagreeing about the
+  // same friend again. 'live'/'stale' both count as Active (presence flips
+  // to 'broadcasting' before the first GPS fix arrives, so location can
+  // briefly be null right after a friend turns broadcasting on -- that's
+  // still Active, just shown as "waiting for location").
   const active: { profile: Profile; location: FriendLocation | null }[] = [];
-  const inactive: { profile: Profile; location: FriendLocation | null }[] = [];
+  const inactive: { profile: Profile; location: FriendLocation | null; status: FriendStatus }[] = [];
   for (const row of accepted) {
     const profile = otherParty(row, selfUserId);
     const location = friendLocations[profile.id] ?? null;
-    const isBroadcasting = friendPresence[profile.id] === 'broadcasting';
-    if (isBroadcasting) {
+    const status = statuses[profile.id] ?? 'offline';
+    if (status === 'live' || status === 'stale') {
       active.push({ profile, location });
     } else {
-      inactive.push({ profile, location });
+      inactive.push({ profile, location, status });
     }
   }
 
@@ -117,16 +148,34 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
     }
   }
 
+  async function handleAccept(friendshipId: string) {
+    setActionError(null);
+    const result = await acceptRequest(friendshipId);
+    if (result.error) setActionError(result.error);
+  }
+
+  async function handleRemove(friendshipId: string) {
+    setActionError(null);
+    const result = await removeFriendship(friendshipId);
+    if (result.error) setActionError(result.error);
+  }
+
+  /** Hands the map a friend to focus. The map clears the param once it has
+   * flown there, so coming back to this tab later doesn't re-trigger it. */
+  function showFriendOnMap(friendUserId: string) {
+    router.navigate({ pathname: '/(tabs)', params: { focusUserId: friendUserId } });
+  }
+
   function removeFriend(profile: Profile) {
     const row = accepted.find((r) => otherParty(r, selfUserId).id === profile.id);
-    if (row) removeFriendship(row.id);
+    if (row) void handleRemove(row.id);
   }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} />}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={refetch} />}
       >
         <Text style={styles.title}>Friends</Text>
 
@@ -153,6 +202,8 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
           </Pressable>
         </View>
         {sendError && <Text style={styles.errorText}>{sendError}</Text>}
+        {actionError && <Text style={styles.errorText}>{actionError}</Text>}
+        {listError && <Text style={styles.errorText}>{listError}</Text>}
 
         {isEmpty && (
           <Animated.View
@@ -180,10 +231,10 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
                 colors={colors}
                 actions={
                   <>
-                    <Pressable style={styles.iconButtonAccept} onPress={() => acceptRequest(row.id)}>
+                    <Pressable style={styles.iconButtonAccept} onPress={() => handleAccept(row.id)}>
                       <Ionicons name="checkmark" size={16} color={colors.onSuccess} />
                     </Pressable>
-                    <Pressable style={styles.iconButtonDecline} onPress={() => removeFriendship(row.id)}>
+                    <Pressable style={styles.iconButtonDecline} onPress={() => handleRemove(row.id)}>
                       <Ionicons name="close" size={16} color={colors.textPrimary} />
                     </Pressable>
                   </>
@@ -198,7 +249,7 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
                 styles={styles}
                 colors={colors}
                 actions={
-                  <Pressable style={styles.iconButtonDecline} onPress={() => removeFriendship(row.id)}>
+                  <Pressable style={styles.iconButtonDecline} onPress={() => handleRemove(row.id)}>
                     <Ionicons name="close" size={16} color={colors.textPrimary} />
                   </Pressable>
                 }
@@ -219,6 +270,8 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
                 styles={styles}
                 colors={colors}
                 onRemove={() => removeFriend(profile)}
+                selfPosition={selfPosition}
+                onShowOnMap={() => showFriendOnMap(profile.id)}
               />
             ))}
           </Section>
@@ -226,12 +279,12 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
 
         {inactive.length > 0 && (
           <Section title={`Inactive (${inactive.length})`} styles={styles} tone="muted">
-            {inactive.map(({ profile, location }) => (
+            {inactive.map(({ profile, location, status }) => (
               <InactiveFriendRow
                 key={profile.id}
                 profile={profile}
                 location={location}
-                presence={friendPresence[profile.id] ?? 'offline'}
+                status={status}
                 now={now}
                 styles={styles}
                 colors={colors}
@@ -387,6 +440,8 @@ function ActiveFriendCard({
   styles,
   colors,
   onRemove,
+  onShowOnMap,
+  selfPosition,
 }: {
   profile: Profile;
   location: FriendLocation | null;
@@ -395,6 +450,8 @@ function ActiveFriendCard({
   styles: ReturnType<typeof createStyles>;
   colors: ColorTokens;
   onRemove: () => void;
+  onShowOnMap: () => void;
+  selfPosition: { lat: number; lon: number } | null;
 }) {
   const nearest: NearestStation | null = useMemo(
     () => (location ? findNearestStation(location.lat, location.lon) : null),
@@ -404,14 +461,41 @@ function ActiveFriendCard({
   // close -- otherwise (friend isn't near the metro at all) the closest
   // entry in the station list is meaningless and just confusing to show.
   const isNearStation = !!nearest && nearest.distanceMeters <= NEARBY_LINE_MAX_METERS;
-  const line = isNearStation ? lineFor(nearest.lines[0], lines) : null;
+
+  // Which line, inferred from the direction they're actually travelling
+  // rather than whichever line happens to sit first in the station's list --
+  // at a three-line interchange that was a coin flip.
+  const inferredLineId = useMemo(() => {
+    if (!isNearStation || !nearest || !location) return null;
+    const movement = location.previous
+      ? {
+          fromLat: location.previous.lat,
+          fromLon: location.previous.lon,
+          toLat: location.lat,
+          toLon: location.lon,
+        }
+      : null;
+    return inferCurrentLine(nearest, movement);
+  }, [isNearStation, nearest, location]);
+
+  const line = inferredLineId ? lineFor(inferredLineId, lines) : null;
   const accentColor = line?.color ?? colors.outline;
+
+  const eta = useMemo(() => {
+    if (!location || !selfPosition) return null;
+    return estimateFriendEta(
+      selfPosition.lat,
+      selfPosition.lon,
+      location.lat,
+      location.lon,
+    );
+  }, [location, selfPosition]);
 
   const subtext = !location
     ? 'Waiting for location…'
     : nearest
-      ? `${formatDistance(nearest.distanceMeters)} from ${nearest.name} · updated ${formatRelativeTime(location.ts, now)}`
-      : `Updated ${formatRelativeTime(location.ts, now)}`;
+      ? `${formatDistance(nearest.distanceMeters)} from ${nearest.name} · updated ${formatRelativeTime(location.receivedAt, now)}`
+      : `Updated ${formatRelativeTime(location.receivedAt, now)}`;
 
   return (
     <Animated.View
@@ -444,9 +528,33 @@ function ActiveFriendCard({
             </Text>
           </View>
         )}
+        {/* How far away they are in metro terms -- the question the app is
+            actually for, and more useful than a straight-line distance. */}
+        {eta && (
+          <View style={styles.etaBadge}>
+            <Ionicons name="walk" size={11} color={colors.accent} />
+            <Text style={styles.etaBadgeText} numberOfLines={1}>
+              {eta.stops === 0 ? 'SAME STATION' : `${eta.stops} STOPS · ${eta.minutes} MIN`}
+            </Text>
+          </View>
+        )}
       </View>
 
       <Text style={styles.cardSubtext}>{subtext}</Text>
+
+      {/* Only offered once we actually hold a position -- otherwise there is
+          nowhere for the map to fly to and the tap would do nothing. */}
+      {location && (
+        <Pressable
+          style={({ pressed }) => [styles.showOnMapButton, pressed && styles.showOnMapPressed]}
+          onPress={onShowOnMap}
+          accessibilityRole="button"
+          accessibilityLabel={`Show ${profile.display_name ?? profile.email} on the map`}
+        >
+          <Ionicons name="map-outline" size={13} color={colors.accent} />
+          <Text style={styles.showOnMapText}>Show on map</Text>
+        </Pressable>
+      )}
     </Animated.View>
   );
 }
@@ -454,7 +562,7 @@ function ActiveFriendCard({
 function InactiveFriendRow({
   profile,
   location,
-  presence,
+  status,
   now,
   styles,
   colors,
@@ -462,17 +570,17 @@ function InactiveFriendRow({
 }: {
   profile: Profile;
   location: FriendLocation | null;
-  presence: PresenceStatus;
+  status: FriendStatus;
   now: number;
   styles: ReturnType<typeof createStyles>;
   colors: ColorTokens;
   onRemove: () => void;
 }) {
   const subtext =
-    presence === 'online'
+    status === 'online'
       ? 'Online · not sharing location'
       : location
-        ? `Last active ${formatRelativeTime(location.ts, now)}`
+        ? `Last active ${formatRelativeTime(location.receivedAt, now)}`
         : 'Offline';
 
   return (
@@ -661,6 +769,22 @@ function createStyles(
       borderRadius: 3,
       backgroundColor: colors.success,
     },
+    showOnMapButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 5,
+      marginTop: 2,
+      paddingVertical: 4,
+    },
+    showOnMapPressed: {
+      opacity: 0.6,
+    },
+    showOnMapText: {
+      ...typography.labelCaps,
+      fontSize: 10,
+      color: colors.accent,
+    },
     liveLabel: {
       ...typography.labelCaps,
       fontSize: 10,
@@ -712,6 +836,22 @@ function createStyles(
       borderRadius: radiusBadge,
       paddingHorizontal: 7,
       paddingVertical: 3,
+    },
+    etaBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      flexShrink: 1,
+      backgroundColor: colors.surfaceContainerHigh,
+      borderRadius: radiusBadge,
+      paddingHorizontal: 7,
+      paddingVertical: 3,
+    },
+    etaBadgeText: {
+      ...typography.labelCaps,
+      fontSize: 10,
+      color: colors.accent,
+      flexShrink: 1,
     },
     lineBadgeText: {
       ...typography.labelCaps,

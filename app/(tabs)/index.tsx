@@ -5,13 +5,25 @@ import {
   type CameraRef,
   GeoJSONSource,
   Layer,
-  LocationManager,
   Map as MapLibreMap,
   useCurrentPosition,
 } from '@maplibre/maplibre-react-native';
-import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
+import * as Location from 'expo-location';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  AppState,
+  type AppStateStatus,
+  Easing,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import tracksGeoJSON from '../../assets/data/tracks.json';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { getStation } from '../../src/engine/graph';
@@ -40,6 +52,7 @@ export default function MapScreen() {
 
   const { isConfigured, session } = useAuth();
   const isBroadcasting = useLocationStore((state) => state.isBroadcasting);
+  const connectionState = useLocationStore((state) => state.connectionState);
 
   // Drives a smooth color crossfade on the button fill instead of an instant
   // snap when broadcasting toggles on/off.
@@ -57,7 +70,35 @@ export default function MapScreen() {
   });
 
   const stationsGeoJSON = useMemo(() => buildStationsGeoJSON(), []);
-  const currentPosition = useCurrentPosition();
+  const router = useRouter();
+
+  // MapLibre's useCurrentPosition() starts a *native* GPS watcher. Tabs stay
+  // mounted once visited, so an ungated call kept that watcher running on
+  // every other tab and in the background -- alongside expo-location's own
+  // watcher while broadcasting. Gate it on "map on screen, app foregrounded,
+  // permission granted" so exactly one watcher runs, only when it's useful.
+  const [isScreenFocused, setIsScreenFocused] = useState(false);
+  const [isAppActive, setIsAppActive] = useState(() => AppState.currentState === 'active');
+  const [permission, setPermission] = useState<Location.PermissionStatus | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      setIsScreenFocused(true);
+      return () => setIsScreenFocused(false);
+    }, []),
+  );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next: AppStateStatus) =>
+      setIsAppActive(next === 'active'),
+    );
+    return () => subscription.remove();
+  }, []);
+
+  const isLocationGranted = permission === Location.PermissionStatus.GRANTED;
+  const currentPosition = useCurrentPosition({
+    enabled: isScreenFocused && isAppActive && isLocationGranted,
+  });
 
   const params = useLocalSearchParams<{
     originId?: string;
@@ -70,12 +111,12 @@ export default function MapScreen() {
     return buildRoutePolylineGeoJSON(params.originId, params.destinationId, params.mode ?? 'fastest');
   }, [params.originId, params.destinationId, params.mode]);
 
-  const focusFriendLocation = useLocationStore((state) =>
-    params.focusUserId ? state.friendLocations[params.focusUserId] : undefined,
-  );
-
+  // Checked, not requested: prompting on mount asks a user who may never touch
+  // a location feature. The actual prompt happens on first use, below.
   useEffect(() => {
-    LocationManager.requestPermissions();
+    Location.getForegroundPermissionsAsync()
+      .then(({ status }) => setPermission(status))
+      .catch(() => setPermission(null));
   }, []);
 
   useEffect(() => {
@@ -90,14 +131,42 @@ export default function MapScreen() {
     });
   }, [routeGeoJSON]);
 
+  // Depends on the focusUserId *string*, never on the location object: that
+  // object is replaced on every broadcast, so depending on it re-flew the
+  // camera every few seconds and the user could never pan away. Fly once per
+  // focus request, then clear the param so returning to this tab later
+  // doesn't re-hijack the camera.
+  const focusUserId = params.focusUserId;
   useEffect(() => {
-    if (!focusFriendLocation) return;
-    cameraRef.current?.flyTo({
-      center: [focusFriendLocation.lon, focusFriendLocation.lat],
-      zoom: 15,
-      duration: 800,
-    });
-  }, [focusFriendLocation]);
+    if (!focusUserId) return;
+
+    let unsubscribe: (() => void) | undefined;
+    let done = false;
+
+    const flyToFriend = (location: { lat: number; lon: number }) => {
+      if (done) return;
+      done = true;
+      cameraRef.current?.flyTo({ center: [location.lon, location.lat], zoom: 15, duration: 800 });
+      router.setParams({ focusUserId: undefined });
+    };
+
+    const known = useLocationStore.getState().friendLocations[focusUserId];
+    if (known) {
+      flyToFriend(known);
+    } else {
+      // No fix for them yet -- wait for the first one instead of silently
+      // doing nothing, then stop listening.
+      unsubscribe = useLocationStore.subscribe((state) => {
+        const location = state.friendLocations[focusUserId];
+        if (location) flyToFriend(location);
+      });
+    }
+
+    return () => {
+      done = true;
+      unsubscribe?.();
+    };
+  }, [focusUserId, router]);
 
   function handleStationPress(event: { nativeEvent: { features: GeoJSON.Feature[] } }) {
     const feature = event.nativeEvent.features[0];
@@ -109,8 +178,29 @@ export default function MapScreen() {
     sheetRef.current?.snapToIndex(0);
   }
 
-  function handleCenterOnMyLocation() {
-    if (!currentPosition) return;
+  async function handleCenterOnMyLocation() {
+    // Previously this bailed silently when there was no fix, so with
+    // permission denied the button did nothing at all, forever, with no
+    // feedback. Ask on first use; if refused, offer the settings route.
+    if (!isLocationGranted) {
+      const { status, canAskAgain } = await Location.requestForegroundPermissionsAsync();
+      setPermission(status);
+      if (status !== Location.PermissionStatus.GRANTED) {
+        Alert.alert(
+          'Location permission needed',
+          'MetroSync needs location access to show where you are on the map.',
+          canAskAgain
+            ? [{ text: 'OK' }]
+            : [
+                { text: 'Not now', style: 'cancel' },
+                { text: 'Open settings', onPress: () => void Linking.openSettings() },
+              ],
+        );
+      }
+      return;
+    }
+
+    if (!currentPosition) return; // button is disabled in this state
     cameraRef.current?.flyTo({
       center: [currentPosition.coords.longitude, currentPosition.coords.latitude],
       zoom: 15,
@@ -231,8 +321,19 @@ export default function MapScreen() {
 
         <FriendsLayer />
 
-        <UserLocationPin />
+        <UserLocationPin position={currentPosition} />
       </MapLibreMap>
+
+      {/* Without this, a dropped realtime connection is indistinguishable
+          from "nobody is sharing right now" -- the map just quietly empties. */}
+      {isConfigured && session && connectionState === 'error' && (
+        <View style={styles.connectionBanner} pointerEvents="none">
+          <Ionicons name="cloud-offline-outline" size={14} color={colors.onSurfaceVariant} />
+          <Text style={styles.connectionBannerText}>
+            Live connection lost — friend locations may be out of date
+          </Text>
+        </View>
+      )}
 
       {isConfigured && session && <FriendFocusStack onSelectFriend={handleFocusFriend} />}
 
@@ -262,14 +363,26 @@ export default function MapScreen() {
       )}
 
       <View style={styles.locateButtonWrapper} pointerEvents="box-none">
-        <Pressable 
+        <Pressable
+          // Only inert while we *have* permission but no fix has arrived yet.
+          // Without permission it stays tappable -- that tap is what asks.
+          disabled={isLocationGranted && !currentPosition}
           style={({ pressed }) => [
-            styles.locateButton, 
-            pressed && { opacity: 0.7 }
-          ]} 
+            styles.locateButton,
+            pressed && { opacity: 0.7 },
+            isLocationGranted && !currentPosition && { opacity: 0.5 },
+          ]}
           onPress={handleCenterOnMyLocation}
+          accessibilityRole="button"
+          accessibilityLabel={
+            isLocationGranted ? 'Center map on my location' : 'Enable location access'
+          }
         >
-          <Ionicons name="locate" size={22} color={colors.textPrimary} />
+          <Ionicons
+            name={isLocationGranted ? 'locate' : 'locate-outline'}
+            size={22}
+            color={colors.textPrimary}
+          />
         </Pressable>
       </View>
 
@@ -362,6 +475,27 @@ function createStyles(colors: ColorTokens) {
       shadowRadius: 6,
       shadowOffset: { width: 0, height: 2 },
       elevation: 4,
+    },
+    connectionBanner: {
+      position: 'absolute',
+      top: 12,
+      left: 16,
+      right: 16,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 8,
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: colors.border,
+      zIndex: 3,
+    },
+    connectionBannerText: {
+      flex: 1,
+      fontSize: 12,
+      color: colors.onSurfaceVariant,
     },
     broadcastButton: {
       bottom: 84,

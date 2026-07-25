@@ -18,12 +18,12 @@ while building it.
 ```
 npm install
 cp .env.example .env        # fill in EXPO_PUBLIC_SUPABASE_URL / ANON_KEY
-npm run compile-data        # builds assets/data/metro-graph.json + tracks.json from /data
+npm run compile-data        # builds assets/data/metro-graph.json + tracks.json from /resources
 ```
 
 `assets/data/*.json` are checked into git (the app imports them directly at
 build time), but they're *generated* — if you ever edit the raw files under
-`/data`, re-run `npm run compile-data` and commit the regenerated output.
+`/resources`, re-run `npm run compile-data` and commit the regenerated output.
 Never hand-edit files in `assets/data/`.
 
 ## Local development

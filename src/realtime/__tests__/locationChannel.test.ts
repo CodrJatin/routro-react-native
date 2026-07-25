@@ -1,0 +1,273 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+/**
+ * Covers the broadcast state machine's hard cases: the ones that can't be
+ * caught by a typecheck and are painful to reproduce by hand on a device --
+ * backgrounding mid-permission-prompt, re-entrant enables, socket
+ * reconnects, and malformed payloads from a peer.
+ */
+
+type SubscribeStatus = 'SUBSCRIBED' | 'CHANNEL_ERROR' | 'TIMED_OUT' | 'CLOSED';
+
+interface FakeChannel {
+  topic: string;
+  state: string;
+  tracked: { status: string }[];
+  sent: unknown[];
+  handlers: Record<string, (payload: { payload: unknown }) => void>;
+  emit(status: SubscribeStatus): Promise<void>;
+  subscribe(cb?: (status: SubscribeStatus) => void | Promise<void>): FakeChannel;
+  on(type: string, filter: unknown, handler: (p: { payload: unknown }) => void): FakeChannel;
+  track(payload: { status: string }): Promise<string>;
+  untrack(): Promise<string>;
+  send(message: unknown): Promise<string>;
+  presenceState(): Record<string, unknown>;
+}
+
+const channels: FakeChannel[] = [];
+
+function makeChannel(topic: string): FakeChannel {
+  let callback: ((status: SubscribeStatus) => void | Promise<void>) | undefined;
+  const channel: FakeChannel = {
+    topic,
+    state: 'closed',
+    tracked: [],
+    sent: [],
+    handlers: {},
+    async emit(status) {
+      if (status === 'SUBSCRIBED') channel.state = 'joined';
+      await callback?.(status);
+    },
+    subscribe(cb) {
+      callback = cb;
+      return channel;
+    },
+    on(type, _filter, handler) {
+      channel.handlers[type] = handler;
+      return channel;
+    },
+    async track(payload) {
+      channel.tracked.push(payload);
+      return 'ok';
+    },
+    async untrack() {
+      return 'ok';
+    },
+    async send(message) {
+      channel.sent.push(message);
+      return 'ok';
+    },
+    presenceState: () => ({}),
+  };
+  channels.push(channel);
+  return channel;
+}
+
+vi.mock('../../lib/supabase', () => ({
+  supabase: {
+    channel: (topic: string) => makeChannel(topic),
+    removeChannel: async () => 'ok',
+  },
+}));
+
+/** Watchers handed out by watchPositionAsync, so tests can assert none leak. */
+const watchers: { removed: boolean; fire: (position: unknown) => void }[] = [];
+let permissionStatus = 'granted';
+/** Lets a test suspend watchPositionAsync mid-call to exercise the window
+ * between "permission granted" and "watcher installed". */
+let watchGate: Promise<void> | null = null;
+
+vi.mock('expo-location', () => ({
+  Accuracy: { Balanced: 3 },
+  requestForegroundPermissionsAsync: async () => ({ status: permissionStatus }),
+  watchPositionAsync: async (_options: unknown, callback: (position: unknown) => void) => {
+    if (watchGate) await watchGate;
+    const watcher = {
+      removed: false,
+      fire: callback,
+      remove() {
+        watcher.removed = true;
+      },
+    };
+    watchers.push(watcher);
+    return watcher;
+  },
+}));
+
+const appState = { currentState: 'active' as string };
+vi.mock('react-native', () => ({
+  get AppState() {
+    return appState;
+  },
+}));
+
+const { locationChannelManager } = await import('../locationChannel');
+
+const USER_ID = 'self-user';
+const FRIEND_ID = 'friend-user';
+
+function ownChannel(): FakeChannel {
+  return channels.find((c) => c.topic === `user-location:${USER_ID}`)!;
+}
+
+function position(lat: number, lon: number) {
+  return { coords: { latitude: lat, longitude: lon, heading: null }, timestamp: 1_700_000_000_000 };
+}
+
+describe('locationChannelManager', () => {
+  beforeEach(async () => {
+    await locationChannelManager.teardown();
+    channels.length = 0;
+    watchers.length = 0;
+    permissionStatus = 'granted';
+    watchGate = null;
+    appState.currentState = 'active';
+    locationChannelManager.setHandlers({
+      onBroadcastingChange() {},
+      onFriendLocation() {},
+      onFriendPresence() {},
+      onFriendRemoved() {},
+      onConnectionChange() {},
+    });
+  });
+
+  it('does not install a second watcher when broadcasting is enabled twice', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+
+    await locationChannelManager.setBroadcasting(true);
+    await locationChannelManager.setBroadcasting(true);
+
+    // A second watcher with no handle to stop it would broadcast forever.
+    expect(watchers.filter((w) => !w.removed)).toHaveLength(1);
+  });
+
+  it('removes the watcher it created if backgrounding supersedes the enable', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+
+    // Suspend watchPositionAsync, then background the app before it resolves.
+    let openGate: () => void = () => {};
+    watchGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+
+    const enabling = locationChannelManager.setBroadcasting(true);
+    await locationChannelManager.pauseForBackground();
+    openGate();
+    await enabling;
+
+    // The watcher may have been created, but it must not have survived.
+    expect(watchers.every((w) => w.removed)).toBe(true);
+  });
+
+  it('refuses to start broadcasting if the app is no longer active', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+
+    // Granting the permission is what backgrounds the app: the system alert
+    // takes focus, so by the time the promise resolves we are inactive.
+    appState.currentState = 'background';
+    await locationChannelManager.setBroadcasting(true);
+
+    expect(watchers.filter((w) => !w.removed)).toHaveLength(0);
+  });
+
+  it('does not broadcast when permission is refused', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+
+    permissionStatus = 'denied';
+    await locationChannelManager.setBroadcasting(true);
+
+    expect(watchers).toHaveLength(0);
+  });
+
+  it('re-advertises presence as broadcasting after a reconnect', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    const channel = ownChannel();
+    await channel.emit('SUBSCRIBED');
+    await locationChannelManager.setBroadcasting(true);
+
+    // A network blip: the socket drops and rejoins.
+    await channel.emit('SUBSCRIBED');
+
+    // Tracking 'online' here would drop an actively-broadcasting user to
+    // Inactive on their friends' devices while their pings kept arriving.
+    expect(channel.tracked.at(-1)).toEqual({ status: 'broadcasting' });
+  });
+
+  it('advertises presence as online when not broadcasting', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    const channel = ownChannel();
+    await channel.emit('SUBSCRIBED');
+
+    expect(channel.tracked.at(-1)).toEqual({ status: 'online' });
+  });
+
+  it('drops fixes instead of sending while the channel is not joined', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    const channel = ownChannel();
+    await channel.emit('SUBSCRIBED');
+    await locationChannelManager.setBroadcasting(true);
+
+    const watcher = watchers.find((w) => !w.removed)!;
+
+    watcher.fire(position(28.6, 77.2));
+    expect(channel.sent).toHaveLength(1);
+
+    // Mid-reconnect: realtime-js would silently fall back to one REST POST
+    // per message here, so the fix must be dropped instead.
+    channel.state = 'closed';
+    watcher.fire(position(28.61, 77.21));
+    expect(channel.sent).toHaveLength(1);
+  });
+
+  it('stops broadcasting when the channel reports an error', async () => {
+    const broadcastingChanges: boolean[] = [];
+    locationChannelManager.setHandlers({
+      onBroadcastingChange: (enabled) => broadcastingChanges.push(enabled),
+      onFriendLocation() {},
+      onFriendPresence() {},
+      onFriendRemoved() {},
+      onConnectionChange() {},
+    });
+
+    await locationChannelManager.joinOwn(USER_ID);
+    const channel = ownChannel();
+    await channel.emit('SUBSCRIBED');
+    await locationChannelManager.setBroadcasting(true);
+
+    await channel.emit('CHANNEL_ERROR');
+
+    // The button must not stay lit green while nothing is transmitting.
+    expect(broadcastingChanges.at(-1)).toBe(false);
+    expect(watchers.every((w) => w.removed)).toBe(true);
+  });
+
+  it('rejects malformed friend payloads before they reach the store', async () => {
+    const received: unknown[] = [];
+    locationChannelManager.setHandlers({
+      onBroadcastingChange() {},
+      onFriendLocation: (loc) => received.push(loc),
+      onFriendPresence() {},
+      onFriendRemoved() {},
+      onConnectionChange() {},
+    });
+
+    await locationChannelManager.joinOwn(USER_ID);
+    locationChannelManager.syncFriendSubscriptions([FRIEND_ID]);
+    const friendChannel = channels.find((c) => c.topic === `user-location:${FRIEND_ID}`)!;
+    const onBroadcast = friendChannel.handlers.broadcast;
+
+    onBroadcast({ payload: { lat: 'nope', lon: 77.2, ts: 1 } });
+    onBroadcast({ payload: { lat: 28.6, lon: 999, ts: 1 } });
+    onBroadcast({ payload: { lat: Number.NaN, lon: 77.2, ts: 1 } });
+    onBroadcast({ payload: null });
+    expect(received).toHaveLength(0);
+
+    onBroadcast({ payload: { lat: 28.6, lon: 77.2, heading: 90, ts: 1 } });
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({ userId: FRIEND_ID, lat: 28.6, lon: 77.2, heading: 90 });
+  });
+});
