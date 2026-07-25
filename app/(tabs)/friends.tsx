@@ -59,10 +59,18 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
     [colors, radius, typography, shared],
   );
   const lines = useMemo(() => getCompiledGraph().lines, []);
-  const { rows, isLoading, refetch, sendRequest, acceptRequest, removeFriendship } =
-    useFriendshipsContext();
+  const {
+    rows,
+    isRefreshing,
+    error: listError,
+    refetch,
+    sendRequest,
+    acceptRequest,
+    removeFriendship,
+  } = useFriendshipsContext();
   const [handle, setHandle] = useState('');
   const [sendError, setSendError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const handleFocus = useFocusAnimation();
 
@@ -114,16 +122,28 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
     }
   }
 
+  async function handleAccept(friendshipId: string) {
+    setActionError(null);
+    const result = await acceptRequest(friendshipId);
+    if (result.error) setActionError(result.error);
+  }
+
+  async function handleRemove(friendshipId: string) {
+    setActionError(null);
+    const result = await removeFriendship(friendshipId);
+    if (result.error) setActionError(result.error);
+  }
+
   function removeFriend(profile: Profile) {
     const row = accepted.find((r) => otherParty(r, selfUserId).id === profile.id);
-    if (row) removeFriendship(row.id);
+    if (row) void handleRemove(row.id);
   }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} />}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={refetch} />}
       >
         <Text style={styles.title}>Friends</Text>
 
@@ -150,6 +170,8 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
           </Pressable>
         </View>
         {sendError && <Text style={styles.errorText}>{sendError}</Text>}
+        {actionError && <Text style={styles.errorText}>{actionError}</Text>}
+        {listError && <Text style={styles.errorText}>{listError}</Text>}
 
         {isEmpty && (
           <Animated.View
@@ -177,10 +199,10 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
                 colors={colors}
                 actions={
                   <>
-                    <Pressable style={styles.iconButtonAccept} onPress={() => acceptRequest(row.id)}>
+                    <Pressable style={styles.iconButtonAccept} onPress={() => handleAccept(row.id)}>
                       <Ionicons name="checkmark" size={16} color={colors.onSuccess} />
                     </Pressable>
-                    <Pressable style={styles.iconButtonDecline} onPress={() => removeFriendship(row.id)}>
+                    <Pressable style={styles.iconButtonDecline} onPress={() => handleRemove(row.id)}>
                       <Ionicons name="close" size={16} color={colors.textPrimary} />
                     </Pressable>
                   </>
@@ -195,7 +217,7 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
                 styles={styles}
                 colors={colors}
                 actions={
-                  <Pressable style={styles.iconButtonDecline} onPress={() => removeFriendship(row.id)}>
+                  <Pressable style={styles.iconButtonDecline} onPress={() => handleRemove(row.id)}>
                     <Ionicons name="close" size={16} color={colors.textPrimary} />
                   </Pressable>
                 }
