@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -7,18 +7,30 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/auth/AuthProvider';
-import { colors } from '../../src/theme/colors';
-import { shared } from '../../src/theme/sharedStyles';
+import { SegmentedToggle, type SegmentedToggleOption } from '../../src/components/SegmentedToggle';
+import { useTheme } from '../../src/theme/ThemeProvider';
+import { useSharedStyles } from '../../src/theme/sharedStyles';
+import type { ColorTokens } from '../../src/theme/tokens';
+import { AnimatedTextInput, useFocusAnimation } from '../../src/theme/useFocusAnimation';
 
 type Mode = 'sign-in' | 'sign-up';
 
+const MODE_OPTIONS: SegmentedToggleOption<Mode>[] = [
+  { value: 'sign-in', label: 'Sign In', icon: 'log-in-outline' },
+  { value: 'sign-up', label: 'Sign Up', icon: 'person-add-outline' },
+];
+
 export default function SignInScreen() {
+  const { colors, radius } = useTheme();
+  const shared = useSharedStyles();
+  const styles = useMemo(() => createStyles(colors, radius.none, shared), [colors, radius, shared]);
   const { signInWithEmail, signUpWithEmail, signInWithGoogle } = useAuth();
+  const emailFocus = useFocusAnimation();
+  const passwordFocus = useFocusAnimation();
   const [mode, setMode] = useState<Mode>('sign-in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -48,6 +60,14 @@ export default function SignInScreen() {
     }
   }
 
+  function handleModeChange(next: Mode) {
+    // Messages describe the previous attempt, so they'd be misleading once the
+    // form switches purpose.
+    setError(null);
+    setNotice(null);
+    setMode(next);
+  }
+
   async function handleGoogleSubmit() {
     setError(null);
     setNotice(null);
@@ -70,22 +90,28 @@ export default function SignInScreen() {
           </Text>
 
           <View style={styles.form}>
-            <TextInput
-              style={styles.input}
+            <SegmentedToggle options={MODE_OPTIONS} value={mode} onChange={handleModeChange} />
+
+            <AnimatedTextInput
+              style={[styles.input, { borderColor: emailFocus.borderColor, borderWidth: emailFocus.borderWidth }]}
               placeholder="Email"
               placeholderTextColor={colors.textSecondary}
               autoCapitalize="none"
               keyboardType="email-address"
               value={email}
               onChangeText={setEmail}
+              onFocus={emailFocus.onFocus}
+              onBlur={emailFocus.onBlur}
             />
-            <TextInput
-              style={styles.input}
+            <AnimatedTextInput
+              style={[styles.input, { borderColor: passwordFocus.borderColor, borderWidth: passwordFocus.borderWidth }]}
               placeholder="Password"
               placeholderTextColor={colors.textSecondary}
               secureTextEntry
               value={password}
               onChangeText={setPassword}
+              onFocus={passwordFocus.onFocus}
+              onBlur={passwordFocus.onBlur}
             />
 
             {error && <Text style={styles.errorText}>{error}</Text>}
@@ -97,7 +123,7 @@ export default function SignInScreen() {
               disabled={isSubmitting}
             >
               {isSubmitting ? (
-                <ActivityIndicator color={colors.background} />
+                <ActivityIndicator color={colors.onPrimary} />
               ) : (
                 <Text style={styles.primaryButtonText}>
                   {mode === 'sign-in' ? 'Sign In' : 'Sign Up'}
@@ -113,20 +139,6 @@ export default function SignInScreen() {
               <Ionicons name="logo-google" size={18} color={colors.textPrimary} />
               <Text style={styles.googleButtonText}>Continue with Google</Text>
             </Pressable>
-
-            <Pressable
-              onPress={() => {
-                setError(null);
-                setNotice(null);
-                setMode((m) => (m === 'sign-in' ? 'sign-up' : 'sign-in'));
-              }}
-            >
-              <Text style={styles.switchModeText}>
-                {mode === 'sign-in'
-                  ? "Don't have an account? Sign up"
-                  : 'Already have an account? Sign in'}
-              </Text>
-            </Pressable>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -134,75 +146,71 @@ export default function SignInScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  flex: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: 24,
-    gap: 24,
-  },
-  title: {
-    color: colors.textPrimary,
-    fontSize: 32,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  subtitle: {
-    color: colors.textSecondary,
-    fontSize: 15,
-    textAlign: 'center',
-  },
-  form: {
-    gap: 12,
-  },
-  input: shared.textInput,
-  errorText: {
-    color: colors.danger,
-    fontSize: 13,
-  },
-  noticeText: {
-    color: colors.success,
-    fontSize: 13,
-  },
-  primaryButton: {
-    backgroundColor: colors.accent,
-    borderRadius: 10,
-    paddingVertical: 13,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  primaryButtonText: {
-    color: colors.background,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  googleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingVertical: 13,
-  },
-  googleButtonText: {
-    color: colors.textPrimary,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  switchModeText: {
-    color: colors.accent,
-    fontSize: 13,
-    textAlign: 'center',
-    marginTop: 8,
-  },
-});
+function createStyles(colors: ColorTokens, radiusNone: number, shared: ReturnType<typeof useSharedStyles>) {
+  return StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.canvas,
+    },
+    flex: {
+      flex: 1,
+    },
+    content: {
+      flex: 1,
+      justifyContent: 'center',
+      padding: 24,
+      gap: 24,
+    },
+    title: {
+      color: colors.textPrimary,
+      fontSize: 32,
+      fontWeight: '800',
+      textAlign: 'center',
+    },
+    subtitle: {
+      color: colors.textSecondary,
+      fontSize: 15,
+      textAlign: 'center',
+    },
+    form: {
+      gap: 12,
+    },
+    input: shared.textInput,
+    errorText: {
+      color: colors.danger,
+      fontSize: 13,
+    },
+    noticeText: {
+      color: colors.success,
+      fontSize: 13,
+    },
+    primaryButton: {
+      backgroundColor: colors.accent,
+      borderRadius: radiusNone,
+      paddingVertical: 13,
+      alignItems: 'center',
+      marginTop: 4,
+    },
+    primaryButtonText: {
+      color: colors.onPrimary,
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    googleButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 10,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radiusNone,
+      paddingVertical: 13,
+    },
+    googleButtonText: {
+      color: colors.textPrimary,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+  });
+}

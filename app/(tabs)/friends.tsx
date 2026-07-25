@@ -1,26 +1,37 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
+import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, type Profile } from '../../src/auth/AuthProvider';
 import { Avatar } from '../../src/components/Avatar';
 import { PlaceholderScreen } from '../../src/components/PlaceholderScreen';
+import { getCompiledGraph } from '../../src/engine/graph';
+import type { RawLines } from '../../src/engine/types';
 import { useFriendshipsContext } from '../../src/friends/FriendshipsProvider';
-import { findNearestStation } from '../../src/friends/nearestStation';
+import { findNearestStation, type NearestStation } from '../../src/friends/nearestStation';
 import { otherParty } from '../../src/friends/useFriendships';
-import { useLocationStore, type PresenceStatus } from '../../src/realtime/locationStore';
-import { colors } from '../../src/theme/colors';
-import { shared } from '../../src/theme/sharedStyles';
+import { useLocationStore, type FriendLocation, type PresenceStatus } from '../../src/realtime/locationStore';
+import { useTheme } from '../../src/theme/ThemeProvider';
+import { useSharedStyles } from '../../src/theme/sharedStyles';
+import type { ColorTokens, TypeStyle } from '../../src/theme/tokens';
+import { AnimatedTextInput, useFocusAnimation } from '../../src/theme/useFocusAnimation';
+
+const STALE_CHECK_INTERVAL_MS = 10_000;
+/** Beyond this, the nearest station is no longer a meaningful "current line"
+ * -- e.g. a friend who isn't near the metro at all. Roughly the outer edge
+ * of typical inter-station spacing, so it doesn't hide legitimate matches. */
+const NEARBY_LINE_MAX_METERS = 1500;
 
 export default function FriendsScreen() {
   const { isConfigured, session } = useAuth();
@@ -42,15 +53,56 @@ export default function FriendsScreen() {
 }
 
 function FriendsContent({ selfUserId }: { selfUserId: string }) {
+  const { colors, radius, typography } = useTheme();
+  const shared = useSharedStyles();
+  const styles = useMemo(
+    () => createStyles(colors, radius.none, radius.badge, typography, shared),
+    [colors, radius, typography, shared],
+  );
+  const lines = useMemo(() => getCompiledGraph().lines, []);
   const { rows, isLoading, refetch, sendRequest, acceptRequest, removeFriendship } =
     useFriendshipsContext();
   const [handle, setHandle] = useState('');
   const [sendError, setSendError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const handleFocus = useFocusAnimation();
+
+  // Only used to keep the "updated Xs ago" text ticking -- membership in
+  // Active vs. Inactive is driven by presence below, not by this clock.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), STALE_CHECK_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, []);
+
+  const friendLocations = useLocationStore((state) => state.friendLocations);
+  const friendPresence = useLocationStore((state) => state.friendPresence);
 
   const accepted = rows.filter((r) => r.status === 'accepted');
   const incoming = rows.filter((r) => r.status === 'pending' && r.addressee_id === selfUserId);
   const outgoing = rows.filter((r) => r.status === 'pending' && r.requester_id === selfUserId);
+
+  // "Active" tracks the friend's live presence broadcast (flips the instant
+  // they toggle broadcasting off/on), not a staleness guess off the last
+  // location timestamp -- that's what previously left friends stuck in
+  // Active after they stopped sharing. Presence flips to 'broadcasting'
+  // before the first GPS fix arrives, so location can briefly be null right
+  // after a friend turns broadcasting on -- that's still Active, just shown
+  // as "waiting for location" rather than requiring a coordinate to exist.
+  const active: { profile: Profile; location: FriendLocation | null }[] = [];
+  const inactive: { profile: Profile; location: FriendLocation | null }[] = [];
+  for (const row of accepted) {
+    const profile = otherParty(row, selfUserId);
+    const location = friendLocations[profile.id] ?? null;
+    const isBroadcasting = friendPresence[profile.id] === 'broadcasting';
+    if (isBroadcasting) {
+      active.push({ profile, location });
+    } else {
+      inactive.push({ profile, location });
+    }
+  }
+
+  const isEmpty = accepted.length === 0 && incoming.length === 0 && outgoing.length === 0;
 
   async function handleSend() {
     if (!handle.trim()) return;
@@ -65,6 +117,11 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
     }
   }
 
+  function removeFriend(profile: Profile) {
+    const row = accepted.find((r) => otherParty(r, selfUserId).id === profile.id);
+    if (row) removeFriendship(row.id);
+  }
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
@@ -74,114 +131,182 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
         <Text style={styles.title}>Friends</Text>
 
         <View style={styles.addRow}>
-          <TextInput
-            style={styles.addInput}
+          <AnimatedTextInput
+            style={[
+              styles.addInput,
+              { borderColor: handleFocus.borderColor, borderWidth: handleFocus.borderWidth },
+            ]}
             placeholder="Add by email or ID"
             placeholderTextColor={colors.textSecondary}
             autoCapitalize="none"
             value={handle}
             onChangeText={setHandle}
+            onFocus={handleFocus.onFocus}
+            onBlur={handleFocus.onBlur}
           />
           <Pressable style={styles.addButton} onPress={handleSend} disabled={isSending}>
             {isSending ? (
-              <ActivityIndicator color={colors.background} size="small" />
+              <ActivityIndicator color={colors.onPrimary} size="small" />
             ) : (
-              <Ionicons name="person-add" size={18} color={colors.background} />
+              <Ionicons name="person-add" size={18} color={colors.onPrimary} />
             )}
           </Pressable>
         </View>
         {sendError && <Text style={styles.errorText}>{sendError}</Text>}
 
-        {incoming.length > 0 && (
-          <Section title="Requests">
+        {isEmpty && (
+          <Animated.View
+            style={styles.emptyState}
+            entering={FadeIn.duration(180)}
+            exiting={FadeOut.duration(140)}
+            layout={LinearTransition.duration(220)}
+          >
+            <Ionicons name="people-outline" size={28} color={colors.textSecondary} />
+            <Text style={styles.emptyTitle}>No friends yet</Text>
+            <Text style={styles.emptyNote}>
+              Add someone by their email or ID above to start sharing live locations.
+            </Text>
+          </Animated.View>
+        )}
+
+        {(incoming.length > 0 || outgoing.length > 0) && (
+          <Section title={`Pending (${incoming.length + outgoing.length})`} styles={styles}>
             {incoming.map((row) => (
-              <RequestCard
+              <PendingRow
                 key={row.id}
                 profile={otherParty(row, selfUserId)}
-                onAccept={() => acceptRequest(row.id)}
-                onDecline={() => removeFriendship(row.id)}
+                subtitle="Wants to be friends"
+                styles={styles}
+                colors={colors}
+                actions={
+                  <>
+                    <Pressable style={styles.iconButtonAccept} onPress={() => acceptRequest(row.id)}>
+                      <Ionicons name="checkmark" size={16} color={colors.onSuccess} />
+                    </Pressable>
+                    <Pressable style={styles.iconButtonDecline} onPress={() => removeFriendship(row.id)}>
+                      <Ionicons name="close" size={16} color={colors.textPrimary} />
+                    </Pressable>
+                  </>
+                }
               />
             ))}
-          </Section>
-        )}
-
-        {outgoing.length > 0 && (
-          <Section title="Sent">
             {outgoing.map((row) => (
-              <SentCard
+              <PendingRow
                 key={row.id}
                 profile={otherParty(row, selfUserId)}
-                onCancel={() => removeFriendship(row.id)}
+                subtitle="Request sent"
+                styles={styles}
+                colors={colors}
+                actions={
+                  <Pressable style={styles.iconButtonDecline} onPress={() => removeFriendship(row.id)}>
+                    <Ionicons name="close" size={16} color={colors.textPrimary} />
+                  </Pressable>
+                }
               />
             ))}
           </Section>
         )}
 
-        <Section title={`Your Friends (${accepted.length})`}>
-          {accepted.length === 0 && (
-            <Text style={styles.emptyText}>No friends yet -- add one by email or ID above.</Text>
-          )}
-          {accepted.map((row) => (
-            <FriendCard key={row.id} profile={otherParty(row, selfUserId)} />
-          ))}
-        </Section>
+        {active.length > 0 && (
+          <Section title={`Active Friends (${active.length})`} styles={styles}>
+            {active.map(({ profile, location }) => (
+              <ActiveFriendCard
+                key={profile.id}
+                profile={profile}
+                location={location}
+                lines={lines}
+                now={now}
+                styles={styles}
+                colors={colors}
+                onRemove={() => removeFriend(profile)}
+              />
+            ))}
+          </Section>
+        )}
+
+        {inactive.length > 0 && (
+          <Section title={`Inactive (${inactive.length})`} styles={styles} tone="muted">
+            {inactive.map(({ profile, location }) => (
+              <InactiveFriendRow
+                key={profile.id}
+                profile={profile}
+                location={location}
+                presence={friendPresence[profile.id] ?? 'offline'}
+                now={now}
+                styles={styles}
+                colors={colors}
+                onRemove={() => removeFriend(profile)}
+              />
+            ))}
+          </Section>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionLabel}>{title}</Text>
-      {children}
-    </View>
-  );
-}
-
-function RequestCard({
-  profile,
-  onAccept,
-  onDecline,
+function Section({
+  title,
+  children,
+  styles,
+  tone,
 }: {
-  profile: Profile;
-  onAccept: () => void;
-  onDecline: () => void;
+  title: string;
+  children: React.ReactNode;
+  styles: ReturnType<typeof createStyles>;
+  tone?: 'muted';
 }) {
   return (
-    <View style={styles.card}>
-      <Avatar label={profile.display_name ?? profile.email} />
-      <View style={styles.cardInfo}>
-        <Text style={styles.cardName}>{profile.display_name ?? profile.email}</Text>
-        <Text style={styles.cardSubtext}>wants to be friends</Text>
-      </View>
-      <Pressable style={styles.iconButtonAccept} onPress={onAccept}>
-        <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-      </Pressable>
-      <Pressable style={styles.iconButtonDecline} onPress={onDecline}>
-        <Ionicons name="close" size={16} color={colors.textPrimary} />
-      </Pressable>
-    </View>
+    <Animated.View
+      style={styles.section}
+      entering={FadeIn.duration(180)}
+      exiting={FadeOut.duration(140)}
+      layout={LinearTransition.duration(220)}
+    >
+      <Text style={[styles.sectionLabel, tone === 'muted' && styles.sectionLabelMuted]}>{title}</Text>
+      {children}
+    </Animated.View>
   );
 }
 
-function SentCard({ profile, onCancel }: { profile: Profile; onCancel: () => void }) {
+function PendingRow({
+  profile,
+  subtitle,
+  actions,
+  styles,
+  colors,
+}: {
+  profile: Profile;
+  subtitle: string;
+  actions: React.ReactNode;
+  styles: ReturnType<typeof createStyles>;
+  colors: ColorTokens;
+}) {
   return (
-    <View style={styles.card}>
-      <Avatar label={profile.display_name ?? profile.email} />
+    <Animated.View
+      style={styles.pendingCard}
+      entering={FadeIn.duration(180)}
+      exiting={FadeOut.duration(140)}
+      layout={LinearTransition.duration(220)}
+    >
+      <Avatar label={profile.display_name ?? profile.email} imageUrl={profile.avatar_url} />
       <View style={styles.cardInfo}>
         <Text style={styles.cardName}>{profile.display_name ?? profile.email}</Text>
-        <Text style={styles.cardSubtext}>Request pending</Text>
+        <Text style={styles.cardSubtext}>{subtitle}</Text>
       </View>
-      <Pressable style={styles.iconButtonDecline} onPress={onCancel}>
-        <Ionicons name="close" size={16} color={colors.textPrimary} />
-      </Pressable>
-    </View>
+      <View style={styles.pendingActions}>{actions}</View>
+    </Animated.View>
   );
 }
 
-function formatRelativeTime(ts: number): string {
-  const seconds = Math.max(0, Math.round((Date.now() - ts) / 1000));
+function lineFor(lineId: string | undefined, lines: RawLines) {
+  if (!lineId) return null;
+  const line = lines[lineId];
+  return line ? { name: line.name, color: line.color } : null;
+}
+
+function formatRelativeTime(ts: number, now: number): string {
+  const seconds = Math.max(0, Math.round((now - ts) / 1000));
   if (seconds < 60) return 'just now';
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
@@ -194,154 +319,431 @@ function formatDistance(meters: number): string {
   return `${(meters / 1000).toFixed(1)} km`;
 }
 
-function statusColor(status: PresenceStatus): string {
-  if (status === 'broadcasting') return colors.success;
-  if (status === 'online') return colors.accent;
-  return colors.textSecondary;
-}
+function FriendMenuButton({
+  onRemove,
+  accessibilityLabel,
+  colors,
+  styles,
+}: {
+  onRemove: () => void;
+  accessibilityLabel: string;
+  colors: ColorTokens;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const [visible, setVisible] = useState(false);
+  const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+  const buttonRef = useRef<View>(null);
 
-function statusLabel(status: PresenceStatus): string {
-  if (status === 'broadcasting') return 'Sharing location';
-  if (status === 'online') return 'Online';
-  return 'Offline';
-}
-
-function FriendCard({ profile }: { profile: Profile }) {
-  const router = useRouter();
-  const presence = useLocationStore((state) => state.friendPresence[profile.id] ?? 'offline');
-  const location = useLocationStore((state) => state.friendLocations[profile.id]);
-  const nearest = location ? findNearestStation(location.lat, location.lon) : null;
+  const handleOpen = () => {
+    buttonRef.current?.measureInWindow((x, y, width, height) => {
+      const windowWidth = Dimensions.get('window').width;
+      setPos({
+        top: y + height + 4,
+        right: Math.max(16, windowWidth - (x + width)),
+      });
+      setVisible(true);
+    });
+  };
 
   return (
-    <View style={styles.card}>
-      <Avatar label={profile.display_name ?? profile.email} />
-      <View style={styles.cardInfo}>
-        <Text style={styles.cardName}>{profile.display_name ?? profile.email}</Text>
-        <View style={styles.statusRow}>
-          <View style={[styles.statusDot, { backgroundColor: statusColor(presence) }]} />
-          <Text style={styles.cardSubtext}>{statusLabel(presence)}</Text>
-        </View>
-        {location && nearest && (
-          <Text style={styles.cardSubtext}>
-            Near {nearest.name} ({formatDistance(nearest.distanceMeters)}) -- {formatRelativeTime(location.ts)}
-          </Text>
-        )}
-      </View>
-      {location && (
+    <>
+      <View ref={buttonRef} collapsable={false}>
         <Pressable
-          style={styles.focusButton}
-          onPress={() =>
-            router.push({ pathname: '/(tabs)/map', params: { focusUserId: profile.id } })
-          }
+          hitSlop={8}
+          style={styles.menuButton}
+          onPress={handleOpen}
+          accessibilityRole="button"
+          accessibilityLabel={accessibilityLabel}
         >
-          <Ionicons name="locate" size={16} color={colors.textPrimary} />
+          <Ionicons name="ellipsis-vertical" size={16} color={colors.textSecondary} />
         </Pressable>
-      )}
-    </View>
+      </View>
+
+      <Modal transparent visible={visible} animationType="fade" onRequestClose={() => setVisible(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setVisible(false)}>
+          <View style={[styles.popoverMenu, { top: pos.top, right: pos.right }]}>
+            <Pressable
+              style={({ pressed }) => [styles.popoverItem, pressed && styles.popoverItemPressed]}
+              onPress={() => {
+                setVisible(false);
+                onRemove();
+              }}
+            >
+              <Ionicons name="person-remove-outline" size={16} color={colors.danger} />
+              <Text style={styles.popoverItemText}>Remove friend</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  scrollContent: {
-    padding: 20,
-    gap: 20,
-  },
-  title: {
-    color: colors.textPrimary,
-    fontSize: 24,
-    fontWeight: '700',
-  },
-  addRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  addInput: {
-    ...shared.textInput,
-    flex: 1,
-    fontSize: 14,
-  },
-  addButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  errorText: {
-    color: colors.danger,
-    fontSize: 13,
-    marginTop: -12,
-  },
-  section: {
-    gap: 8,
-  },
-  sectionLabel: shared.sectionLabel,
-  emptyText: {
-    color: colors.textSecondary,
-    fontSize: 13,
-  },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    padding: 12,
-  },
-  cardInfo: {
-    flex: 1,
-    gap: 2,
-  },
-  cardName: {
-    color: colors.textPrimary,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  cardSubtext: {
-    color: colors.textSecondary,
-    fontSize: 12,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  iconButtonAccept: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.success,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconButtonDecline: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  focusButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+function ActiveFriendCard({
+  profile,
+  location,
+  lines,
+  now,
+  styles,
+  colors,
+  onRemove,
+}: {
+  profile: Profile;
+  location: FriendLocation | null;
+  lines: RawLines;
+  now: number;
+  styles: ReturnType<typeof createStyles>;
+  colors: ColorTokens;
+  onRemove: () => void;
+}) {
+  const nearest: NearestStation | null = useMemo(
+    () => (location ? findNearestStation(location.lat, location.lon) : null),
+    [location],
+  );
+  // Only attribute a "current line" when the nearest station is actually
+  // close -- otherwise (friend isn't near the metro at all) the closest
+  // entry in the station list is meaningless and just confusing to show.
+  const isNearStation = !!nearest && nearest.distanceMeters <= NEARBY_LINE_MAX_METERS;
+  const line = isNearStation ? lineFor(nearest.lines[0], lines) : null;
+  const accentColor = line?.color ?? colors.outline;
+
+  const subtext = !location
+    ? 'Waiting for location…'
+    : nearest
+      ? `${formatDistance(nearest.distanceMeters)} from ${nearest.name} · updated ${formatRelativeTime(location.ts, now)}`
+      : `Updated ${formatRelativeTime(location.ts, now)}`;
+
+  return (
+    <Animated.View
+      style={[styles.activeCard, { borderLeftColor: accentColor }]}
+      entering={FadeIn.duration(180)}
+      exiting={FadeOut.duration(140)}
+      layout={LinearTransition.duration(220)}
+    >
+      <View style={styles.activeCardHeader}>
+        <Avatar label={profile.display_name ?? profile.email} imageUrl={profile.avatar_url} size={36} />
+        <Text style={[styles.cardName, styles.cardNameInRow]} numberOfLines={2}>
+          {profile.display_name ?? profile.email}
+        </Text>
+        <FriendMenuButton
+          onRemove={onRemove}
+          accessibilityLabel={`Options for ${profile.display_name ?? profile.email}`}
+          colors={colors}
+          styles={styles}
+        />
+      </View>
+
+      <View style={styles.activeCardMetaRow}>
+        <View style={styles.liveDot} />
+        <Text style={styles.liveLabel}>LIVE</Text>
+        {line && (
+          <View style={styles.lineBadge}>
+            <Ionicons name="train" size={11} color={colors.textPrimary} />
+            <Text style={styles.lineBadgeText} numberOfLines={1}>
+              {line.name.toUpperCase()}
+            </Text>
+          </View>
+        )}
+      </View>
+
+      <Text style={styles.cardSubtext}>{subtext}</Text>
+    </Animated.View>
+  );
+}
+
+function InactiveFriendRow({
+  profile,
+  location,
+  presence,
+  now,
+  styles,
+  colors,
+  onRemove,
+}: {
+  profile: Profile;
+  location: FriendLocation | null;
+  presence: PresenceStatus;
+  now: number;
+  styles: ReturnType<typeof createStyles>;
+  colors: ColorTokens;
+  onRemove: () => void;
+}) {
+  const subtext =
+    presence === 'online'
+      ? 'Online · not sharing location'
+      : location
+        ? `Last active ${formatRelativeTime(location.ts, now)}`
+        : 'Offline';
+
+  return (
+    <Animated.View
+      style={styles.inactiveRow}
+      entering={FadeIn.duration(180)}
+      exiting={FadeOut.duration(140)}
+      layout={LinearTransition.duration(220)}
+    >
+      <View style={styles.inactiveRowMain}>
+        <Avatar label={profile.display_name ?? profile.email} imageUrl={profile.avatar_url} size={32} />
+        <Text style={[styles.cardName, styles.cardNameInRow]} numberOfLines={1}>
+          {profile.display_name ?? profile.email}
+        </Text>
+        <FriendMenuButton
+          onRemove={onRemove}
+          accessibilityLabel={`Options for ${profile.display_name ?? profile.email}`}
+          colors={colors}
+          styles={styles}
+        />
+      </View>
+      <Text style={styles.inactiveSubtext} numberOfLines={1}>
+        {subtext}
+      </Text>
+    </Animated.View>
+  );
+}
+
+function createStyles(
+  colors: ColorTokens,
+  radiusNone: number,
+  radiusBadge: number,
+  typography: Record<string, TypeStyle>,
+  shared: ReturnType<typeof useSharedStyles>,
+) {
+  return StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.canvas,
+    },
+    scrollContent: {
+      padding: 20,
+      gap: 20,
+    },
+    title: {
+      ...typography.headlineLg,
+      fontSize: 26,
+      color: colors.textPrimary,
+    },
+    addRow: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    addInput: {
+      ...shared.textInput,
+      flex: 1,
+      fontSize: 14,
+      height: 44,
+      paddingVertical: 0,
+      textAlignVertical: 'center',
+    },
+    addButton: {
+      width: 44,
+      height: 44,
+      borderRadius: radiusNone,
+      backgroundColor: colors.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    errorText: {
+      color: colors.danger,
+      fontSize: 13,
+      marginTop: -12,
+    },
+    emptyState: {
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 32,
+      paddingHorizontal: 24,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radiusNone,
+      backgroundColor: colors.surfaceContainerLow,
+    },
+    emptyTitle: {
+      ...typography.headlineMd,
+      fontSize: 16,
+      color: colors.textPrimary,
+    },
+    emptyNote: {
+      ...typography.bodyMd,
+      fontSize: 13,
+      color: colors.textSecondary,
+      textAlign: 'center',
+    },
+    section: {
+      gap: 8,
+    },
+    sectionLabel: {
+      ...typography.labelCaps,
+      color: colors.textSecondary,
+    },
+    sectionLabelMuted: {
+      color: colors.textSecondary,
+      opacity: 0.7,
+    },
+
+    // Pending
+    pendingCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      backgroundColor: colors.surfaceContainerLow,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radiusNone,
+      padding: 12,
+      marginBottom: 8,
+    },
+    cardInfo: {
+      flex: 1,
+      gap: 2,
+    },
+    cardName: {
+      ...typography.bodyMd,
+      fontSize: 14,
+      fontWeight: '700',
+      color: colors.textPrimary,
+    },
+    cardNameInRow: {
+      flex: 1,
+      // Without this RN's default (auto) minWidth stops the text from ever
+      // shrinking below its content size, which is what let a long line
+      // badge push the name -- and the 3-dot button after it -- off-screen.
+      minWidth: 0,
+    },
+    cardSubtext: {
+      ...typography.dataSm,
+      color: colors.textSecondary,
+    },
+    pendingActions: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    iconButtonAccept: {
+      width: 30,
+      height: 30,
+      borderRadius: radiusNone,
+      backgroundColor: colors.success,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    iconButtonDecline: {
+      width: 30,
+      height: 30,
+      borderRadius: radiusNone,
+      backgroundColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    // Active friends
+    activeCard: {
+      backgroundColor: colors.surfaceContainerLow,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderLeftWidth: 4,
+      borderRadius: radiusNone,
+      padding: 12,
+      gap: 6,
+      marginBottom: 10,
+    },
+    activeCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    activeCardMetaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    liveDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.success,
+    },
+    liveLabel: {
+      ...typography.labelCaps,
+      fontSize: 10,
+      color: colors.success,
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    },
+    popoverMenu: {
+      position: 'absolute',
+      backgroundColor: colors.surfaceContainerHigh,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radiusBadge,
+      paddingVertical: 4,
+      paddingHorizontal: 4,
+      minWidth: 150,
+      shadowColor: '#000',
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 6,
+    },
+    popoverItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderRadius: radiusBadge,
+    },
+    popoverItemPressed: {
+      backgroundColor: colors.surfaceContainerHighest,
+    },
+    popoverItemText: {
+      ...typography.bodyMd,
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.danger,
+    },
+    lineBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      flexShrink: 1,
+      maxWidth: 140,
+      backgroundColor: colors.surfaceContainerHigh,
+      borderRadius: radiusBadge,
+      paddingHorizontal: 7,
+      paddingVertical: 3,
+    },
+    lineBadgeText: {
+      ...typography.labelCaps,
+      fontSize: 10,
+      color: colors.textPrimary,
+      flexShrink: 1,
+    },
+    menuButton: {
+      flexShrink: 0,
+    },
+
+    // Inactive friends
+    inactiveRow: {
+      backgroundColor: colors.surfaceContainerLow,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radiusNone,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      marginBottom: 8,
+      opacity: 0.75,
+      gap: 4,
+    },
+    inactiveRowMain: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    inactiveSubtext: {
+      ...typography.dataSm,
+      color: colors.textSecondary,
+      paddingLeft: 42,
+    },
+  });
+}

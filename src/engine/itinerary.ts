@@ -23,10 +23,13 @@ export function buildRouteResult(
   const legs: ItineraryLeg[] = [];
   let i = 0;
   while (i < edgePath.length) {
-    if (edgePath[i].isTransfer) {
+    let transferTime = 0;
+    while (i < edgePath.length && edgePath[i].isTransfer) {
+      transferTime += edgePath[i].time;
       i++;
-      continue;
     }
+    if (i >= edgePath.length) break;
+
     const line = edgePath[i].line!;
     const legStart = i;
     let legTime = 0;
@@ -41,6 +44,7 @@ export function buildRouteResult(
       intermediateStations: legNodes.slice(1, -1).map((n) => toStep(graph, n)),
       alightingStation: toStep(graph, legNodes[legNodes.length - 1]),
       legTimeSeconds: legTime,
+      transferSecondsBefore: transferTime,
     });
   }
 

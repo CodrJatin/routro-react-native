@@ -1,25 +1,32 @@
+import { useMemo } from 'react';
 import { StyleSheet } from 'react-native';
-import { colors } from './colors';
+import { useTheme } from './ThemeProvider';
 
 /** Style fragments reused verbatim across several screens/components --
  * spread into a component's own StyleSheet.create() rather than imported as
  * standalone style objects, so callers can still add/override fields. */
-export const shared = StyleSheet.create({
-  sectionLabel: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  textInput: {
-    backgroundColor: colors.surface,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: colors.textPrimary,
-    fontSize: 15,
-  },
-});
+export function useSharedStyles() {
+  const { colors, radius, typography } = useTheme();
+
+  return useMemo(
+    () =>
+      StyleSheet.create({
+        sectionLabel: {
+          ...typography.labelCaps,
+          color: colors.textSecondary,
+        },
+        textInput: {
+          ...typography.bodyMd,
+          backgroundColor: colors.surface,
+          borderRadius: radius.none,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingHorizontal: 14,
+          paddingVertical: 12,
+          fontSize: 15,
+          color: colors.textPrimary,
+        },
+      }),
+    [colors, radius, typography],
+  );
+}

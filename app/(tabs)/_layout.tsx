@@ -3,10 +3,11 @@ import { Tabs } from 'expo-router';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { FriendshipsProvider } from '../../src/friends/FriendshipsProvider';
 import { LocationProvider } from '../../src/realtime/LocationProvider';
-import { colors } from '../../src/theme/colors';
+import { useTheme } from '../../src/theme/ThemeProvider';
 
 export default function TabsLayout() {
   const { session } = useAuth();
+  const { colors } = useTheme();
 
   return (
     <FriendshipsProvider userId={session?.user.id}>
@@ -25,15 +26,15 @@ export default function TabsLayout() {
           <Tabs.Screen
             name="index"
             options={{
-              title: 'Route',
-              tabBarIcon: ({ color, size }) => <Ionicons name="navigate" color={color} size={size} />,
+              title: 'Map',
+              tabBarIcon: ({ color, size }) => <Ionicons name="map" color={color} size={size} />,
             }}
           />
           <Tabs.Screen
-            name="map"
+            name="route"
             options={{
-              title: 'Map',
-              tabBarIcon: ({ color, size }) => <Ionicons name="map" color={color} size={size} />,
+              title: 'Route',
+              tabBarIcon: ({ color, size }) => <Ionicons name="navigate" color={color} size={size} />,
             }}
           />
           <Tabs.Screen

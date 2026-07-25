@@ -1,6 +1,6 @@
 import { GeoJSONSource, Layer, useCurrentPosition } from '@maplibre/maplibre-react-native';
 import { useMemo } from 'react';
-import { colors } from '../theme/colors';
+import { useTheme } from '../theme/ThemeProvider';
 
 /** The signed-in user's own position, drawn as real map circle layers.
  *
@@ -11,6 +11,7 @@ import { colors } from '../theme/colors';
  * off useCurrentPosition() guarantees the pin is always visible whenever a
  * location fix is available, the same mechanism the friend pins use. */
 export function UserLocationPin() {
+  const { colors } = useTheme();
   const currentPosition = useCurrentPosition();
 
   const geojson = useMemo<GeoJSON.FeatureCollection<GeoJSON.Point> | null>(() => {

@@ -94,6 +94,9 @@ export interface ItineraryLeg {
   intermediateStations: ItineraryStep[];
   alightingStation: ItineraryStep;
   legTimeSeconds: number;
+  /** Walk/platform-change time consumed getting here from the previous leg's
+   * alighting station. 0 for the first leg (trip origin, no transfer yet). */
+  transferSecondsBefore: number;
 }
 
 export interface RouteResult {

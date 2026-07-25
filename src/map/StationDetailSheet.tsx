@@ -3,7 +3,8 @@ import { forwardRef, useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { getCompiledGraph } from '../engine/graph';
 import type { CompiledStation } from '../engine/types';
-import { colors } from '../theme/colors';
+import { useTheme } from '../theme/ThemeProvider';
+import type { ColorTokens } from '../theme/tokens';
 
 interface Props {
   station: CompiledStation | null;
@@ -14,6 +15,8 @@ export const StationDetailSheet = forwardRef<BottomSheet, Props>(function Statio
   { station, onClose },
   ref,
 ) {
+  const { colors, radius } = useTheme();
+  const styles = useMemo(() => createStyles(colors, radius.none), [colors, radius]);
   const lines = getCompiledGraph().lines;
   const lineChips = useMemo(
     () => station?.lines.map((lineId) => lines[lineId]).filter(Boolean) ?? [],
@@ -50,52 +53,54 @@ export const StationDetailSheet = forwardRef<BottomSheet, Props>(function Statio
   );
 });
 
-const styles = StyleSheet.create({
-  sheetBackground: {
-    backgroundColor: colors.surfaceElevated,
-  },
-  handleIndicator: {
-    backgroundColor: colors.border,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    gap: 12,
-  },
-  name: {
-    color: colors.textPrimary,
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  interchangeBadge: {
-    color: colors.accent,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    gap: 6,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  chipText: {
-    color: colors.textPrimary,
-    fontSize: 13,
-  },
-});
+function createStyles(colors: ColorTokens, radiusNone: number) {
+  return StyleSheet.create({
+    sheetBackground: {
+      backgroundColor: colors.surfaceElevated,
+    },
+    handleIndicator: {
+      backgroundColor: colors.border,
+    },
+    content: {
+      flex: 1,
+      paddingHorizontal: 20,
+      paddingTop: 8,
+      gap: 12,
+    },
+    name: {
+      color: colors.textPrimary,
+      fontSize: 20,
+      fontWeight: '700',
+    },
+    interchangeBadge: {
+      color: colors.accent,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    chipRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    chip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+      borderRadius: radiusNone,
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      gap: 6,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    chipDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+    },
+    chipText: {
+      color: colors.textPrimary,
+      fontSize: 13,
+    },
+  });
+}

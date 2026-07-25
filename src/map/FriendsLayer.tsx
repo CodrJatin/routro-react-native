@@ -1,7 +1,7 @@
 import { GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import { useLocationStore, type FriendLocation } from '../realtime/locationStore';
-import { colors } from '../theme/colors';
+import { useTheme } from '../theme/ThemeProvider';
 
 const STALE_AFTER_MS = 30_000;
 const STALE_CHECK_INTERVAL_MS = 10_000;
@@ -32,6 +32,7 @@ function buildGeoJSON(
  * rather than gliding: smooth interpolation would mean per-friend Reanimated
  * views, which reintroduces the RN-view-marker cost this design avoids. */
 export function FriendsLayer() {
+  const { colors } = useTheme();
   const friendLocations = useLocationStore((state) => state.friendLocations);
   const hasFriendLocations = Object.keys(friendLocations).length > 0;
   const [now, setNow] = useState(() => Date.now());

@@ -19,6 +19,11 @@ interface AuthResult {
   error: string | null;
 }
 
+export interface ProfileUpdate {
+  display_name?: string | null;
+  avatar_url?: string | null;
+}
+
 interface AuthContextValue {
   isConfigured: boolean;
   isLoading: boolean;
@@ -28,6 +33,7 @@ interface AuthContextValue {
   signUpWithEmail: (email: string, password: string) => Promise<AuthResult>;
   signInWithGoogle: () => Promise<AuthResult>;
   signOut: () => Promise<void>;
+  updateProfile: (updates: ProfileUpdate) => Promise<AuthResult>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -120,6 +126,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       async signOut() {
         await supabase.auth.signOut();
+      },
+
+      async updateProfile(updates) {
+        if (!session?.user) return { error: 'Not signed in.' };
+        const { data, error } = await supabase
+          .from('profiles')
+          .update(updates)
+          .eq('id', session.user.id)
+          .select()
+          .single();
+        if (error) return { error: error.message };
+        setProfile(data as Profile);
+        return { error: null };
       },
     }),
     [isLoading, session, profile],

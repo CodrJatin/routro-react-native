@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import type { Profile } from '../auth/AuthProvider';
 import { useAuth } from '../auth/AuthProvider';
 import { useFriendshipsContext } from '../friends/FriendshipsProvider';
 import { otherParty } from '../friends/useFriendships';
 import { useLocationStore } from '../realtime/locationStore';
-import { colors } from '../theme/colors';
+import { useTheme } from '../theme/ThemeProvider';
+import type { ColorTokens } from '../theme/tokens';
 
 /** A friend is "active" (shown here, tappable) only while we hold a live,
  * non-stale location broadcast for them -- matching the pins on the map and
@@ -37,6 +39,8 @@ export function FriendFocusStack({
 }: {
   onSelectFriend: (friend: ActiveFriend) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { session } = useAuth();
   const selfUserId = session?.user.id;
   const { rows } = useFriendshipsContext();
@@ -77,66 +81,91 @@ export function FriendFocusStack({
   return (
     <View style={styles.stack} pointerEvents="box-none">
       {activeFriends.map((friend) => (
-        <Pressable
+        <Animated.View
           key={friend.userId}
-          style={styles.avatarButton}
-          onPress={() => onSelectFriend(friend)}
-          accessibilityRole="button"
-          accessibilityLabel={`Focus map on ${friend.profile.display_name ?? friend.profile.email}`}
+          entering={FadeIn.duration(180)}
+          exiting={FadeOut.duration(140)}
+          layout={LinearTransition.duration(220)}
         >
-          {friend.profile.avatar_url ? (
-            <Image source={{ uri: friend.profile.avatar_url }} style={styles.avatarImage} />
-          ) : (
-            <View style={[styles.avatarImage, styles.avatarFallback]}>
-              <Text style={styles.avatarInitials}>{initialsOf(friend.profile)}</Text>
-            </View>
-          )}
-        </Pressable>
+          <Pressable
+            style={styles.avatarButton}
+            onPress={() => onSelectFriend(friend)}
+            accessibilityRole="button"
+            accessibilityLabel={`Focus map on ${friend.profile.display_name ?? friend.profile.email}`}
+          >
+            <FriendAvatarThumb profile={friend.profile} styles={styles} />
+          </Pressable>
+        </Animated.View>
       ))}
+    </View>
+  );
+}
+
+/** Falls back to initials if the URL is missing or fails to load, instead of
+ * leaving a blank circle for a broken/invalid avatar_url. */
+function FriendAvatarThumb({ profile, styles }: { profile: Profile; styles: ReturnType<typeof createStyles> }) {
+  const [hasError, setHasError] = useState(false);
+  useEffect(() => setHasError(false), [profile.avatar_url]);
+
+  if (profile.avatar_url && !hasError) {
+    return (
+      <Image
+        source={{ uri: profile.avatar_url }}
+        style={styles.avatarImage}
+        onError={() => setHasError(true)}
+      />
+    );
+  }
+
+  return (
+    <View style={[styles.avatarImage, styles.avatarFallback]}>
+      <Text style={styles.avatarInitials}>{initialsOf(profile)}</Text>
     </View>
   );
 }
 
 const AVATAR_SIZE = 44;
 
-const styles = StyleSheet.create({
-  // Anchored by its bottom edge just above the broadcast button (bottom 84 +
-  // its 48px height), growing upward as more friends become active.
-  stack: {
-    position: 'absolute',
-    right: 16,
-    bottom: 140,
-    alignItems: 'center',
-    gap: 10,
-  },
-  avatarButton: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: AVATAR_SIZE / 2,
-    borderWidth: 2,
-    borderColor: colors.success,
-    backgroundColor: colors.surfaceElevated,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
-  },
-  avatarImage: {
-    width: '100%',
-    height: '100%',
-  },
-  avatarFallback: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface,
-  },
-  avatarInitials: {
-    color: colors.textPrimary,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-});
+function createStyles(colors: ColorTokens) {
+  return StyleSheet.create({
+    // Anchored by its bottom edge just above the broadcast button (bottom 84 +
+    // its 48px height), growing upward as more friends become active.
+    stack: {
+      position: 'absolute',
+      right: 16,
+      bottom: 140,
+      alignItems: 'center',
+      gap: 10,
+    },
+    avatarButton: {
+      width: AVATAR_SIZE,
+      height: AVATAR_SIZE,
+      borderRadius: AVATAR_SIZE / 2,
+      borderWidth: 2,
+      borderColor: colors.success,
+      backgroundColor: colors.surfaceElevated,
+      overflow: 'hidden',
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 4,
+    },
+    avatarImage: {
+      width: '100%',
+      height: '100%',
+    },
+    avatarFallback: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surface,
+    },
+    avatarInitials: {
+      color: colors.textPrimary,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+  });
+}
