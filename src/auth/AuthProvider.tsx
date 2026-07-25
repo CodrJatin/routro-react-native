@@ -38,6 +38,25 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/** Pulls the implicit-flow tokens out of an OAuth redirect URL and installs the
+ * session. `handled` is false for unrelated deep links (share intents, etc). */
+async function completeAuthFromUrl(url: string): Promise<{ handled: boolean; error: string | null }> {
+  const params = new URLSearchParams(url.split('#')[1] ?? '');
+
+  const errorDescription = params.get('error_description') ?? params.get('error');
+  if (errorDescription) return { handled: true, error: errorDescription };
+
+  const accessToken = params.get('access_token');
+  const refreshToken = params.get('refresh_token');
+  if (!accessToken || !refreshToken) return { handled: false, error: null };
+
+  const { error } = await supabase.auth.setSession({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  });
+  return { handled: true, error: error?.message ?? null };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -56,6 +75,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => subscription.subscription.unsubscribe();
+  }, []);
+
+  // Android delivers the OAuth redirect as an app intent rather than resolving
+  // it inside the WebBrowser auth session, so the tokens arrive here instead of
+  // as the return value of openAuthSessionAsync. Handle both paths.
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
+    Linking.getInitialURL().then((url) => {
+      if (url) void completeAuthFromUrl(url);
+    });
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      void completeAuthFromUrl(url);
+    });
+
+    return () => subscription.remove();
   }, []);
 
   useEffect(() => {
@@ -106,22 +141,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
         if (result.type !== 'success' || !result.url) {
-          return { error: null }; // user cancelled -- not an error to surface
+          // Either the user cancelled, or Android routed the redirect to the app
+          // as an intent -- in which case the deep-link listener above completes
+          // the sign-in. Neither case is an error worth surfacing here.
+          return { error: null };
         }
 
-        const fragment = result.url.split('#')[1] ?? '';
-        const params = new URLSearchParams(fragment);
-        const accessToken = params.get('access_token');
-        const refreshToken = params.get('refresh_token');
-        if (!accessToken || !refreshToken) {
-          return { error: 'Google sign-in did not return valid session tokens.' };
-        }
-
-        const { error: sessionError } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        });
-        return { error: sessionError?.message ?? null };
+        return { error: (await completeAuthFromUrl(result.url)).error };
       },
 
       async signOut() {
