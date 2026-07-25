@@ -54,3 +54,6 @@ Thumbs.db
 # Supabase CLI local state
 /supabase/.temp
 todo.md
+
+# Python
+scripts/__pycache__
