@@ -1,9 +1,9 @@
 /**
  * Build-time graph compiler.
  *
- * Turns the raw OSM extract in /data into assets/data/metro-graph.json, the
+ * Turns the raw OSM extract in /resources into assets/data/metro-graph.json, the
  * single artifact the app bundles and loads offline. Raw data problems fixed
- * here (see /data analysis in project history):
+ * here (see /resources analysis in project history):
  *
  *  1. 14 interchange stations are modeled as separate per-line nodes with no
  *     edge between them (e.g. "hauz-khas-yellow-line-" / "hauz-khas-magenta-line-").
@@ -38,7 +38,7 @@ import {
 } from './lib/track-adjacency';
 
 const ROOT = resolve(__dirname, '..');
-const DATA_DIR = resolve(ROOT, 'data');
+const DATA_DIR = resolve(ROOT, 'resources');
 const OUT_PATH = resolve(ROOT, 'assets/data/metro-graph.json');
 
 const TRANSFER_WALK_SECONDS = 150; // co-located platforms (same station complex)

@@ -1,5 +1,5 @@
 /**
- * Copies data/osm-tracks.geojson into assets/data/tracks.geojson (the asset
+ * Copies resources/osm-tracks.geojson into assets/data/tracks.geojson (the asset
  * the map screen actually bundles), minified, with each feature's `color`
  * validated as real hex -- falling back to the owning line's base color from
  * osm-lines.json when it isn't (mirrors the #gray/#aqua issue caught in the
@@ -10,7 +10,7 @@ import { resolve, dirname } from 'node:path';
 import type { RawLines } from '../src/engine/types';
 
 const ROOT = resolve(__dirname, '..');
-const DATA_DIR = resolve(ROOT, 'data');
+const DATA_DIR = resolve(ROOT, 'resources');
 // .json (not .geojson) so TypeScript's resolveJsonModule can import it directly.
 const OUT_PATH = resolve(ROOT, 'assets/data/tracks.json');
 const HEX_RE = /^#[0-9a-fA-F]{3,8}$/;
