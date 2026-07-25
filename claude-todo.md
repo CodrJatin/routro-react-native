@@ -17,49 +17,49 @@ else can be picked off individually.
 ## Checklist
 
 **P0 — live location correctness & privacy**
-- [ ] L1 — Broadcasting silently dies after backgrounding (iOS)
-- [ ] L2 — Broadcast can start while app is backgrounded; watcher leak
-- [ ] L3 — Reconnect downgrades an active broadcaster to "online"
-- [ ] L4 — Stale friend pins never leave the map
-- [ ] L5 — Staleness computed against the sender's device clock
-- [ ] L6 — Friendship list never updates; new friends don't go live
+- [x] L1 — Broadcasting silently dies after backgrounding (iOS) [done: dc94b7d]
+- [x] L2 — Broadcast can start while app is backgrounded; watcher leak [done: dc94b7d]
+- [x] L3 — Reconnect downgrades an active broadcaster to "online" [done: dc94b7d]
+- [x] L4 — Stale friend pins never leave the map [done: dc94b7d]
+- [x] L5 — Staleness computed against the sender's device clock [done: dc94b7d]
+- [x] L6 — Friendship list never updates; new friends don't go live [done: c5b62ff]
 
 **P1 — high**
-- [ ] L7 — Broadcasts fall back to per-fix HTTP POSTs when channel isn't joined
-- [ ] L8 — No error handling anywhere in the realtime pipeline
-- [ ] M1 — MapLibre runs a second GPS watcher that is never stopped
-- [ ] M2 — Camera hijack on every location tick; `focusUserId` is dead code
-- [ ] L9 — Unvalidated broadcast payload reaches the native GeoJSON layer
-- [ ] B1 — `npm run compile-data` is broken (reads `data/`, files live in `resources/`)
+- [x] L7 — Broadcasts fall back to per-fix HTTP POSTs when channel isn't joined [done: dc94b7d]
+- [x] L8 — No error handling anywhere in the realtime pipeline [done: dc94b7d]
+- [x] M1 — MapLibre runs a second GPS watcher that is never stopped [done: fe7b2a9]
+- [x] M2 — Camera hijack on every location tick; `focusUserId` is dead code [done: fe7b2a9]
+- [x] L9 — Unvalidated broadcast payload reaches the native GeoJSON layer [done: dc94b7d]
+- [x] B1 — `npm run compile-data` is broken (reads `data/`, files live in `resources/`) — done in `aae8be3`
 
 **P2 — medium**
-- [ ] A1 — Auth session stored unencrypted despite SecureStore being installed
-- [ ] A2 — Session race in AuthProvider; profile refetched on every token refresh
-- [ ] F1 — Errors swallowed throughout the friendships layer
-- [ ] M3 — "Center on me" fails silently; permission prompt fired blind on mount
-- [ ] S1 — RLS: sending a request reveals the target's profile without consent
-- [ ] S2 — `blocked` friendship status is schema-only
+- [x] A1 — Auth session stored unencrypted despite SecureStore being installed [done: 15ef405]
+- [x] A2 — Session race in AuthProvider; profile refetched on every token refresh [done: 15ef405]
+- [x] F1 — Errors swallowed throughout the friendships layer [done: c5b62ff]
+- [x] M3 — "Center on me" fails silently; permission prompt fired blind on mount [done: fe7b2a9]
+- [~] S1 — RLS: sending a request reveals the target's profile without consent — **skipped by decision**: keeps outgoing requests showing the target's name; the one-way profile read remains
+- [x] S2 — `blocked` friendship status is schema-only [done: e4a895d]
 
 **Improvements**
-- [ ] I1 — Friend pins are anonymous, identical green dots
-- [ ] I2 — Pins teleport every 5s; `heading` is captured but unused
-- [ ] I3 — Three components define "is this friend live?" independently
-- [ ] I4 — No path from the Friends tab to the map
-- [ ] I5 — "Current line" attribution is a coin flip at interchanges
-- [ ] I6 — Show distance / ETA between you and a friend
-- [ ] I7 — `findNearestStation` is a linear scan per friend per tick
-- [ ] I8 — No connection-state indicator
+- [x] I1 — Friend pins are anonymous, identical green dots [done: a5ef1fb]
+- [x] I2 — Pins teleport every 5s; `heading` is captured but unused [done: c4a0102]
+- [x] I3 — Three components define "is this friend live?" independently [done: dc94b7d]
+- [x] I4 — No path from the Friends tab to the map [done: e4a895d]
+- [x] I5 — "Current line" attribution is a coin flip at interchanges [done: 75899b8]
+- [x] I6 — Show distance / ETA between you and a friend [done: 75899b8]
+- [x] I7 — `findNearestStation` is a linear scan per friend per tick [done: 1071821]
+- [x] I8 — No connection-state indicator [done: 8bb35b4]
 
 **Minor / code health**
-- [ ] C1 — `useFonts` error is ignored; app renders blank forever on failure
-- [ ] C2 — Computed route metrics unused; interchange count recomputed
-- [ ] C3 — Itinerary clock times drift on a long-open screen
-- [ ] C4 — `router.push` to a tab route grows the stack
-- [ ] C5 — Typo: "Choose a origin"
-- [ ] C6 — Dead email/password auth methods
-- [ ] C7 — `cleanupOwnChannel` has no mutex
-- [ ] C8 — `stopLocationWatcher` is needlessly `async`
-- [ ] C9 — No tests for the location channel state machine
+- [x] C1 — `useFonts` error is ignored; app renders blank forever on failure — done in `47676a8`
+- [x] C2 — Computed route metrics unused; interchange count recomputed [done: d8b7e54]
+- [x] C3 — Itinerary clock times drift on a long-open screen [done: d8b7e54]
+- [x] C4 — `router.push` to a tab route grows the stack [done: d8b7e54]
+- [x] C5 — Typo: "Choose a origin" [done: d8b7e54]
+- [x] C6 — Dead email/password auth methods [done: 15ef405]
+- [x] C7 — `cleanupOwnChannel` has no mutex [done: dc94b7d]
+- [x] C8 — `stopLocationWatcher` is needlessly `async` [done: dc94b7d]
+- [x] C9 — No tests for the location channel state machine [done: c4a0102]
 
 ---
 
