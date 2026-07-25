@@ -21,6 +21,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/auth/AuthProvider';
+import { MetroSyncMark } from '../../src/components/MetroSyncMark';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import type { ColorTokens } from '../../src/theme/tokens';
 
@@ -49,6 +50,7 @@ export default function SignInScreen() {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.content}>
           <View style={styles.hero}>
+            <MetroSyncMark size={44} />
             <ShuttleLine colors={colors} />
             <Text style={styles.eyebrow}>DELHI METRO · LIVE</Text>
             <Text style={styles.title}>MetroSync</Text>
