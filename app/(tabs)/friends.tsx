@@ -11,6 +11,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, type Profile } from '../../src/auth/AuthProvider';
@@ -73,6 +74,7 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const handleFocus = useFocusAnimation();
+  const router = useRouter();
 
   // Read fresh on every render rather than ticked via a local setInterval --
   // useFriendStatuses() below already re-renders this component on the one
@@ -132,6 +134,12 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
     setActionError(null);
     const result = await removeFriendship(friendshipId);
     if (result.error) setActionError(result.error);
+  }
+
+  /** Hands the map a friend to focus. The map clears the param once it has
+   * flown there, so coming back to this tab later doesn't re-trigger it. */
+  function showFriendOnMap(friendUserId: string) {
+    router.navigate({ pathname: '/(tabs)', params: { focusUserId: friendUserId } });
   }
 
   function removeFriend(profile: Profile) {
@@ -238,6 +246,7 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
                 styles={styles}
                 colors={colors}
                 onRemove={() => removeFriend(profile)}
+                onShowOnMap={() => showFriendOnMap(profile.id)}
               />
             ))}
           </Section>
@@ -406,6 +415,7 @@ function ActiveFriendCard({
   styles,
   colors,
   onRemove,
+  onShowOnMap,
 }: {
   profile: Profile;
   location: FriendLocation | null;
@@ -414,6 +424,7 @@ function ActiveFriendCard({
   styles: ReturnType<typeof createStyles>;
   colors: ColorTokens;
   onRemove: () => void;
+  onShowOnMap: () => void;
 }) {
   const nearest: NearestStation | null = useMemo(
     () => (location ? findNearestStation(location.lat, location.lon) : null),
@@ -466,6 +477,20 @@ function ActiveFriendCard({
       </View>
 
       <Text style={styles.cardSubtext}>{subtext}</Text>
+
+      {/* Only offered once we actually hold a position -- otherwise there is
+          nowhere for the map to fly to and the tap would do nothing. */}
+      {location && (
+        <Pressable
+          style={({ pressed }) => [styles.showOnMapButton, pressed && styles.showOnMapPressed]}
+          onPress={onShowOnMap}
+          accessibilityRole="button"
+          accessibilityLabel={`Show ${profile.display_name ?? profile.email} on the map`}
+        >
+          <Ionicons name="map-outline" size={13} color={colors.accent} />
+          <Text style={styles.showOnMapText}>Show on map</Text>
+        </Pressable>
+      )}
     </Animated.View>
   );
 }
@@ -679,6 +704,22 @@ function createStyles(
       height: 6,
       borderRadius: 3,
       backgroundColor: colors.success,
+    },
+    showOnMapButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 5,
+      marginTop: 2,
+      paddingVertical: 4,
+    },
+    showOnMapPressed: {
+      opacity: 0.6,
+    },
+    showOnMapText: {
+      ...typography.labelCaps,
+      fontSize: 10,
+      color: colors.accent,
     },
     liveLabel: {
       ...typography.labelCaps,

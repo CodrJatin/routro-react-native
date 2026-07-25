@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Profile } from '../auth/AuthProvider';
 import { supabase } from '../lib/supabase';
 
-export type FriendshipStatus = 'pending' | 'accepted' | 'blocked';
+export type FriendshipStatus = 'pending' | 'accepted';
 
 export interface FriendshipRow {
   id: string;
