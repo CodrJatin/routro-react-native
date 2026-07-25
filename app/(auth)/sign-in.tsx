@@ -1,18 +1,28 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+  type LayoutChangeEvent,
+  type ViewStyle,
+} from 'react-native';
+import Animated, {
+  Easing,
+  FadeIn,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import type { ColorTokens } from '../../src/theme/tokens';
-
-/** Google is deliberately the only sign-in method: email/password would need a
- * custom SMTP setup to get past Supabase's confirmation-email rate limits. */
-const FEATURES: { icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
-  { icon: 'git-branch-outline', label: 'Fastest routes across the metro network' },
-  { icon: 'people-outline', label: 'See where your friends are, live' },
-  { icon: 'bookmark-outline', label: 'Save the journeys you take often' },
-];
 
 export default function SignInScreen() {
   const { colors, radius, typography } = useTheme();
@@ -33,77 +43,192 @@ export default function SignInScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.content}>
-        <View style={styles.hero}>
-          <RouteMark colors={colors} />
-          <Text style={styles.title}>MetroSync</Text>
-          <Text style={styles.subtitle}>Plan the ride. Find your people.</Text>
-        </View>
+    <View style={styles.root}>
+      <SchematicBackdrop colors={colors} />
 
-        <View style={styles.features}>
-          {FEATURES.map((feature) => (
-            <View key={feature.label} style={styles.featureRow}>
-              <Ionicons name={feature.icon} size={17} color={colors.onSurfaceVariant} />
-              <Text style={styles.featureText}>{feature.label}</Text>
-            </View>
-          ))}
-        </View>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.content}>
+          <View style={styles.hero}>
+            <ShuttleLine colors={colors} />
+            <Text style={styles.eyebrow}>DELHI METRO · LIVE</Text>
+            <Text style={styles.title}>MetroSync</Text>
+            <Text style={styles.tagline}>Plan the ride.{'\n'}Find your people.</Text>
+          </View>
 
-        <View style={styles.actions}>
-          {error && <Text style={styles.errorText}>{error}</Text>}
-
-          <Pressable
-            style={({ pressed }) => [styles.googleButton, pressed && styles.googleButtonPressed]}
-            onPress={handleGoogleSubmit}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? (
-              <ActivityIndicator color={colors.onPrimary} />
-            ) : (
-              <>
-                <Ionicons name="logo-google" size={18} color={colors.onPrimary} />
-                <Text style={styles.googleButtonText}>Continue with Google</Text>
-              </>
+          <View style={styles.actions}>
+            {error && (
+              <Animated.View entering={FadeIn.duration(160)} style={styles.errorStrip}>
+                <Text style={styles.errorText}>{error}</Text>
+              </Animated.View>
             )}
-          </Pressable>
 
+            {/* Google is deliberately the only sign-in method: email/password would
+             * need a custom SMTP setup to get past Supabase's confirmation-email
+             * rate limits. */}
+            <Pressable
+              style={({ pressed }) => [styles.googleButton, pressed && styles.googleButtonPressed]}
+              onPress={handleGoogleSubmit}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <ActivityIndicator color={colors.onPrimary} />
+              ) : (
+                <>
+                  <Ionicons name="logo-google" size={18} color={colors.onPrimary} />
+                  <Text style={styles.googleButtonText}>Continue with Google</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
         </View>
-      </View>
-    </SafeAreaView>
-  );
-}
-
-/** Three stations on a line -- the app's visual signature, standing in for a logo. */
-function RouteMark({ colors }: { colors: ColorTokens }) {
-  return (
-    <View style={markStyles.row}>
-      <View style={[markStyles.stop, { borderColor: colors.onSurfaceVariant }]} />
-      <View style={[markStyles.line, { backgroundColor: colors.outlineVariant }]} />
-      <View style={[markStyles.stopActive, { backgroundColor: colors.textPrimary }]} />
-      <View style={[markStyles.line, { backgroundColor: colors.outlineVariant }]} />
-      <View style={[markStyles.stop, { borderColor: colors.onSurfaceVariant }]} />
+      </SafeAreaView>
     </View>
   );
 }
 
-const markStyles = StyleSheet.create({
-  row: {
+/** Two trunk lines, two cross lines and a 45-degree connector, drawn at the
+ * threshold of visibility: the geometry of a transit diagram used as page
+ * texture rather than as an illustration. Sits outside the safe area so it
+ * runs edge to edge. */
+function SchematicBackdrop({ colors }: { colors: ColorTokens }) {
+  const { width, height } = useWindowDimensions();
+
+  const x1 = Math.round(width * 0.24);
+  const x2 = Math.round(width * 0.74);
+  const y1 = Math.round(height * 0.14);
+  const y2 = Math.round(height * 0.62);
+  const diagonal = Math.round(Math.hypot(width, height));
+
+  const line: ViewStyle = { position: 'absolute', backgroundColor: colors.outlineVariant };
+
+  return (
+    <View style={backdropStyles.container} pointerEvents="none">
+      <View style={[line, { left: -24, right: -24, top: y1, height: 1 }]} />
+      <View style={[line, { left: -24, right: -24, top: y2, height: 1 }]} />
+      <View style={[line, { top: -24, bottom: -24, left: x1, width: 1 }]} />
+      <View style={[line, { top: -24, bottom: -24, left: x2, width: 1 }]} />
+      <View
+        style={[
+          line,
+          {
+            width: diagonal,
+            height: 1,
+            left: Math.round((width - diagonal) / 2),
+            top: Math.round(height * 0.4),
+            transform: [{ rotate: '-52deg' }],
+          },
+        ]}
+      />
+
+      {/* Interchange boxes sit exactly on the crossings, filled with the canvas
+       * colour so the lines appear to pass behind them. */}
+      {[
+        [x1, y1],
+        [x2, y1],
+        [x1, y2],
+        [x2, y2],
+      ].map(([x, y]) => (
+        <View
+          key={`${x}-${y}`}
+          style={[
+            backdropStyles.interchange,
+            {
+              left: x - INTERCHANGE / 2,
+              top: y - INTERCHANGE / 2,
+              borderColor: colors.outline,
+              backgroundColor: colors.canvas,
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
+/** Terminus-to-terminus shuttle: the car runs back and forth between the end
+ * stops, so the screen has a pulse before you touch it. Replaces the static
+ * three-station mark that used to stand in for a logo. */
+function ShuttleLine({ colors }: { colors: ColorTokens }) {
+  const [trackWidth, setTrackWidth] = useState(0);
+  const progress = useSharedValue(0);
+  const prefersReducedMotion = useReducedMotion();
+
+  useEffect(() => {
+    if (prefersReducedMotion) return;
+    progress.value = withRepeat(
+      withTiming(1, { duration: 5200, easing: Easing.inOut(Easing.quad) }),
+      -1,
+      true,
+    );
+  }, [progress, prefersReducedMotion]);
+
+  const travel = Math.max(trackWidth - CAR_WIDTH, 0);
+  const carStyle = useAnimatedStyle(() => ({ transform: [{ translateX: progress.value * travel }] }), [travel]);
+
+  function handleLayout(event: LayoutChangeEvent) {
+    setTrackWidth(event.nativeEvent.layout.width);
+  }
+
+  return (
+    <View style={shuttleStyles.track} onLayout={handleLayout}>
+      <View style={[shuttleStyles.rail, { backgroundColor: colors.outlineVariant }]} />
+      <View style={shuttleStyles.stops} pointerEvents="none">
+        <View style={[shuttleStyles.stop, { backgroundColor: colors.outline }]} />
+        <View style={[shuttleStyles.stop, { backgroundColor: colors.outline }]} />
+        <View style={[shuttleStyles.stop, { backgroundColor: colors.outline }]} />
+      </View>
+      <Animated.View style={[shuttleStyles.car, { backgroundColor: colors.textPrimary }, carStyle]} />
+    </View>
+  );
+}
+
+const INTERCHANGE = 10;
+const CAR_WIDTH = 26;
+
+const backdropStyles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0.6,
+  },
+  interchange: {
+    position: 'absolute',
+    width: INTERCHANGE,
+    height: INTERCHANGE,
+    borderWidth: 1,
+  },
+});
+
+const shuttleStyles = StyleSheet.create({
+  track: {
+    height: 18,
+    justifyContent: 'center',
+  },
+  rail: {
+    height: 1,
+  },
+  stops: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
   stop: {
-    width: 10,
+    width: 2,
     height: 10,
-    borderWidth: 2,
   },
-  stopActive: {
-    width: 14,
-    height: 14,
-  },
-  line: {
-    width: 34,
-    height: 2,
+  car: {
+    position: 'absolute',
+    left: 0,
+    width: CAR_WIDTH,
+    height: 4,
   },
 });
 
@@ -113,50 +238,53 @@ function createStyles(
   typography: ReturnType<typeof useTheme>['typography'],
 ) {
   return StyleSheet.create({
-    safeArea: {
+    root: {
       flex: 1,
       backgroundColor: colors.canvas,
     },
+    safeArea: {
+      flex: 1,
+    },
+    // Bottom-weighted: the schematic gets the open space up top, the wordmark
+    // and the button stay in thumb reach.
     content: {
       flex: 1,
-      justifyContent: 'center',
-      paddingHorizontal: 24,
-      gap: 40,
+      justifyContent: 'flex-end',
+      paddingHorizontal: 28,
+      paddingBottom: 24,
+      gap: 48,
     },
     hero: {
-      alignItems: 'center',
-      gap: 16,
+      gap: 14,
+    },
+    eyebrow: {
+      ...typography.labelCaps,
+      color: colors.textSecondary,
+      letterSpacing: 2,
     },
     title: {
       ...typography.displayLg,
       color: colors.textPrimary,
-      textAlign: 'center',
     },
-    subtitle: {
-      ...typography.bodyMd,
+    tagline: {
+      ...typography.bodyLg,
       color: colors.textSecondary,
-      textAlign: 'center',
-    },
-    features: {
-      gap: 14,
-      borderLeftWidth: 2,
-      borderLeftColor: colors.outlineVariant,
-      paddingLeft: 16,
-    },
-    featureRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-    },
-    featureText: {
-      ...typography.bodyMd,
-      fontSize: 14,
-      lineHeight: 20,
-      color: colors.textSecondary,
-      flex: 1,
     },
     actions: {
       gap: 14,
+    },
+    errorStrip: {
+      backgroundColor: colors.surfaceContainer,
+      borderLeftWidth: 2,
+      borderLeftColor: colors.danger,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+    },
+    errorText: {
+      ...typography.bodyMd,
+      fontSize: 13,
+      lineHeight: 18,
+      color: colors.danger,
     },
     googleButton: {
       flexDirection: 'row',
@@ -165,7 +293,7 @@ function createStyles(
       gap: 10,
       backgroundColor: colors.accent,
       borderRadius: radiusNone,
-      paddingVertical: 16,
+      paddingVertical: 17,
     },
     googleButtonPressed: {
       opacity: 0.85,
@@ -175,13 +303,7 @@ function createStyles(
       fontSize: 15,
       fontWeight: '700',
       fontFamily: 'Outfit_600SemiBold',
-    },
-    errorText: {
-      ...typography.bodyMd,
-      fontSize: 13,
-      lineHeight: 18,
-      color: colors.danger,
-      textAlign: 'center',
+      letterSpacing: 0.2,
     },
   });
 }
