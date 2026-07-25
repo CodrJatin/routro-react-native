@@ -1,76 +1,31 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/auth/AuthProvider';
-import { SegmentedToggle, type SegmentedToggleOption } from '../../src/components/SegmentedToggle';
 import { useTheme } from '../../src/theme/ThemeProvider';
-import { useSharedStyles } from '../../src/theme/sharedStyles';
 import type { ColorTokens } from '../../src/theme/tokens';
-import { AnimatedTextInput, useFocusAnimation } from '../../src/theme/useFocusAnimation';
 
-type Mode = 'sign-in' | 'sign-up';
-
-const MODE_OPTIONS: SegmentedToggleOption<Mode>[] = [
-  { value: 'sign-in', label: 'Sign In', icon: 'log-in-outline' },
-  { value: 'sign-up', label: 'Sign Up', icon: 'person-add-outline' },
+/** Google is deliberately the only sign-in method: email/password would need a
+ * custom SMTP setup to get past Supabase's confirmation-email rate limits. */
+const FEATURES: { icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
+  { icon: 'git-branch-outline', label: 'Fastest routes across the metro network' },
+  { icon: 'people-outline', label: 'See where your friends are, live' },
+  { icon: 'bookmark-outline', label: 'Save the journeys you take often' },
 ];
 
 export default function SignInScreen() {
-  const { colors, radius } = useTheme();
-  const shared = useSharedStyles();
-  const styles = useMemo(() => createStyles(colors, radius.none, shared), [colors, radius, shared]);
-  const { signInWithEmail, signUpWithEmail, signInWithGoogle } = useAuth();
-  const emailFocus = useFocusAnimation();
-  const passwordFocus = useFocusAnimation();
-  const [mode, setMode] = useState<Mode>('sign-in');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const { colors, radius, typography } = useTheme();
+  const styles = useMemo(
+    () => createStyles(colors, radius.none, typography),
+    [colors, radius, typography],
+  );
+  const { signInWithGoogle } = useAuth();
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  async function handleEmailSubmit() {
-    setError(null);
-    setNotice(null);
-    if (!email.trim() || !password) {
-      setError('Enter both email and password.');
-      return;
-    }
-    setIsSubmitting(true);
-    const result =
-      mode === 'sign-in'
-        ? await signInWithEmail(email.trim(), password)
-        : await signUpWithEmail(email.trim(), password);
-    setIsSubmitting(false);
-
-    if (result.error) {
-      setError(result.error);
-    } else if (mode === 'sign-up') {
-      setNotice('Account created. Check your email to confirm, then sign in.');
-      setMode('sign-in');
-    }
-  }
-
-  function handleModeChange(next: Mode) {
-    // Messages describe the previous attempt, so they'd be misleading once the
-    // form switches purpose.
-    setError(null);
-    setNotice(null);
-    setMode(next);
-  }
 
   async function handleGoogleSubmit() {
     setError(null);
-    setNotice(null);
     setIsSubmitting(true);
     const result = await signInWithGoogle();
     setIsSubmitting(false);
@@ -79,138 +34,154 @@ export default function SignInScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <View style={styles.content}>
+      <View style={styles.content}>
+        <View style={styles.hero}>
+          <RouteMark colors={colors} />
           <Text style={styles.title}>MetroSync</Text>
-          <Text style={styles.subtitle}>
-            {mode === 'sign-in' ? 'Sign in to continue' : 'Create your account'}
-          </Text>
-
-          <View style={styles.form}>
-            <SegmentedToggle options={MODE_OPTIONS} value={mode} onChange={handleModeChange} />
-
-            <AnimatedTextInput
-              style={[styles.input, { borderColor: emailFocus.borderColor, borderWidth: emailFocus.borderWidth }]}
-              placeholder="Email"
-              placeholderTextColor={colors.textSecondary}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              value={email}
-              onChangeText={setEmail}
-              onFocus={emailFocus.onFocus}
-              onBlur={emailFocus.onBlur}
-            />
-            <AnimatedTextInput
-              style={[styles.input, { borderColor: passwordFocus.borderColor, borderWidth: passwordFocus.borderWidth }]}
-              placeholder="Password"
-              placeholderTextColor={colors.textSecondary}
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-              onFocus={passwordFocus.onFocus}
-              onBlur={passwordFocus.onBlur}
-            />
-
-            {error && <Text style={styles.errorText}>{error}</Text>}
-            {notice && <Text style={styles.noticeText}>{notice}</Text>}
-
-            <Pressable
-              style={styles.primaryButton}
-              onPress={handleEmailSubmit}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <ActivityIndicator color={colors.onPrimary} />
-              ) : (
-                <Text style={styles.primaryButtonText}>
-                  {mode === 'sign-in' ? 'Sign In' : 'Sign Up'}
-                </Text>
-              )}
-            </Pressable>
-
-            <Pressable
-              style={styles.googleButton}
-              onPress={handleGoogleSubmit}
-              disabled={isSubmitting}
-            >
-              <Ionicons name="logo-google" size={18} color={colors.textPrimary} />
-              <Text style={styles.googleButtonText}>Continue with Google</Text>
-            </Pressable>
-          </View>
+          <Text style={styles.subtitle}>Plan the ride. Find your people.</Text>
         </View>
-      </KeyboardAvoidingView>
+
+        <View style={styles.features}>
+          {FEATURES.map((feature) => (
+            <View key={feature.label} style={styles.featureRow}>
+              <Ionicons name={feature.icon} size={17} color={colors.onSurfaceVariant} />
+              <Text style={styles.featureText}>{feature.label}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.actions}>
+          {error && <Text style={styles.errorText}>{error}</Text>}
+
+          <Pressable
+            style={({ pressed }) => [styles.googleButton, pressed && styles.googleButtonPressed]}
+            onPress={handleGoogleSubmit}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color={colors.onPrimary} />
+            ) : (
+              <>
+                <Ionicons name="logo-google" size={18} color={colors.onPrimary} />
+                <Text style={styles.googleButtonText}>Continue with Google</Text>
+              </>
+            )}
+          </Pressable>
+
+        </View>
+      </View>
     </SafeAreaView>
   );
 }
 
-function createStyles(colors: ColorTokens, radiusNone: number, shared: ReturnType<typeof useSharedStyles>) {
+/** Three stations on a line -- the app's visual signature, standing in for a logo. */
+function RouteMark({ colors }: { colors: ColorTokens }) {
+  return (
+    <View style={markStyles.row}>
+      <View style={[markStyles.stop, { borderColor: colors.onSurfaceVariant }]} />
+      <View style={[markStyles.line, { backgroundColor: colors.outlineVariant }]} />
+      <View style={[markStyles.stopActive, { backgroundColor: colors.textPrimary }]} />
+      <View style={[markStyles.line, { backgroundColor: colors.outlineVariant }]} />
+      <View style={[markStyles.stop, { borderColor: colors.onSurfaceVariant }]} />
+    </View>
+  );
+}
+
+const markStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  stop: {
+    width: 10,
+    height: 10,
+    borderWidth: 2,
+  },
+  stopActive: {
+    width: 14,
+    height: 14,
+  },
+  line: {
+    width: 34,
+    height: 2,
+  },
+});
+
+function createStyles(
+  colors: ColorTokens,
+  radiusNone: number,
+  typography: ReturnType<typeof useTheme>['typography'],
+) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
       backgroundColor: colors.canvas,
     },
-    flex: {
-      flex: 1,
-    },
     content: {
       flex: 1,
       justifyContent: 'center',
-      padding: 24,
-      gap: 24,
+      paddingHorizontal: 24,
+      gap: 40,
+    },
+    hero: {
+      alignItems: 'center',
+      gap: 16,
     },
     title: {
+      ...typography.displayLg,
       color: colors.textPrimary,
-      fontSize: 32,
-      fontWeight: '800',
       textAlign: 'center',
     },
     subtitle: {
+      ...typography.bodyMd,
       color: colors.textSecondary,
-      fontSize: 15,
       textAlign: 'center',
     },
-    form: {
+    features: {
+      gap: 14,
+      borderLeftWidth: 2,
+      borderLeftColor: colors.outlineVariant,
+      paddingLeft: 16,
+    },
+    featureRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
       gap: 12,
     },
-    input: shared.textInput,
-    errorText: {
-      color: colors.danger,
-      fontSize: 13,
+    featureText: {
+      ...typography.bodyMd,
+      fontSize: 14,
+      lineHeight: 20,
+      color: colors.textSecondary,
+      flex: 1,
     },
-    noticeText: {
-      color: colors.success,
-      fontSize: 13,
-    },
-    primaryButton: {
-      backgroundColor: colors.accent,
-      borderRadius: radiusNone,
-      paddingVertical: 13,
-      alignItems: 'center',
-      marginTop: 4,
-    },
-    primaryButtonText: {
-      color: colors.onPrimary,
-      fontSize: 15,
-      fontWeight: '700',
+    actions: {
+      gap: 14,
     },
     googleButton: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       gap: 10,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
+      backgroundColor: colors.accent,
       borderRadius: radiusNone,
-      paddingVertical: 13,
+      paddingVertical: 16,
+    },
+    googleButtonPressed: {
+      opacity: 0.85,
     },
     googleButtonText: {
-      color: colors.textPrimary,
-      fontSize: 14,
-      fontWeight: '600',
+      color: colors.onPrimary,
+      fontSize: 15,
+      fontWeight: '700',
+      fontFamily: 'Outfit_600SemiBold',
+    },
+    errorText: {
+      ...typography.bodyMd,
+      fontSize: 13,
+      lineHeight: 18,
+      color: colors.danger,
+      textAlign: 'center',
     },
   });
 }
