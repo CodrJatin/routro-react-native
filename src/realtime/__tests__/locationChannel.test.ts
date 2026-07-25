@@ -71,7 +71,8 @@ vi.mock('../../lib/supabase', () => ({
 }));
 
 /** Watchers handed out by watchPositionAsync, so tests can assert none leak. */
-const watchers: { removed: boolean; fire: (position: unknown) => void }[] = [];
+const watchers: { removed: boolean; fire: (position: unknown) => void; fail: (reason: string) => void }[] = [];
+let servicesEnabled = true;
 let permissionStatus = 'granted';
 /** Lets a test suspend watchPositionAsync mid-call to exercise the window
  * between "permission granted" and "watcher installed". */
@@ -87,11 +88,17 @@ vi.mock('expo-location', () => ({
     permissionRequestHook?.();
     return { status: permissionStatus };
   },
-  watchPositionAsync: async (_options: unknown, callback: (position: unknown) => void) => {
+  hasServicesEnabledAsync: async () => servicesEnabled,
+  watchPositionAsync: async (
+    _options: unknown,
+    callback: (position: unknown) => void,
+    errorHandler?: (reason: string) => void,
+  ) => {
     if (watchGate) await watchGate;
     const watcher = {
       removed: false,
       fire: callback,
+      fail: (reason: string) => errorHandler?.(reason),
       remove() {
         watcher.removed = true;
       },
@@ -144,6 +151,7 @@ describe('locationChannelManager', () => {
     permissionStatus = 'granted';
     watchGate = null;
     permissionRequestHook = null;
+    servicesEnabled = true;
     appStateListeners.clear();
     appState.currentState = 'active';
     locationChannelManager.setHandlers({
@@ -152,6 +160,7 @@ describe('locationChannelManager', () => {
       onFriendPresence() {},
       onFriendRemoved() {},
       onConnectionChange() {},
+      onBroadcastInterrupted() {},
     });
   });
 
@@ -193,7 +202,7 @@ describe('locationChannelManager', () => {
 
     vi.useFakeTimers();
     const pending = locationChannelManager.setBroadcasting(true);
-    await vi.advanceTimersByTimeAsync(6000);
+    await vi.advanceTimersByTimeAsync(95000);
     const result = await pending;
     vi.useRealTimers();
 
@@ -286,6 +295,7 @@ describe('locationChannelManager', () => {
       onFriendPresence() {},
       onFriendRemoved() {},
       onConnectionChange() {},
+      onBroadcastInterrupted() {},
     });
 
     await locationChannelManager.joinOwn(USER_ID);
@@ -349,6 +359,7 @@ describe('locationChannelManager', () => {
       onFriendPresence() {},
       onFriendRemoved() {},
       onConnectionChange: (state) => states.push(state),
+      onBroadcastInterrupted() {},
     });
 
     await locationChannelManager.joinOwn(USER_ID);
@@ -359,6 +370,44 @@ describe('locationChannelManager', () => {
     expect(states.at(-1)).toBe('connecting');
   });
 
+  it('stops and reports when the location provider errors mid-broadcast', async () => {
+    const interruptions: string[] = [];
+    const broadcastingChanges: boolean[] = [];
+    locationChannelManager.setHandlers({
+      onBroadcastingChange: (enabled) => broadcastingChanges.push(enabled),
+      onFriendLocation() {},
+      onFriendPresence() {},
+      onFriendRemoved() {},
+      onConnectionChange() {},
+      onBroadcastInterrupted: (reason) => interruptions.push(reason),
+    });
+
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+    await locationChannelManager.setBroadcasting(true);
+
+    // Switching GPS off while sharing: the provider reports it, and that
+    // used to go nowhere -- leaving the button lit over a dead watcher.
+    const watcher = watchers.find((w) => !w.removed)!;
+    watcher.fail('Location services are disabled');
+
+    expect(interruptions).toHaveLength(1);
+    expect(broadcastingChanges.at(-1)).toBe(false);
+    expect(watchers.every((w) => w.removed)).toBe(true);
+  });
+
+  it('refuses to start when location services are switched off', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+
+    servicesEnabled = false;
+    const result = await locationChannelManager.setBroadcasting(true);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain('Location is turned off');
+    expect(watchers).toHaveLength(0);
+  });
+
   it('rejects malformed friend payloads before they reach the store', async () => {
     const received: unknown[] = [];
     locationChannelManager.setHandlers({
@@ -367,6 +416,7 @@ describe('locationChannelManager', () => {
       onFriendPresence() {},
       onFriendRemoved() {},
       onConnectionChange() {},
+      onBroadcastInterrupted() {},
     });
 
     await locationChannelManager.joinOwn(USER_ID);

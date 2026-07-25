@@ -33,6 +33,10 @@ export interface FriendLocation {
 interface LocationState {
   isBroadcasting: boolean;
   connectionState: ConnectionState;
+  /** Set when broadcasting stopped for a reason the user didn't choose, so
+   * the map can tell them. Cleared once shown. */
+  broadcastNotice: string | null;
+  setBroadcastNotice: (notice: string | null) => void;
   friendLocations: Record<string, FriendLocation>;
   friendPresence: Record<string, PresenceStatus>;
   setBroadcasting: (value: boolean) => void;
@@ -49,12 +53,15 @@ interface LocationState {
 export const useLocationStore = create<LocationState>((set) => ({
   isBroadcasting: false,
   connectionState: 'connecting',
+  broadcastNotice: null,
   friendLocations: {},
   friendPresence: {},
 
   setBroadcasting: (value) => set({ isBroadcasting: value }),
 
   setConnectionState: (state) => set({ connectionState: state }),
+
+  setBroadcastNotice: (notice) => set({ broadcastNotice: notice }),
 
   upsertFriendLocation: (loc) =>
     set((state) => {

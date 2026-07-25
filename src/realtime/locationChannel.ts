@@ -6,6 +6,13 @@ import type { ConnectionState, FriendLocation, PresenceStatus } from './location
 
 const BROADCAST_DISTANCE_METERS = 15;
 const BROADCAST_INTERVAL_MS = 5000;
+/** How often to confirm the device still has location switched on while
+ * broadcasting. */
+const SERVICES_CHECK_INTERVAL_MS = 15_000;
+/** A system location prompt can send the user into Settings for a while, so
+ * the wait for the app to come back has to be generous -- 5s timed out
+ * before someone could realistically flip the toggle and return. */
+const FOREGROUND_WAIT_MS = 90_000;
 
 function topicFor(userId: string): string {
   return `user-location:${userId}`;
@@ -49,6 +56,11 @@ export interface LocationManagerHandlers {
   onFriendPresence(userId: string, status: PresenceStatus): void;
   onFriendRemoved(userId: string): void;
   onConnectionChange(state: ConnectionState): void;
+  /** Broadcasting stopped on its own -- GPS switched off, provider error --
+   * rather than because the user toggled it. The UI needs to say so, since
+   * the alternative is the button quietly staying lit while nothing is
+   * actually being shared. */
+  onBroadcastInterrupted(reason: string): void;
 }
 
 /** Why a broadcast toggle didn't take effect, so the UI can say so instead
@@ -62,6 +74,7 @@ const noopHandlers: LocationManagerHandlers = {
   onFriendPresence() {},
   onFriendRemoved() {},
   onConnectionChange() {},
+  onBroadcastInterrupted() {},
 };
 
 /**
@@ -88,6 +101,7 @@ class LocationChannelManager {
    * its watcher back down -- without cancelling enables that merely paused
    * behind a permission dialog. */
   private isPausedForBackground = false;
+  private servicesWatchdog: ReturnType<typeof setInterval> | null = null;
   private friendChannels = new Map<string, RealtimeChannel>();
   private locationSubscription: Location.LocationSubscription | null = null;
   private isBroadcasting = false;
@@ -243,7 +257,7 @@ class LocationChannelManager {
    * active yet -- refusing there rejected the very flow that just succeeded.
    * Waiting for the dialog to close is the correct behaviour; a real
    * backgrounding simply never returns and times out. */
-  private waitForForeground(timeoutMs = 5000): Promise<boolean> {
+  private waitForForeground(timeoutMs = FOREGROUND_WAIT_MS): Promise<boolean> {
     if (AppState.currentState === 'active') return Promise.resolve(true);
     return new Promise((resolve) => {
       const subscription = AppState.addEventListener('change', (next) => {
@@ -312,6 +326,16 @@ class LocationChannelManager {
       );
     }
 
+    // Permission granted is not the same as GPS being switched on. Without
+    // this, broadcasting "started" happily and then never produced a single
+    // fix, leaving the button lit while nothing was shared.
+    if (!(await this.hasLocationServices())) {
+      return this.refuse(
+        'services-disabled',
+        'Location is turned off on this device. Switch it on, then try again.',
+      );
+    }
+
     // Wait for the channel to have actually joined before installing the
     // watcher -- sending while still joining/reconnecting makes realtime-js
     // silently fall back to one REST POST per message.
@@ -336,7 +360,10 @@ class LocationChannelManager {
     // Belt-and-suspenders: guarantee any previous watcher is gone before
     // assigning a new one, however it might have gotten there.
     this.stopLocationWatcher();
-    const subscription = await Location.watchPositionAsync(
+
+    let subscription: Location.LocationSubscription;
+    try {
+      subscription = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.Balanced,
         distanceInterval: BROADCAST_DISTANCE_METERS,
@@ -358,7 +385,19 @@ class LocationChannelManager {
           }
         });
       },
-    );
+      // Third argument, previously omitted: the provider reporting a problem
+      // (GPS switched off mid-session being the obvious one) used to go
+      // nowhere, so sharing looked healthy while no fix would ever arrive.
+      (reason) => this.interruptBroadcast(reason),
+      );
+    } catch (error) {
+      return this.refuse(
+        'watcher-failed',
+        error instanceof Error
+          ? `Couldn't start GPS: ${error.message}`
+          : "Couldn't start GPS on this device.",
+      );
+    }
 
     if (myBroadcastGeneration !== this.broadcastGeneration) {
       // Superseded while awaiting watchPositionAsync -- remove what was just
@@ -381,8 +420,50 @@ class LocationChannelManager {
     }
 
     this.locationSubscription = subscription;
+    this.startServicesWatchdog();
     this.setIsBroadcasting(true);
     return { ok: true };
+  }
+
+  private async hasLocationServices(): Promise<boolean> {
+    try {
+      return await Location.hasServicesEnabledAsync();
+    } catch {
+      // Can't tell -- don't block the user on a failed capability check.
+      return true;
+    }
+  }
+
+  /** Android can simply stop delivering fixes when location is switched off,
+   * without ever invoking the watcher's error handler. This polls so that
+   * case still surfaces instead of leaving the button lit forever. */
+  private startServicesWatchdog(): void {
+    this.stopServicesWatchdog();
+    this.servicesWatchdog = setInterval(async () => {
+      if (!this.isBroadcasting) return;
+      if (!(await this.hasLocationServices())) {
+        this.interruptBroadcast('Location was turned off on this device.');
+      }
+    }, SERVICES_CHECK_INTERVAL_MS);
+  }
+
+  private stopServicesWatchdog(): void {
+    if (this.servicesWatchdog !== null) {
+      clearInterval(this.servicesWatchdog);
+      this.servicesWatchdog = null;
+    }
+  }
+
+  /** Broadcasting stopped for a reason the user didn't choose. Tear it down
+   * properly and say so, rather than leaving a green button over a dead
+   * watcher. */
+  private interruptBroadcast(reason: string): void {
+    if (!this.isBroadcasting) return;
+    console.warn(`[broadcast] interrupted: ${reason}`);
+    this.stopLocationWatcher();
+    this.setIsBroadcasting(false);
+    void this.ownChannel?.track({ status: 'online' satisfies PresenceStatus });
+    this.handlers.onBroadcastInterrupted(reason);
   }
 
   private setIsBroadcasting(enabled: boolean): void {
@@ -391,6 +472,7 @@ class LocationChannelManager {
   }
 
   private stopLocationWatcher(): void {
+    this.stopServicesWatchdog();
     this.locationSubscription?.remove();
     this.locationSubscription = null;
   }

@@ -53,6 +53,16 @@ export default function MapScreen() {
   const { isConfigured, session } = useAuth();
   const isBroadcasting = useLocationStore((state) => state.isBroadcasting);
   const connectionState = useLocationStore((state) => state.connectionState);
+  const broadcastNotice = useLocationStore((state) => state.broadcastNotice);
+
+  // Broadcasting stopped without the user asking (GPS switched off, provider
+  // error). Say so -- the failure mode this replaces was a green button over
+  // a dead watcher, sharing nothing.
+  useEffect(() => {
+    if (!broadcastNotice) return;
+    Alert.alert('Sharing stopped', broadcastNotice);
+    useLocationStore.getState().setBroadcastNotice(null);
+  }, [broadcastNotice]);
 
   // Drives a smooth color crossfade on the button fill instead of an instant
   // snap when broadcasting toggles on/off.
