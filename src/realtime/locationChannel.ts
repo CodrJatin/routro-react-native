@@ -1,5 +1,5 @@
 import * as Location from 'expo-location';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import type { ConnectionState, FriendLocation, PresenceStatus } from './locationStore';
@@ -9,6 +9,13 @@ const BROADCAST_INTERVAL_MS = 5000;
 /** How often to confirm the device still has location switched on while
  * broadcasting. */
 const SERVICES_CHECK_INTERVAL_MS = 15_000;
+/** How long to give the location providers to come up after the user accepts
+ * the system enable dialog, and how often to look. */
+const SERVICES_ENABLE_WAIT_MS = 6000;
+const SERVICES_ENABLE_POLL_MS = 300;
+/** How long to wait on a freshly recreated channel. Longer than the first
+ * wait: this one starts from a cold join, not a possibly-recovering one. */
+const REJOIN_WAIT_MS = 8000;
 /** A system location prompt can send the user into Settings for a while, so
  * the wait for the app to come back has to be generous -- 5s timed out
  * before someone could realistically flip the toggle and return. */
@@ -178,6 +185,18 @@ class LocationChannelManager {
     this.ownChannel = channel;
   }
 
+  /** Tears the own channel down and joins a fresh one for the same user.
+   * `joinOwn` alone is a no-op when a channel for that user already exists,
+   * which is precisely the stuck case this exists for. Deliberately does not
+   * touch `broadcastGeneration`: a `setBroadcasting` call that asked for this
+   * rejoin must survive it. */
+  private async rejoinOwnChannel(): Promise<void> {
+    const userId = this.ownUserId;
+    if (!userId) return;
+    await this.cleanupOwnChannel(); // clears ownUserId, hence the capture above
+    await this.joinOwn(userId);
+  }
+
   /** Public exit point -- bumps generation so any in-flight joinOwn call
    * detects it's been superseded and discards its work instead of
    * clobbering the (now torn-down) state. Also bumps broadcastGeneration so
@@ -330,21 +349,89 @@ class LocationChannelManager {
     // this, broadcasting "started" happily and then never produced a single
     // fix, leaving the button lit while nothing was shared.
     if (!(await this.hasLocationServices())) {
-      return this.refuse(
-        'services-disabled',
-        'Location is turned off on this device. Switch it on, then try again.',
-      );
+      // Android can offer to switch location on right here, without sending
+      // the user off to Settings -- so ask, rather than telling them to go do
+      // it themselves and come back.
+      const accepted = await this.promptToEnableLocationServices();
+      if (myBroadcastGeneration !== this.broadcastGeneration) {
+        return this.refuse(
+          'superseded-services-prompt',
+          'Sharing was interrupted while turning location on. Try again.',
+        );
+      }
+      // The dialog hands focus away; wait for it back before deciding
+      // anything, same as after the permission prompt.
+      if (!(await this.waitForForeground())) {
+        return this.refuse(
+          `not-active-after-services:${String(AppState.currentState)}`,
+          'The app left the foreground before sharing could start. Try again.',
+        );
+      }
+      if (myBroadcastGeneration !== this.broadcastGeneration) {
+        return this.refuse(
+          'superseded-services-foreground',
+          'Sharing was interrupted while turning location on. Try again.',
+        );
+      }
+      // Accepting the dialog resolves as soon as the *setting* flips, which
+      // is before the providers report themselves as up -- checking once
+      // right here said "still off" and refused the attempt the user had
+      // just approved. Give it a moment to come up. A declined dialog gets
+      // the single check instead, so "no" is answered immediately.
+      const servicesOn = accepted
+        ? await this.waitForLocationServices()
+        : await this.hasLocationServices();
+      if (myBroadcastGeneration !== this.broadcastGeneration) {
+        return this.refuse(
+          'superseded-services-wait',
+          'Sharing was interrupted while turning location on. Try again.',
+        );
+      }
+      if (!servicesOn) {
+        return this.refuse(
+          'services-disabled',
+          'Location is turned off on this device. Switch it on, then try again.',
+        );
+      }
     }
 
     // Wait for the channel to have actually joined before installing the
     // watcher -- sending while still joining/reconnecting makes realtime-js
     // silently fall back to one REST POST per message.
-    const joined = await this.waitForOwnChannelJoined();
+    let joined = await this.waitForOwnChannelJoined();
     if (myBroadcastGeneration !== this.broadcastGeneration) {
       return this.refuse(
         'superseded-join',
         'Sharing was interrupted while connecting. Try again.',
       );
+    }
+    if (!joined) {
+      // A channel can be left sitting closed after the socket dropped --
+      // most often right after a system dialog backgrounded the app, which
+      // is exactly when the user comes back and taps share. Waiting longer
+      // does nothing for a channel nothing is rejoining, so recreate it once
+      // before giving up.
+      console.warn(`[broadcast] channel not joined (${this.ownChannel?.state ?? 'gone'}), rejoining`);
+      // Rejoining clears the last channel error, and a fresh channel that
+      // merely times out never sets a new one -- so keep the old message to
+      // fall back on, or the refusal below loses the only real diagnostic
+      // (an auth/RLS rejection, typically) it had.
+      const priorError = this.lastChannelError;
+      await this.rejoinOwnChannel();
+      this.lastChannelError ??= priorError;
+      if (myBroadcastGeneration !== this.broadcastGeneration) {
+        return this.refuse(
+          'superseded-rejoin',
+          'Sharing was interrupted while reconnecting. Try again.',
+        );
+      }
+      joined = await this.waitForOwnChannelJoined(REJOIN_WAIT_MS);
+      if (myBroadcastGeneration !== this.broadcastGeneration) {
+        return this.refuse(
+          'superseded-rejoin-wait',
+          'Sharing was interrupted while reconnecting. Try again.',
+        );
+      }
     }
     if (!joined || !this.ownChannel) {
       return this.refuse(
@@ -431,6 +518,37 @@ class LocationChannelManager {
     } catch {
       // Can't tell -- don't block the user on a failed capability check.
       return true;
+    }
+  }
+
+  /** Shows Android's own "turn on location?" resolution dialog (Play
+   * services). Returns whether the user accepted -- not whether location is
+   * actually up yet, which the caller confirms separately. iOS has no
+   * equivalent API (the toggle lives in Settings), so there this is a no-op
+   * and the caller falls back to explaining. */
+  private async promptToEnableLocationServices(): Promise<boolean> {
+    if (Platform.OS !== 'android') return false;
+    try {
+      await Location.enableNetworkProviderAsync();
+      return true;
+    } catch {
+      // Declined, or no Play services to ask with.
+      return false;
+    }
+  }
+
+  /** Polls until location services report themselves on, up to a short
+   * budget. Used right after the user accepts the enable dialog, where the
+   * providers reliably take a beat to actually come up. */
+  private async waitForLocationServices(
+    timeoutMs = SERVICES_ENABLE_WAIT_MS,
+    intervalMs = SERVICES_ENABLE_POLL_MS,
+  ): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      if (await this.hasLocationServices()) return true;
+      if (Date.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
   }
 

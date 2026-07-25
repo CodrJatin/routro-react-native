@@ -74,6 +74,10 @@ vi.mock('../../lib/supabase', () => ({
 const watchers: { removed: boolean; fire: (position: unknown) => void; fail: (reason: string) => void }[] = [];
 let servicesEnabled = true;
 let permissionStatus = 'granted';
+/** Calls to the Android "turn location on?" resolution dialog. The hook lets
+ * a test decide the outcome -- accepting it flips `servicesEnabled`. */
+let enableProviderCalls = 0;
+let enableProviderHook: (() => void) | null = null;
 /** Lets a test suspend watchPositionAsync mid-call to exercise the window
  * between "permission granted" and "watcher installed". */
 let watchGate: Promise<void> | null = null;
@@ -89,6 +93,11 @@ vi.mock('expo-location', () => ({
     return { status: permissionStatus };
   },
   hasServicesEnabledAsync: async () => servicesEnabled,
+  enableNetworkProviderAsync: async () => {
+    enableProviderCalls += 1;
+    if (!enableProviderHook) throw new Error('denied');
+    enableProviderHook();
+  },
   watchPositionAsync: async (
     _options: unknown,
     callback: (position: unknown) => void,
@@ -124,9 +133,14 @@ function setAppState(next: string) {
   for (const listener of Array.from(appStateListeners)) listener(next);
 }
 
+let platformOS = 'android';
+
 vi.mock('react-native', () => ({
   get AppState() {
     return appState;
+  },
+  get Platform() {
+    return { OS: platformOS };
   },
 }));
 
@@ -135,9 +149,14 @@ const { locationChannelManager } = await import('../locationChannel');
 const USER_ID = 'self-user';
 const FRIEND_ID = 'friend-user';
 
+/** The *current* own channel: a stuck join gets recreated, so an early
+ * reference goes stale and only the newest one is the live one. */
 function ownChannel(): FakeChannel {
-  return channels.find((c) => c.topic === `user-location:${USER_ID}`)!;
+  return channels.filter((c) => c.topic === `user-location:${USER_ID}`).at(-1)!;
 }
+
+/** Long enough for the join wait, the rejoin, and the second join wait. */
+const JOIN_GIVE_UP_MS = 20_000;
 
 function position(lat: number, lon: number) {
   return { coords: { latitude: lat, longitude: lon, heading: null }, timestamp: 1_700_000_000_000 };
@@ -152,6 +171,9 @@ describe('locationChannelManager', () => {
     watchGate = null;
     permissionRequestHook = null;
     servicesEnabled = true;
+    enableProviderCalls = 0;
+    enableProviderHook = null;
+    platformOS = 'android';
     appStateListeners.clear();
     appState.currentState = 'active';
     locationChannelManager.setHandlers({
@@ -321,13 +343,14 @@ describe('locationChannelManager', () => {
     // Fake timers so the join-wait's poll doesn't burn real seconds.
     vi.useFakeTimers();
     const refusedPromise = locationChannelManager.setBroadcasting(true);
-    await vi.advanceTimersByTimeAsync(7000);
+    await vi.advanceTimersByTimeAsync(JOIN_GIVE_UP_MS);
     const refused = await refusedPromise;
     vi.useRealTimers();
     expect(refused.ok).toBe(false);
 
-    // The channel recovers on its own, as realtime-js does.
-    await channel.emit('SUBSCRIBED');
+    // The channel recovers on its own, as realtime-js does. That attempt
+    // recreated the channel, so it's the newest one that comes back.
+    await ownChannel().emit('SUBSCRIBED');
 
     // This must now succeed. Latching the first failure is what previously
     // left the button dead for the rest of the session.
@@ -343,12 +366,39 @@ describe('locationChannelManager', () => {
 
     vi.useFakeTimers();
     const pending = locationChannelManager.setBroadcasting(true);
-    await vi.advanceTimersByTimeAsync(7000);
+    await vi.advanceTimersByTimeAsync(JOIN_GIVE_UP_MS);
     const result = await pending;
     vi.useRealTimers();
 
     expect(result.ok).toBe(false);
+    // Survives the rejoin attempt in between, which clears the error the
+    // channel reported and is the only thing that explains the failure.
     if (!result.ok) expect(result.reason).toContain('CHANNEL_ERROR');
+  });
+
+  it('recreates a stuck channel instead of refusing on it', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    const stuck = ownChannel();
+    // Socket dropped -- realtime-js left this one closed and is not bringing
+    // it back. Backgrounding for a system dialog is the common way in, so it
+    // lands exactly when the user returns and taps share.
+    await stuck.emit('CLOSED');
+    stuck.state = 'closed';
+
+    vi.useFakeTimers();
+    const pending = locationChannelManager.setBroadcasting(true);
+    // Let the first wait time out and the replacement channel be created...
+    await vi.advanceTimersByTimeAsync(7000);
+    const replacement = ownChannel();
+    expect(replacement).not.toBe(stuck);
+    // ...then have it join, as a healthy connection does.
+    await replacement.emit('SUBSCRIBED');
+    await vi.advanceTimersByTimeAsync(500);
+    const result = await pending;
+    vi.useRealTimers();
+
+    expect(result.ok).toBe(true);
+    expect(watchers.filter((w) => !w.removed)).toHaveLength(1);
   });
 
   it('treats CLOSED as reconnecting rather than a hard error', async () => {
@@ -396,16 +446,65 @@ describe('locationChannelManager', () => {
     expect(watchers.every((w) => w.removed)).toBe(true);
   });
 
-  it('refuses to start when location services are switched off', async () => {
+  it('refuses to start when the user declines the turn-location-on dialog', async () => {
     await locationChannelManager.joinOwn(USER_ID);
     await ownChannel().emit('SUBSCRIBED');
 
     servicesEnabled = false;
     const result = await locationChannelManager.setBroadcasting(true);
 
+    expect(enableProviderCalls).toBe(1);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain('Location is turned off');
     expect(watchers).toHaveLength(0);
+  });
+
+  it('offers the system dialog instead of a message when location is off', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+
+    servicesEnabled = false;
+    // Accepting the dialog is what actually switches location on.
+    enableProviderHook = () => {
+      servicesEnabled = true;
+    };
+    const result = await locationChannelManager.setBroadcasting(true);
+
+    expect(enableProviderCalls).toBe(1);
+    expect(result.ok).toBe(true);
+    expect(watchers).toHaveLength(1);
+  });
+
+  it('waits out the lag between accepting the dialog and location coming up', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+
+    servicesEnabled = false;
+    // Play services resolves the dialog as soon as the setting flips, but the
+    // providers report themselves as off for a beat afterwards -- checking
+    // once used to refuse the attempt the user had just approved.
+    enableProviderHook = () => {
+      setTimeout(() => {
+        servicesEnabled = true;
+      }, 400);
+    };
+    const result = await locationChannelManager.setBroadcasting(true);
+
+    expect(result.ok).toBe(true);
+    expect(watchers).toHaveLength(1);
+  });
+
+  it('does not attempt the dialog on iOS, where there is no such API', async () => {
+    platformOS = 'ios';
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+
+    servicesEnabled = false;
+    const result = await locationChannelManager.setBroadcasting(true);
+
+    expect(enableProviderCalls).toBe(0);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain('Location is turned off');
   });
 
   it('rejects malformed friend payloads before they reach the store', async () => {
