@@ -28,9 +28,10 @@ import tracksGeoJSON from '../../assets/data/tracks.json';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { getStation } from '../../src/engine/graph';
 import type { CompiledStation, RouteMode } from '../../src/engine/types';
+import { useBasemapStore } from '../../src/map/basemapStore';
 import { FriendFocusStack, type ActiveFriend } from '../../src/map/FriendFocusStack';
 import { FriendsLayer } from '../../src/map/FriendsLayer';
-import { DEFAULT_ZOOM, DELHI_CENTER, getEmptyOfflineStyle } from '../../src/map/mapStyle';
+import { DEFAULT_ZOOM, DELHI_CENTER, getMapStyle } from '../../src/map/mapStyle';
 import { buildRoutePolylineGeoJSON, computeBounds } from '../../src/map/routePolyline';
 import { buildStationsGeoJSON } from '../../src/map/stationsGeoJSON';
 import { StationDetailSheet } from '../../src/map/StationDetailSheet';
@@ -42,9 +43,17 @@ import type { ColorTokens } from '../../src/theme/tokens';
 
 
 export default function MapScreen() {
-  const { colors } = useTheme();
+  const { colors, mode } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const offlineStyle = useMemo(() => getEmptyOfflineStyle(colors.canvas), [colors.canvas]);
+
+  // Hydration is gated on too: until the stored preference has been read,
+  // `isEnabled` is its default `false`, and rendering the basemap only to swap
+  // it out a frame later would reload the whole style for nothing.
+  const isBasemapEnabled = useBasemapStore((state) => state.isEnabled && state.isHydrated);
+  const mapStyle = useMemo(
+    () => getMapStyle({ basemapEnabled: isBasemapEnabled, mode, backgroundColor: colors.canvas }),
+    [isBasemapEnabled, mode, colors.canvas],
+  );
   const cameraRef = useRef<CameraRef>(null);
   const sheetRef = useRef<BottomSheet>(null);
   const [selectedStation, setSelectedStation] = useState<CompiledStation | null>(null);
@@ -243,7 +252,14 @@ export default function MapScreen() {
 
   return (
     <View style={styles.container}>
-      <MapLibreMap style={styles.map} mapStyle={offlineStyle} logo={false} attribution={false}>
+      {/* Attribution is required whenever CARTO/OSM tiles are on screen, and
+          pointless over the empty offline canvas -- so it tracks the basemap. */}
+      <MapLibreMap
+        style={styles.map}
+        mapStyle={mapStyle}
+        logo={false}
+        attribution={isBasemapEnabled}
+      >
         <Camera
           ref={cameraRef}
           initialViewState={{ center: DELHI_CENTER, zoom: DEFAULT_ZOOM }}

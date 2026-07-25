@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { Avatar } from '../../src/components/Avatar';
 import { SegmentedToggle } from '../../src/components/SegmentedToggle';
+import { useBasemapStore } from '../../src/map/basemapStore';
 import { useTheme, type ThemePreference } from '../../src/theme/ThemeProvider';
 import { useSharedStyles } from '../../src/theme/sharedStyles';
 import type { ColorTokens } from '../../src/theme/tokens';
@@ -18,6 +19,13 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: keyof typeof
   { value: 'system', label: 'System', icon: 'phone-portrait-outline' },
 ];
 
+type BasemapOption = 'simple' | 'real';
+
+const BASEMAP_OPTIONS: { value: BasemapOption; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { value: 'simple', label: 'Simple', icon: 'git-network-outline' },
+  { value: 'real', label: 'Real map', icon: 'earth-outline' },
+];
+
 const GITHUB_URL = 'https://github.com/codrjatin/metrosync-react-native';
 
 export default function SettingsScreen() {
@@ -26,6 +34,9 @@ export default function SettingsScreen() {
   const shared = useSharedStyles();
   const styles = useMemo(() => createStyles(colors, radius.none, shared), [colors, radius, shared]);
   const avatarFocus = useFocusAnimation();
+
+  const isBasemapEnabled = useBasemapStore((state) => state.isEnabled);
+  const setBasemapEnabled = useBasemapStore((state) => state.setEnabled);
 
   const [isEditing, setIsEditing] = useState(false);
   const [nameInput, setNameInput] = useState('');
@@ -156,6 +167,20 @@ export default function SettingsScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Appearance</Text>
           <SegmentedToggle options={THEME_OPTIONS} value={preference} onChange={setPreference} />
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Map</Text>
+          <SegmentedToggle
+            options={BASEMAP_OPTIONS}
+            value={isBasemapEnabled ? 'real' : 'simple'}
+            onChange={(value) => setBasemapEnabled(value === 'real')}
+          />
+          <Text style={styles.sectionHint}>
+            {isBasemapEnabled
+              ? 'Streets and place names load over the internet. Metro lines and routing keep working offline.'
+              : 'Metro lines only, on a plain background. Works with no internet connection.'}
+          </Text>
         </View>
 
         <View style={styles.section}>
@@ -308,6 +333,11 @@ function createStyles(colors: ColorTokens, radiusNone: number, shared: ReturnTyp
       gap: 8,
     },
     sectionLabel: shared.sectionLabel,
+    sectionHint: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      lineHeight: 17,
+    },
     infoCard: {
       backgroundColor: colors.surface,
       borderWidth: 1,

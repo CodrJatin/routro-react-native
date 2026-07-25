@@ -3,9 +3,11 @@ import { SpaceMono_400Regular, SpaceMono_700Bold } from '@expo-google-fonts/spac
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../src/auth/AuthProvider';
+import { useBasemapStore } from '../src/map/basemapStore';
 import { ThemeProvider, useTheme } from '../src/theme/ThemeProvider';
 
 function RootNavigator() {
@@ -49,6 +51,14 @@ export default function RootLayout() {
     SpaceMono_400Regular,
     SpaceMono_700Bold,
   });
+
+  // Read here rather than in the map screen so the basemap preference has
+  // landed before the map first paints -- hydrating later would render the
+  // offline style and then swap the whole style out from under it.
+  const hydrateBasemap = useBasemapStore((state) => state.hydrate);
+  useEffect(() => {
+    hydrateBasemap();
+  }, [hydrateBasemap]);
 
   if (fontError) {
     // Fall through and render with system fonts rather than staying blank

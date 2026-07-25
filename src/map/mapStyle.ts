@@ -1,13 +1,29 @@
 import type { StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
+import type { ThemeMode } from '../theme/tokens';
 
 export const DELHI_CENTER: [number, number] = [77.209, 28.6139];
 export const DEFAULT_ZOOM = 10.5;
 
-/** No basemap tiles are bundled (none were part of the provided /data), so
- * the "map" is just our own metro sources/layers over a flat background --
- * this is what makes the map screen work fully offline. A real basemap
- * (bundled MBTiles or self-hosted vector tiles) is a follow-up, not
- * something to fake with a network dependency here.
+/** CARTO's OSM-derived vector styles, one per theme so an enabled basemap
+ * follows the app's light/dark setting instead of fighting it. Dark Matter and
+ * Positron are the same family, so the two modes stay visually consistent.
+ *
+ * Passed to MapLibre as plain URLs rather than fetched and parsed here: the
+ * native side then owns downloading, parsing and caching the style, including
+ * the glyph/sprite endpoints the style points at. */
+const BASEMAP_STYLE_URLS: Record<ThemeMode, string> = {
+  dark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+  light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+};
+
+/** Required whenever CARTO's tiles are on screen. Rendered through MapLibre's
+ * own attribution control -- see the `attribution` prop on the map. */
+export const BASEMAP_ATTRIBUTION = '© OpenStreetMap, © CARTO';
+
+/** No basemap tiles are bundled (none were part of the provided /data), so with
+ * the basemap setting off the "map" is just our own metro sources/layers over a
+ * flat background -- this is what makes the map screen work fully offline, and
+ * it stays the default.
  *
  * Takes the current theme's background color so the offline canvas matches
  * light/dark mode instead of being hardcoded. */
@@ -23,4 +39,28 @@ export function getEmptyOfflineStyle(backgroundColor: string): StyleSpecificatio
       },
     ],
   };
+}
+
+export interface MapStyleOptions {
+  /** The user's Settings choice. False keeps the map fully offline. */
+  basemapEnabled: boolean;
+  /** Resolved theme mode -- picks which CARTO style to use. */
+  mode: ThemeMode;
+  /** Canvas color for the offline style. */
+  backgroundColor: string;
+}
+
+/** The style the map screen renders. A string (a CARTO style URL) when the
+ * basemap is on, the bundled offline style object when it's off -- MapLibre's
+ * `mapStyle` prop accepts either, so callers don't need to branch.
+ *
+ * The metro sources/layers are added as children of the map, which puts them
+ * above every layer the basemap style brings with it. */
+export function getMapStyle({
+  basemapEnabled,
+  mode,
+  backgroundColor,
+}: MapStyleOptions): string | StyleSpecification {
+  if (!basemapEnabled) return getEmptyOfflineStyle(backgroundColor);
+  return BASEMAP_STYLE_URLS[mode];
 }
