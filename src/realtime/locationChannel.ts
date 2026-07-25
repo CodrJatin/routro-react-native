@@ -167,6 +167,11 @@ class LocationChannelManager {
   private cleanupOwnChannel(): Promise<void> {
     const run = async () => {
       this.stopLocationWatcher();
+      // Must clear the flag too, not just the watcher: it is what the
+      // subscribe callback re-tracks presence from, so leaving it set meant
+      // signing out while broadcasting and back in advertised the new
+      // session as 'broadcasting' with no watcher actually running.
+      this.setIsBroadcasting(false);
       const channel = this.ownChannel;
       this.ownChannel = null;
       this.ownChannelReady = null;

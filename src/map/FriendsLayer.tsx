@@ -8,6 +8,7 @@ import { useFriendshipsContext } from '../friends/FriendshipsProvider';
 import { otherParty } from '../friends/useFriendships';
 import { useFriendStatuses, useLocationStore } from '../realtime/locationStore';
 import { useTheme } from '../theme/ThemeProvider';
+import { useInterpolatedPositions } from './useInterpolatedPositions';
 
 const PIN_SIZE = 34;
 
@@ -69,13 +70,15 @@ export function FriendsLayer() {
     [friendLocations, statuses, profilesByUserId],
   );
 
+  const positions = useInterpolatedPositions(pins.map((pin) => pin.location));
+
   return (
     <>
       {pins.map(({ location, profile, isStale }) => (
         <Marker
           key={location.userId}
           id={`friend-${location.userId}`}
-          lngLat={[location.lon, location.lat]}
+          lngLat={positions[location.userId] ?? [location.lon, location.lat]}
         >
           <View
             style={[
