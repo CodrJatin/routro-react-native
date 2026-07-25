@@ -83,6 +83,11 @@ class LocationChannelManager {
    * the user *why* rather than just failing to turn green. Cleared on a
    * successful join. */
   private lastChannelError: string | null = null;
+  /** Set while the app is backgrounded. Checked after the location watcher
+   * is created, so an enable that was in flight across a backgrounding tears
+   * its watcher back down -- without cancelling enables that merely paused
+   * behind a permission dialog. */
+  private isPausedForBackground = false;
   private friendChannels = new Map<string, RealtimeChannel>();
   private locationSubscription: Location.LocationSubscription | null = null;
   private isBroadcasting = false;
@@ -231,6 +236,30 @@ class LocationChannelManager {
     return { ok: false, reason };
   }
 
+  /** Resolves once the app is in the foreground again, or false on timeout.
+   *
+   * Asking for location permission opens a system dialog that backgrounds
+   * the app, so immediately after that await the app is legitimately not
+   * active yet -- refusing there rejected the very flow that just succeeded.
+   * Waiting for the dialog to close is the correct behaviour; a real
+   * backgrounding simply never returns and times out. */
+  private waitForForeground(timeoutMs = 5000): Promise<boolean> {
+    if (AppState.currentState === 'active') return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const subscription = AppState.addEventListener('change', (next) => {
+        if (next === 'active') {
+          clearTimeout(timer);
+          subscription.remove();
+          resolve(true);
+        }
+      });
+      const timer = setTimeout(() => {
+        subscription.remove();
+        resolve(false);
+      }, timeoutMs);
+    });
+  }
+
   async setBroadcasting(enabled: boolean): Promise<BroadcastResult> {
     const myBroadcastGeneration = ++this.broadcastGeneration;
 
@@ -256,7 +285,10 @@ class LocationChannelManager {
 
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (myBroadcastGeneration !== this.broadcastGeneration) {
-      return this.refuse('superseded-permission', 'Sharing was interrupted. Try again.');
+      return this.refuse(
+        'superseded-permission',
+        'Sharing was interrupted while asking for permission. Try again.',
+      );
     }
     if (status !== 'granted') {
       return this.refuse(
@@ -264,13 +296,19 @@ class LocationChannelManager {
         'Location permission is needed to share your location.',
       );
     }
-    // Presenting the permission alert can itself background the app; don't
-    // start transmitting from the background just because the prompt
-    // resolved after the fact.
-    if (AppState.currentState !== 'active') {
+    // The permission dialog itself backgrounds the app, so wait for it to
+    // hand focus back rather than treating "not active right now" as a
+    // failure.
+    if (!(await this.waitForForeground())) {
       return this.refuse(
         `not-active:${String(AppState.currentState)}`,
         'The app left the foreground before sharing could start. Try again.',
+      );
+    }
+    if (myBroadcastGeneration !== this.broadcastGeneration) {
+      return this.refuse(
+        'superseded-foreground',
+        'Sharing was interrupted while returning to the app. Try again.',
       );
     }
 
@@ -279,7 +317,10 @@ class LocationChannelManager {
     // silently fall back to one REST POST per message.
     const joined = await this.waitForOwnChannelJoined();
     if (myBroadcastGeneration !== this.broadcastGeneration) {
-      return this.refuse('superseded-join', 'Sharing was interrupted. Try again.');
+      return this.refuse(
+        'superseded-join',
+        'Sharing was interrupted while connecting. Try again.',
+      );
     }
     if (!joined || !this.ownChannel) {
       return this.refuse(
@@ -289,13 +330,6 @@ class LocationChannelManager {
           : "Couldn't reach the location service. Check your connection and try again.",
       );
     }
-    if (AppState.currentState !== 'active') {
-      return this.refuse(
-        `not-active-late:${String(AppState.currentState)}`,
-        'The app left the foreground before sharing could start. Try again.',
-      );
-    }
-
     await this.ownChannel.track({ status: 'broadcasting' satisfies PresenceStatus });
     if (myBroadcastGeneration !== this.broadcastGeneration) return { ok: true }; // superseded
 
@@ -330,7 +364,20 @@ class LocationChannelManager {
       // Superseded while awaiting watchPositionAsync -- remove what was just
       // created instead of leaking a watcher with no handle left to stop it.
       subscription.remove();
-      return this.refuse('superseded-watcher', 'Sharing was interrupted. Try again.');
+      return this.refuse(
+        'superseded-watcher',
+        'Sharing was interrupted while starting GPS. Try again.',
+      );
+    }
+    // The app backgrounded while the watcher was being created. This is the
+    // window pauseForBackground() can't cover on its own, and the reason it
+    // no longer needs to cancel the whole attempt to stay safe.
+    if (this.isPausedForBackground) {
+      subscription.remove();
+      return this.refuse(
+        'backgrounded-late',
+        'The app left the foreground before sharing could start. Try again.',
+      );
     }
 
     this.locationSubscription = subscription;
@@ -353,11 +400,13 @@ class LocationChannelManager {
    * Returns whether broadcasting was active, so the caller can resume it on
    * foreground. */
   async pauseForBackground(): Promise<boolean> {
-    // Cancels any in-flight setBroadcasting(true): its own AppState checks
-    // can't cover the window between its last check and watchPositionAsync
-    // resolving, so backgrounding must actively supersede it rather than
-    // rely on it noticing.
-    ++this.broadcastGeneration;
+    // Deliberately does NOT bump broadcastGeneration. Requesting location
+    // permission opens a system dialog, which backgrounds the app and lands
+    // here -- bumping the generation made an in-flight setBroadcasting()
+    // cancel itself the moment it asked for permission. The paused flag
+    // below, re-checked after the watcher is created, closes the same window
+    // without the self-cancellation.
+    this.isPausedForBackground = true;
     const wasBroadcasting = this.isBroadcasting;
     this.stopLocationWatcher();
     await this.ownChannel?.untrack();
@@ -366,6 +415,7 @@ class LocationChannelManager {
   }
 
   async resumeForForeground(wasBroadcasting: boolean): Promise<void> {
+    this.isPausedForBackground = false;
     if (!this.ownChannel) return;
     if (wasBroadcasting) {
       await this.setBroadcasting(true);

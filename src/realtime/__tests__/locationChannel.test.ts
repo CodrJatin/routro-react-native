@@ -77,9 +77,16 @@ let permissionStatus = 'granted';
  * between "permission granted" and "watcher installed". */
 let watchGate: Promise<void> | null = null;
 
+/** Lets a test simulate the side effects of the system permission dialog
+ * (which takes focus and backgrounds the app) while the request is pending. */
+let permissionRequestHook: (() => void) | null = null;
+
 vi.mock('expo-location', () => ({
   Accuracy: { Balanced: 3 },
-  requestForegroundPermissionsAsync: async () => ({ status: permissionStatus }),
+  requestForegroundPermissionsAsync: async () => {
+    permissionRequestHook?.();
+    return { status: permissionStatus };
+  },
   watchPositionAsync: async (_options: unknown, callback: (position: unknown) => void) => {
     if (watchGate) await watchGate;
     const watcher = {
@@ -94,7 +101,22 @@ vi.mock('expo-location', () => ({
   },
 }));
 
-const appState = { currentState: 'active' as string };
+type AppStateListener = (state: string) => void;
+const appStateListeners = new Set<AppStateListener>();
+const appState = {
+  currentState: 'active' as string,
+  addEventListener(_type: string, listener: AppStateListener) {
+    appStateListeners.add(listener);
+    return { remove: () => appStateListeners.delete(listener) };
+  },
+};
+
+/** Drives AppState the way the OS does: set the value AND notify listeners. */
+function setAppState(next: string) {
+  appState.currentState = next;
+  for (const listener of Array.from(appStateListeners)) listener(next);
+}
+
 vi.mock('react-native', () => ({
   get AppState() {
     return appState;
@@ -121,6 +143,8 @@ describe('locationChannelManager', () => {
     watchers.length = 0;
     permissionStatus = 'granted';
     watchGate = null;
+    permissionRequestHook = null;
+    appStateListeners.clear();
     appState.currentState = 'active';
     locationChannelManager.setHandlers({
       onBroadcastingChange() {},
@@ -161,16 +185,47 @@ describe('locationChannelManager', () => {
     expect(watchers.every((w) => w.removed)).toBe(true);
   });
 
-  it('refuses to start broadcasting if the app is no longer active', async () => {
+  it('refuses to start broadcasting if the app never returns to the foreground', async () => {
     await locationChannelManager.joinOwn(USER_ID);
     await ownChannel().emit('SUBSCRIBED');
 
-    // Granting the permission is what backgrounds the app: the system alert
-    // takes focus, so by the time the promise resolves we are inactive.
-    appState.currentState = 'background';
-    await locationChannelManager.setBroadcasting(true);
+    setAppState('background');
 
+    vi.useFakeTimers();
+    const pending = locationChannelManager.setBroadcasting(true);
+    await vi.advanceTimersByTimeAsync(6000);
+    const result = await pending;
+    vi.useRealTimers();
+
+    expect(result.ok).toBe(false);
     expect(watchers.filter((w) => !w.removed)).toHaveLength(0);
+  });
+
+  it('still starts when the permission dialog backgrounds the app', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+
+    // Exactly what happens on a real device: asking for permission opens a
+    // system dialog, which drives AppState to inactive and fires the
+    // provider's pauseForBackground() -- while this very call is in flight.
+    permissionRequestHook = () => {
+      setAppState('inactive');
+      void locationChannelManager.pauseForBackground();
+    };
+
+    const pending = locationChannelManager.setBroadcasting(true);
+
+    // The dialog closes and focus comes back.
+    await Promise.resolve();
+    setAppState('active');
+    await locationChannelManager.resumeForForeground(false);
+
+    const result = await pending;
+
+    // Cancelling here is what made the button spin and do nothing: the
+    // operation was killed by the dialog it opened itself.
+    expect(result.ok).toBe(true);
+    expect(watchers.filter((w) => !w.removed)).toHaveLength(1);
   });
 
   it('does not broadcast when permission is refused', async () => {
