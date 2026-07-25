@@ -1,10 +1,7 @@
 import { GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
-import { useEffect, useMemo, useState } from 'react';
-import { useLocationStore, type FriendLocation } from '../realtime/locationStore';
+import { useMemo } from 'react';
+import { useFriendStatuses, useLocationStore, type FriendLocation, type FriendStatus } from '../realtime/locationStore';
 import { useTheme } from '../theme/ThemeProvider';
-
-const STALE_AFTER_MS = 30_000;
-const STALE_CHECK_INTERVAL_MS = 10_000;
 
 interface FriendPointProperties {
   userId: string;
@@ -13,15 +10,21 @@ interface FriendPointProperties {
 
 function buildGeoJSON(
   friendLocations: Record<string, FriendLocation>,
-  now: number,
+  statuses: Record<string, FriendStatus>,
 ): GeoJSON.FeatureCollection<GeoJSON.Point, FriendPointProperties> {
   return {
     type: 'FeatureCollection',
-    features: Object.values(friendLocations).map((loc) => ({
-      type: 'Feature',
-      properties: { userId: loc.userId, isStale: now - loc.ts > STALE_AFTER_MS },
-      geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] },
-    })),
+    // 'offline' covers both "presence says not broadcasting" (already
+    // cleared out of friendLocations by the store) and "past the hard TTL"
+    // (a friend who died without ever sending a presence event) -- either
+    // way the pin is dropped rather than dimmed forever.
+    features: Object.values(friendLocations)
+      .filter((loc) => statuses[loc.userId] !== 'offline')
+      .map((loc) => ({
+        type: 'Feature',
+        properties: { userId: loc.userId, isStale: statuses[loc.userId] === 'stale' },
+        geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] },
+      })),
   };
 }
 
@@ -30,20 +33,18 @@ function buildGeoJSON(
  * re-renders this leaf component -- not the map canvas, tracks, or stations
  * layers above it. Markers jump discretely between broadcast intervals
  * rather than gliding: smooth interpolation would mean per-friend Reanimated
- * views, which reintroduces the RN-view-marker cost this design avoids. */
+ * views, which reintroduces the RN-view-marker cost this design avoids.
+ *
+ * Staleness/offline-dropping comes from the single shared `useFriendStatuses`
+ * selector (see locationStore.ts) rather than a local staleness constant and
+ * `setInterval` -- this is what keeps the map and the Friends tab from ever
+ * disagreeing about the same person again. */
 export function FriendsLayer() {
   const { colors } = useTheme();
   const friendLocations = useLocationStore((state) => state.friendLocations);
-  const hasFriendLocations = Object.keys(friendLocations).length > 0;
-  const [now, setNow] = useState(() => Date.now());
+  const statuses = useFriendStatuses();
 
-  useEffect(() => {
-    if (!hasFriendLocations) return;
-    const interval = setInterval(() => setNow(Date.now()), STALE_CHECK_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [hasFriendLocations]);
-
-  const geojson = useMemo(() => buildGeoJSON(friendLocations, now), [friendLocations, now]);
+  const geojson = useMemo(() => buildGeoJSON(friendLocations, statuses), [friendLocations, statuses]);
 
   return (
     <GeoJSONSource id="friends" data={geojson}>

@@ -5,15 +5,9 @@ import type { Profile } from '../auth/AuthProvider';
 import { useAuth } from '../auth/AuthProvider';
 import { useFriendshipsContext } from '../friends/FriendshipsProvider';
 import { otherParty } from '../friends/useFriendships';
-import { useLocationStore } from '../realtime/locationStore';
+import { useFriendStatuses, useLocationStore } from '../realtime/locationStore';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens } from '../theme/tokens';
-
-/** A friend is "active" (shown here, tappable) only while we hold a live,
- * non-stale location broadcast for them -- matching the pins on the map and
- * ensuring the tap always has somewhere to fly the camera to. */
-const STALE_AFTER_MS = 30_000;
-const STALE_CHECK_INTERVAL_MS = 10_000;
 
 export interface ActiveFriend {
   userId: string;
@@ -45,14 +39,7 @@ export function FriendFocusStack({
   const selfUserId = session?.user.id;
   const { rows } = useFriendshipsContext();
   const friendLocations = useLocationStore((state) => state.friendLocations);
-  const [now, setNow] = useState(() => Date.now());
-
-  const hasLocations = Object.keys(friendLocations).length > 0;
-  useEffect(() => {
-    if (!hasLocations) return;
-    const interval = setInterval(() => setNow(Date.now()), STALE_CHECK_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [hasLocations]);
+  const statuses = useFriendStatuses();
 
   const profilesByUserId = useMemo(() => {
     const map = new Map<string, Profile>();
@@ -66,15 +53,18 @@ export function FriendFocusStack({
   }, [rows, selfUserId]);
 
   const activeFriends = useMemo<ActiveFriend[]>(() => {
+    // 'live' (not 'stale') matches the stack's original <=30s freshness
+    // window, now sourced from the single shared status model instead of a
+    // duplicated local constant.
     return Object.values(friendLocations)
-      .filter((loc) => now - loc.ts <= STALE_AFTER_MS && profilesByUserId.has(loc.userId))
+      .filter((loc) => statuses[loc.userId] === 'live' && profilesByUserId.has(loc.userId))
       .map((loc) => ({
         userId: loc.userId,
         lat: loc.lat,
         lon: loc.lon,
         profile: profilesByUserId.get(loc.userId)!,
       }));
-  }, [friendLocations, profilesByUserId, now]);
+  }, [friendLocations, profilesByUserId, statuses]);
 
   if (activeFriends.length === 0) return null;
 
