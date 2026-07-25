@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -11,7 +11,8 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import * as Location from 'expo-location';
+import { useFocusEffect, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, type Profile } from '../../src/auth/AuthProvider';
@@ -20,6 +21,8 @@ import { PlaceholderScreen } from '../../src/components/PlaceholderScreen';
 import { getCompiledGraph } from '../../src/engine/graph';
 import type { RawLines } from '../../src/engine/types';
 import { useFriendshipsContext } from '../../src/friends/FriendshipsProvider';
+import { inferCurrentLine } from '../../src/friends/currentLine';
+import { estimateFriendEta } from '../../src/friends/friendEta';
 import { findNearestStation, type NearestStation } from '../../src/friends/nearestStation';
 import { otherParty } from '../../src/friends/useFriendships';
 import { useFriendStatuses, useLocationStore, type FriendLocation, type FriendStatus } from '../../src/realtime/locationStore';
@@ -75,6 +78,27 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
   const [isSending, setIsSending] = useState(false);
   const handleFocus = useFocusAnimation();
   const router = useRouter();
+
+  // The user's own position, for the "how far is this friend from me"
+  // estimate. Deliberately a last-known read on focus rather than a live
+  // watcher: this screen doesn't need tracking, and starting a second GPS
+  // subscription here is exactly what the map screen was fixed to avoid.
+  const [selfPosition, setSelfPosition] = useState<{ lat: number; lon: number } | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      Location.getLastKnownPositionAsync()
+        .then((position) => {
+          if (!cancelled && position) {
+            setSelfPosition({ lat: position.coords.latitude, lon: position.coords.longitude });
+          }
+        })
+        .catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
 
   // Read fresh on every render rather than ticked via a local setInterval --
   // useFriendStatuses() below already re-renders this component on the one
@@ -246,6 +270,7 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
                 styles={styles}
                 colors={colors}
                 onRemove={() => removeFriend(profile)}
+                selfPosition={selfPosition}
                 onShowOnMap={() => showFriendOnMap(profile.id)}
               />
             ))}
@@ -416,6 +441,7 @@ function ActiveFriendCard({
   colors,
   onRemove,
   onShowOnMap,
+  selfPosition,
 }: {
   profile: Profile;
   location: FriendLocation | null;
@@ -425,6 +451,7 @@ function ActiveFriendCard({
   colors: ColorTokens;
   onRemove: () => void;
   onShowOnMap: () => void;
+  selfPosition: { lat: number; lon: number } | null;
 }) {
   const nearest: NearestStation | null = useMemo(
     () => (location ? findNearestStation(location.lat, location.lon) : null),
@@ -434,8 +461,35 @@ function ActiveFriendCard({
   // close -- otherwise (friend isn't near the metro at all) the closest
   // entry in the station list is meaningless and just confusing to show.
   const isNearStation = !!nearest && nearest.distanceMeters <= NEARBY_LINE_MAX_METERS;
-  const line = isNearStation ? lineFor(nearest.lines[0], lines) : null;
+
+  // Which line, inferred from the direction they're actually travelling
+  // rather than whichever line happens to sit first in the station's list --
+  // at a three-line interchange that was a coin flip.
+  const inferredLineId = useMemo(() => {
+    if (!isNearStation || !nearest || !location) return null;
+    const movement = location.previous
+      ? {
+          fromLat: location.previous.lat,
+          fromLon: location.previous.lon,
+          toLat: location.lat,
+          toLon: location.lon,
+        }
+      : null;
+    return inferCurrentLine(nearest, movement);
+  }, [isNearStation, nearest, location]);
+
+  const line = inferredLineId ? lineFor(inferredLineId, lines) : null;
   const accentColor = line?.color ?? colors.outline;
+
+  const eta = useMemo(() => {
+    if (!location || !selfPosition) return null;
+    return estimateFriendEta(
+      selfPosition.lat,
+      selfPosition.lon,
+      location.lat,
+      location.lon,
+    );
+  }, [location, selfPosition]);
 
   const subtext = !location
     ? 'Waiting for location…'
@@ -471,6 +525,16 @@ function ActiveFriendCard({
             <Ionicons name="train" size={11} color={colors.textPrimary} />
             <Text style={styles.lineBadgeText} numberOfLines={1}>
               {line.name.toUpperCase()}
+            </Text>
+          </View>
+        )}
+        {/* How far away they are in metro terms -- the question the app is
+            actually for, and more useful than a straight-line distance. */}
+        {eta && (
+          <View style={styles.etaBadge}>
+            <Ionicons name="walk" size={11} color={colors.accent} />
+            <Text style={styles.etaBadgeText} numberOfLines={1}>
+              {eta.stops === 0 ? 'SAME STATION' : `${eta.stops} STOPS · ${eta.minutes} MIN`}
             </Text>
           </View>
         )}
@@ -772,6 +836,22 @@ function createStyles(
       borderRadius: radiusBadge,
       paddingHorizontal: 7,
       paddingVertical: 3,
+    },
+    etaBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      flexShrink: 1,
+      backgroundColor: colors.surfaceContainerHigh,
+      borderRadius: radiusBadge,
+      paddingHorizontal: 7,
+      paddingVertical: 3,
+    },
+    etaBadgeText: {
+      ...typography.labelCaps,
+      fontSize: 10,
+      color: colors.accent,
+      flexShrink: 1,
     },
     lineBadgeText: {
       ...typography.labelCaps,

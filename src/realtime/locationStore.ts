@@ -23,6 +23,11 @@ export interface FriendLocation {
   /** ms since epoch, from THIS device's clock at the moment the message
    * arrived -- the only value safe to compare against Date.now(). */
   receivedAt: number;
+  /** The fix immediately before this one, when there is one. Retained so
+   * consumers can derive direction of travel (which metro line a friend is
+   * actually on) and interpolate pin movement between broadcasts, neither
+   * of which is possible from a single point. */
+  previous: { lat: number; lon: number; receivedAt: number } | null;
 }
 
 interface LocationState {
@@ -32,7 +37,7 @@ interface LocationState {
   friendPresence: Record<string, PresenceStatus>;
   setBroadcasting: (value: boolean) => void;
   setConnectionState: (state: ConnectionState) => void;
-  upsertFriendLocation: (loc: Omit<FriendLocation, 'receivedAt'>) => void;
+  upsertFriendLocation: (loc: Omit<FriendLocation, 'receivedAt' | 'previous'>) => void;
   setFriendPresence: (userId: string, status: PresenceStatus) => void;
   removeFriend: (userId: string) => void;
 }
@@ -52,14 +57,23 @@ export const useLocationStore = create<LocationState>((set) => ({
   setConnectionState: (state) => set({ connectionState: state }),
 
   upsertFriendLocation: (loc) =>
-    set((state) => ({
-      friendLocations: {
-        ...state.friendLocations,
-        // Stamped with the RECEIVER's clock, here and only here -- this is
-        // what staleness/"updated Xs ago" must be measured against.
-        [loc.userId]: { ...loc, receivedAt: Date.now() },
-      },
-    })),
+    set((state) => {
+      const existing = state.friendLocations[loc.userId];
+      return {
+        friendLocations: {
+          ...state.friendLocations,
+          // Stamped with the RECEIVER's clock, here and only here -- this is
+          // what staleness/"updated Xs ago" must be measured against.
+          [loc.userId]: {
+            ...loc,
+            receivedAt: Date.now(),
+            previous: existing
+              ? { lat: existing.lat, lon: existing.lon, receivedAt: existing.receivedAt }
+              : null,
+          },
+        },
+      };
+    }),
 
   setFriendPresence: (userId, status) =>
     set((state) => {

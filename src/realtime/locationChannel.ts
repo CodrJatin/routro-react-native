@@ -41,10 +41,11 @@ function parseLocPayload(payload: unknown): LocPayload | null {
  * wires these straight into the Zustand store. */
 export interface LocationManagerHandlers {
   onBroadcastingChange(enabled: boolean): void;
-  /** Deliberately excludes `receivedAt` -- that must be stamped with the
-   * *receiver's* clock inside the store's `upsertFriendLocation`, not here,
-   * or staleness ends up measured against the sender's clock again. */
-  onFriendLocation(loc: Omit<FriendLocation, 'receivedAt'>): void;
+  /** Deliberately excludes `receivedAt` and `previous` -- both are derived
+   * by the store's `upsertFriendLocation`, not by the sender. Stamping
+   * `receivedAt` here would put staleness back on the sender's clock, and
+   * `previous` only exists relative to what this device already held. */
+  onFriendLocation(loc: Omit<FriendLocation, 'receivedAt' | 'previous'>): void;
   onFriendPresence(userId: string, status: PresenceStatus): void;
   onFriendRemoved(userId: string): void;
   onConnectionChange(state: ConnectionState): void;
