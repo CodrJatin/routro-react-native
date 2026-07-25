@@ -135,6 +135,18 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
 
   const isEmpty = accepted.length === 0 && incoming.length === 0 && outgoing.length === 0;
 
+  function handleChangeText(text: string) {
+    setHandle(text);
+    // The error refers to whatever was submitted, not what's in the box now
+    // -- once the user edits it, an unrelated stale error shouldn't linger.
+    if (sendError) setSendError(null);
+  }
+
+  function clearHandle() {
+    setHandle('');
+    setSendError(null);
+  }
+
   async function handleSend() {
     if (!handle.trim()) return;
     setIsSending(true);
@@ -180,19 +192,32 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
         <Text style={styles.title}>Friends</Text>
 
         <View style={styles.addRow}>
-          <AnimatedTextInput
-            style={[
-              styles.addInput,
-              { borderColor: handleFocus.borderColor, borderWidth: handleFocus.borderWidth },
-            ]}
-            placeholder="Add by email or ID"
-            placeholderTextColor={colors.textSecondary}
-            autoCapitalize="none"
-            value={handle}
-            onChangeText={setHandle}
-            onFocus={handleFocus.onFocus}
-            onBlur={handleFocus.onBlur}
-          />
+          <View style={styles.addInputWrapper}>
+            <AnimatedTextInput
+              style={[
+                styles.addInput,
+                { borderColor: handleFocus.borderColor, borderWidth: handleFocus.borderWidth },
+              ]}
+              placeholder="Add by email or ID"
+              placeholderTextColor={colors.textSecondary}
+              autoCapitalize="none"
+              value={handle}
+              onChangeText={handleChangeText}
+              onFocus={handleFocus.onFocus}
+              onBlur={handleFocus.onBlur}
+            />
+            {handle.length > 0 && (
+              <Pressable
+                style={styles.clearButton}
+                onPress={clearHandle}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Clear input"
+              >
+                <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+              </Pressable>
+            )}
+          </View>
           <Pressable style={styles.addButton} onPress={handleSend} disabled={isSending}>
             {isSending ? (
               <ActivityIndicator color={colors.onPrimary} size="small" />
@@ -634,13 +659,21 @@ function createStyles(
       flexDirection: 'row',
       gap: 8,
     },
+    addInputWrapper: {
+      flex: 1,
+      justifyContent: 'center',
+    },
     addInput: {
       ...shared.textInput,
-      flex: 1,
       fontSize: 14,
       height: 44,
       paddingVertical: 0,
+      paddingRight: 32,
       textAlignVertical: 'center',
+    },
+    clearButton: {
+      position: 'absolute',
+      right: 10,
     },
     addButton: {
       width: 44,

@@ -22,6 +22,11 @@ export function otherParty(row: FriendshipRow, selfUserId: string): Profile {
   return row.requester_id === selfUserId ? row.addressee : row.requester;
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// public_uid is generated (see 0001_init.sql) as the first 8 hex characters
+// of a UUID, always lowercase -- so a valid ID is exactly 8 hex chars.
+const PUBLIC_UID_PATTERN = /^[0-9a-f]{8}$/;
+
 export function useFriendships(selfUserId: string | undefined) {
   const [rows, setRows] = useState<FriendshipRow[]>([]);
   /** True only for the very first load. Kept separate from `isRefreshing` so
@@ -113,8 +118,26 @@ export function useFriendships(selfUserId: string | undefined) {
   async function sendRequest(handle: string): Promise<MutationResult> {
     if (!selfUserId) return { error: 'Not signed in.' };
 
+    // Lowercased before anything else: emails and public_uids are both
+    // stored lowercase in the DB and the RPC does an exact (non-fuzzy)
+    // match, so a single capital letter -- the mobile keyboard's default
+    // for the first character -- used to make a real match look like "no
+    // user found".
+    const normalized = handle.trim().toLowerCase();
+    if (!normalized) return { error: 'Enter an email or ID.' };
+
+    const looksLikeEmail = normalized.includes('@');
+    const isValid = looksLikeEmail ? EMAIL_PATTERN.test(normalized) : PUBLIC_UID_PATTERN.test(normalized);
+    if (!isValid) {
+      return {
+        error: looksLikeEmail
+          ? 'Enter a valid email address.'
+          : 'Enter a valid 8-character ID (letters a-f and numbers 0-9).',
+      };
+    }
+
     const { data: found, error: lookupError } = await supabase.rpc('find_user_by_handle', {
-      handle: handle.trim(),
+      handle: normalized,
     });
     if (lookupError) return { error: lookupError.message };
 
