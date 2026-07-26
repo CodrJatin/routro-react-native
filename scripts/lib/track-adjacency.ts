@@ -22,7 +22,7 @@ import type { RawGraph, RawStations } from '../../src/engine/types';
  * a wide interchange); way endpoints project at ~2 m. 150 m leaves margin
  * without risking attaching an unrelated station -- and the line-membership
  * filter below already excludes stations that don't serve this line. */
-const STATION_ON_TRACK_METERS = 150;
+export const STATION_ON_TRACK_METERS = 150;
 
 /** Fallback cruising speed used only if a way has no source time (~32 km/h). */
 const FALLBACK_SPEED_M_PER_S = 9.0;
@@ -80,7 +80,7 @@ function projectPointToSegment(
 }
 
 /** Cumulative arc-length (m) at each vertex of the polyline. */
-function cumulativeArcLength(coords: [number, number][]): number[] {
+export function cumulativeArcLength(coords: [number, number][]): number[] {
   const cum = [0];
   for (let i = 1; i < coords.length; i++) {
     const seg = haversineMeters(coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0]);
@@ -91,7 +91,7 @@ function cumulativeArcLength(coords: [number, number][]): number[] {
 
 /** Arc-length position (m from start) of a station's closest point on the
  * polyline, plus its perpendicular distance. */
-function projectStationOntoPolyline(
+export function projectStationOntoPolyline(
   sLat: number,
   sLon: number,
   coords: [number, number][],
