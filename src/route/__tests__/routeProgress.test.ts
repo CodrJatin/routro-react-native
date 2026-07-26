@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { haversineMeters } from '../../engine/geo';
 import { findRoute, getStation, listStations } from '../../engine/graph';
 import type { RouteResult } from '../../engine/types';
-import { findStationOnRoute } from '../stationOnRoute';
+import { findStationOnRoute, legStopOffsets } from '../stationOnRoute';
 import {
   buildRouteStationSequence,
   buildStationMarks,
@@ -73,6 +73,26 @@ describe('buildRouteStationSequence', () => {
       legStations.add(leg.alightingStation.stationId);
     }
     expect(new Set(sequence.map((s) => s.stationId))).toEqual(legStations);
+  });
+});
+
+describe('legStopOffsets', () => {
+  const route = crossCityRoute();
+  const leg = route.legs.find((l) => l.intermediateStations.length > 1)!;
+
+  it('spaces a leg evenly between boarding and alighting', () => {
+    const offsets = legStopOffsets(leg, 100);
+
+    expect(offsets).toHaveLength(leg.intermediateStations.length);
+    expect(offsets[0]).toBeGreaterThan(100);
+    expect(offsets[offsets.length - 1]).toBeLessThan(100 + leg.legTimeSeconds);
+
+    const gaps = offsets.slice(1).map((offset, i) => offset - offsets[i]);
+    for (const gap of gaps) expect(gap).toBeCloseTo(gaps[0], 6);
+  });
+
+  it('has nothing to place on a leg with no stops in between', () => {
+    expect(legStopOffsets({ ...leg, intermediateStations: [] }, 100)).toEqual([]);
   });
 });
 

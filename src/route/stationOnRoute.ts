@@ -1,4 +1,21 @@
-import type { LineId, RouteResult, StationId } from '../engine/types';
+import type { ItineraryLeg, LineId, RouteResult, StationId } from '../engine/types';
+
+/**
+ * Arrival offsets for a leg's intermediate stations, given when the leg was
+ * boarded.
+ *
+ * Legs carry one total ride time, not per-hop times, so the stops in between
+ * are placed by even division across the leg's hops -- boarding and alighting
+ * are the only exact ones. Everything that times a station goes through here,
+ * so the itinerary's expanded stops, the flattened journey sequence and the
+ * map's station card can't drift apart.
+ */
+export function legStopOffsets(leg: ItineraryLeg, boardingOffsetSeconds: number): number[] {
+  const hops = leg.intermediateStations.length + 1;
+  return leg.intermediateStations.map(
+    (_, i) => boardingOffsetSeconds + (leg.legTimeSeconds * (i + 1)) / hops,
+  );
+}
 
 export interface StationRoutePosition {
   /** Seconds from the start of the journey to arriving here. */
@@ -15,10 +32,6 @@ export interface StationRoutePosition {
  * there. Times accumulate the same way buildRouteStationSequence does --
  * transfer time first, then the ride -- so the map card and the itinerary
  * can't disagree about when you arrive somewhere.
- *
- * Legs only carry a total ride time, not per-hop times, so a station in the
- * middle of a leg is placed by even division across that leg's hops. Boarding
- * and alighting stations are exact.
  */
 export function findStationOnRoute(
   route: RouteResult,
@@ -34,21 +47,15 @@ export function findStationOnRoute(
       return position(offset, stops, leg.line, route, stationId);
     }
 
-    const hops = leg.intermediateStations.length + 1;
+    const stopOffsets = legStopOffsets(leg, offset);
     for (let i = 0; i < leg.intermediateStations.length; i++) {
       if (leg.intermediateStations[i].stationId === stationId) {
-        return position(
-          offset + (leg.legTimeSeconds * (i + 1)) / hops,
-          stops + i + 1,
-          leg.line,
-          route,
-          stationId,
-        );
+        return position(stopOffsets[i], stops + i + 1, leg.line, route, stationId);
       }
     }
 
     offset += leg.legTimeSeconds;
-    stops += hops;
+    stops += leg.intermediateStations.length + 1;
 
     if (leg.alightingStation.stationId === stationId) {
       return position(offset, stops, leg.line, route, stationId);

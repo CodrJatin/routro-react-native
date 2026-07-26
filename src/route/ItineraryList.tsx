@@ -16,6 +16,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../theme/tokens';
 import { formatStationArrival, type RouteClock } from './routeClock';
 import { buildStationMarks, type RouteProgress, type RouteStationMark } from './routeProgress';
+import { legStopOffsets } from './stationOnRoute';
 
 const RAIL_WIDTH = 22;
 const LINE_THICKNESS = 3;
@@ -66,7 +67,14 @@ export function ItineraryList({
       {rows.map((row, index) => {
         if (row.kind === 'ride') {
           return (
-            <RideRow key={`ride-${index}`} row={row} marks={marks} styles={styles} colors={colors} />
+            <RideRow
+              key={`ride-${index}`}
+              row={row}
+              marks={marks}
+              clock={clock}
+              styles={styles}
+              colors={colors}
+            />
           );
         }
         const mark = marks.get(row.step.stationId);
@@ -106,6 +114,8 @@ type RideRowData = {
   leg: ItineraryLeg;
   color: string;
   lineName: string;
+  /** Arrival offsets for `leg.intermediateStations`, by the same index. */
+  stopOffsetSeconds: number[];
 };
 
 type Row = StationRowData | RideRowData;
@@ -140,8 +150,10 @@ function buildRows(legs: ItineraryLeg[], lines: RawLines): Row[] {
       });
     }
 
+    const stopOffsetSeconds = legStopOffsets(leg, clockSeconds + leg.transferSecondsBefore);
+
     clockSeconds += leg.transferSecondsBefore + leg.legTimeSeconds;
-    rows.push({ kind: 'ride', leg, color, lineName });
+    rows.push({ kind: 'ride', leg, color, lineName, stopOffsetSeconds });
   });
 
   const lastLeg = legs[legs.length - 1];
@@ -302,11 +314,13 @@ function CurrentPulse({
 function RideRow({
   row,
   marks,
+  clock,
   styles,
   colors,
 }: {
   row: RideRowData;
   marks: Map<StationId, RouteStationMark>;
+  clock: RouteClock;
   styles: ReturnType<typeof createStyles>;
   colors: ColorTokens;
 }) {
@@ -348,16 +362,27 @@ function RideRow({
           the position marker has to be able to land on any one of them. */}
       {expanded && (
         <Animated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)}>
-          {row.leg.intermediateStations.map((station) => (
-            <IntermediateRow
-              key={station.stationId}
-              station={station}
-              mark={marks.get(station.stationId)}
-              color={row.color}
-              styles={styles}
-              colors={colors}
-            />
-          ))}
+          {row.leg.intermediateStations.map((station, i) => {
+            const mark = marks.get(station.stationId);
+            return (
+              <IntermediateRow
+                key={station.stationId}
+                station={station}
+                mark={mark}
+                // Nothing for a stop already behind you: the dimmed name and
+                // the filled dot say it, and a column of "Passed" down the
+                // expanded leg would drown the arrivals still to come.
+                time={
+                  mark === 'passed'
+                    ? null
+                    : formatStationArrival(clock, row.stopOffsetSeconds[i], mark)
+                }
+                color={row.color}
+                styles={styles}
+                colors={colors}
+              />
+            );
+          })}
         </Animated.View>
       )}
     </Animated.View>
@@ -367,12 +392,15 @@ function RideRow({
 function IntermediateRow({
   station,
   mark,
+  time,
   color,
   styles,
   colors,
 }: {
   station: ItineraryStep;
   mark: RouteStationMark | undefined;
+  /** Null for a stop already behind you, which has no arrival left to quote. */
+  time: string | null;
   color: string;
   styles: ReturnType<typeof createStyles>;
   colors: ColorTokens;
@@ -408,6 +436,7 @@ function IntermediateRow({
       >
         {station.stationName}
       </Text>
+      {time !== null && <Text style={styles.intermediateTime}>{time}</Text>}
     </View>
   );
 }
@@ -553,7 +582,16 @@ function createStyles(colors: ColorTokens, radius: { none: number; badge: number
       ...typography.dataSm,
       color: colors.textSecondary,
       flex: 1,
-      paddingHorizontal: 14,
+      paddingLeft: 14,
+      paddingRight: 8,
+    },
+    /** Quieter than the station rows' clock: these are stops the train runs
+     * through, and they shouldn't compete with the boards and changes that
+     * the user actually has to act on. */
+    intermediateTime: {
+      ...typography.dataSm,
+      color: colors.textSecondary,
+      paddingRight: 14,
     },
     // No padding on the group: any space here is space the rail doesn't run
     // through, which shows up as a break in the line before the next station.

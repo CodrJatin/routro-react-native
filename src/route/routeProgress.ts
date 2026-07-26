@@ -1,5 +1,6 @@
 import { haversineMeters } from '../engine/geo';
 import type { RouteResult, StationId } from '../engine/types';
+import { legStopOffsets } from './stationOnRoute';
 
 /**
  * Past this from every station on the journey, the user isn't travelling it --
@@ -75,13 +76,9 @@ export function buildRouteStationSequence(route: RouteResult): RouteStation[] {
     offsetSeconds += leg.transferSecondsBefore;
     push(leg.boardingStation, legIndex, offsetSeconds);
 
-    // Legs carry one total ride time, not per-hop times, so a station in the
-    // middle of a leg is placed by even division across that leg's hops.
-    // Boarding and alighting stations are exact. Same rule findStationOnRoute
-    // uses, so the map card and the itinerary can't disagree.
-    const hops = leg.intermediateStations.length + 1;
+    const stopOffsets = legStopOffsets(leg, offsetSeconds);
     leg.intermediateStations.forEach((station, i) => {
-      push(station, legIndex, offsetSeconds + (leg.legTimeSeconds * (i + 1)) / hops);
+      push(station, legIndex, stopOffsets[i]);
     });
 
     offsetSeconds += leg.legTimeSeconds;
