@@ -18,7 +18,9 @@ import type { ColorTokens } from '../theme/tokens';
 
 const CAR_WIDTH = 34;
 const CAR_HEIGHT = 3;
-const TRACK_TOP = 1;
+const TRACK_TOP = 0;
+// Centres the car on the track, so it sticks out above the bar's top edge.
+const CAR_TOP = TRACK_TOP - (CAR_HEIGHT - 1) / 2;
 const ICON_SIZE = 22;
 
 /**
@@ -26,11 +28,9 @@ const ICON_SIZE = 22;
  * a car -- thicker than the track it rides -- sits on it, sliding to whichever
  * tab is active.
  *
- * The track is drawn as an explicit 1pt View rather than via borderTopWidth.
- * A border sits outside the padding box, so an absolutely positioned car could
- * only be centred on it by overflowing the bar, which Android clips. Insetting
- * the track by TRACK_TOP instead lets the car straddle it entirely within
- * bounds.
+ * The track is drawn as an explicit 1pt View rather than via borderTopWidth, so
+ * it can sit flush with the bar's top edge with no gap above it. The car, being
+ * thicker, is centred on the track and so pokes out above that edge.
  *
  * Replacing the default tab bar means owning what it gave for free, so tabPress
  * and tabLongPress are still emitted (a preventDefault listener elsewhere keeps
@@ -119,8 +119,9 @@ function createStyles(colors: ColorTokens) {
   return StyleSheet.create({
     bar: {
       backgroundColor: colors.surface,
-      // Clears the car, which hangs from the very top of the bar.
+      // Clears the car, which straddles the very top of the bar.
       paddingTop: CAR_HEIGHT,
+      overflow: 'visible',
     },
     track: {
       position: 'absolute',
@@ -132,7 +133,7 @@ function createStyles(colors: ColorTokens) {
     },
     car: {
       position: 'absolute',
-      top: 0,
+      top: CAR_TOP,
       left: 0,
       width: CAR_WIDTH,
       height: CAR_HEIGHT,
