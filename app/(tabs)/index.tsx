@@ -112,20 +112,19 @@ export default function MapScreen() {
     useLocationStore.getState().setBroadcastNotice(null);
   }, [broadcastNotice]);
 
-  // Drives a smooth color crossfade on the button fill instead of an instant
-  // snap when broadcasting toggles on/off.
+  // Drives a smooth crossfade on the button fill instead of an instant snap
+  // when broadcasting toggles on/off. Fading the green layer's *opacity*,
+  // rather than interpolating the background colour, is what lets the button
+  // rest on the same translucent surface as the locate button below it --
+  // interpolating colours would have meant a second opaque layer over it.
   const activeAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(activeAnim, {
       toValue: isBroadcasting ? 1 : 0,
       duration: 220,
-      useNativeDriver: false,
+      useNativeDriver: true,
     }).start();
   }, [isBroadcasting, activeAnim]);
-  const broadcastFillColor = activeAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [colors.surfaceElevated, colors.success],
-  });
 
   const stationsGeoJSON = useMemo(() => buildStationsGeoJSON(), []);
   const router = useRouter();
@@ -487,7 +486,10 @@ export default function MapScreen() {
           >
             <Animated.View
               pointerEvents="none"
-              style={[StyleSheet.absoluteFill, { backgroundColor: broadcastFillColor }]}
+              style={[
+                StyleSheet.absoluteFill,
+                { backgroundColor: colors.success, opacity: activeAnim },
+              ]}
             />
             {isPendingBroadcast ? (
               <ActivityIndicator color={isBroadcasting ? colors.onSuccess : colors.textPrimary} />
@@ -588,6 +590,17 @@ const pingStyles = StyleSheet.create({
   },
 });
 
+/** Theme colours are opaque hex; this is the only place that wants one of
+ * them see-through, so it converts rather than adding a second token that
+ * would have to be kept in step with the first. */
+function withAlpha(hex: string, alpha: number): string {
+  const value = hex.replace('#', '');
+  const r = parseInt(value.slice(0, 2), 16);
+  const g = parseInt(value.slice(2, 4), 16);
+  const b = parseInt(value.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function createStyles(colors: ColorTokens) {
   return StyleSheet.create({
     container: {
@@ -624,7 +637,11 @@ function createStyles(colors: ColorTokens) {
       height: 48,
       borderRadius: 24,
       overflow: 'hidden',
-      backgroundColor: colors.surfaceElevated,
+      // Translucent so the map reads as continuing underneath the controls
+      // rather than being punched out by them. Shared by the locate and
+      // broadcast buttons -- they sit in the same column and any difference
+      // between the two reads as a mistake.
+      backgroundColor: withAlpha(colors.surfaceElevated, 0.72),
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: 'center',
