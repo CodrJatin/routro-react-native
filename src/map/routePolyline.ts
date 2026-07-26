@@ -9,7 +9,8 @@ export interface RouteSegmentProperties {
 }
 
 /** Builds the actual track-shaped polyline for a route (not a straight line
- * between stations), for highlighting on the map after "Go to map". Reuses
+ * between stations), for highlighting whichever journey the planner has
+ * active (see `activeRouteStore`). Reuses
  * the same Dijkstra search as the itinerary engine and matches each ride
  * edge back to its track feature by station-pair + line. */
 export function buildRoutePolylineGeoJSON(

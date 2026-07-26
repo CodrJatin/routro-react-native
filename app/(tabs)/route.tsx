@@ -6,6 +6,7 @@ import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanim
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { findRoute, getCompiledGraph, getStation } from '../../src/engine/graph';
 import type { CompiledStation, RouteMode, RouteResult } from '../../src/engine/types';
+import { useActiveRouteStore } from '../../src/route/activeRouteStore';
 import { ItineraryList } from '../../src/route/ItineraryList';
 import { RouteModeToggle } from '../../src/route/RouteModeToggle';
 import { RouteSummaryCard } from '../../src/route/RouteSummaryCard';
@@ -55,6 +56,20 @@ export default function RouteScreen() {
     }, []),
   );
 
+  // Published to the map as soon as there's a route to publish, rather than
+  // on "Go to map" -- the map keeps the highlight and the station arrival
+  // times in sync with whatever is on screen here, including a mode switch or
+  // a swap, and drops them when the planner has no route.
+  const setActiveRoute = useActiveRouteStore((state) => state.setActiveRoute);
+  const clearActiveRoute = useActiveRouteStore((state) => state.clear);
+  useEffect(() => {
+    if (!route || !origin || !destination) {
+      clearActiveRoute();
+      return;
+    }
+    setActiveRoute(origin.id, destination.id, mode);
+  }, [route, origin, destination, mode, setActiveRoute, clearActiveRoute]);
+
   const lines = useMemo(() => getCompiledGraph().lines, []);
 
   const savedJourneys = useSavedJourneysStore((state) => state.journeys);
@@ -74,12 +89,13 @@ export default function RouteScreen() {
 
   function handleGoToMap() {
     if (!origin || !destination) return;
+    // The map already has the route; all this button still owes the user is
+    // the camera framed on it -- including when they've panned away from a
+    // route that hasn't changed since.
+    useActiveRouteStore.getState().requestFit();
     // navigate, not push: pushing a tab route stacks a second instance of
     // the map instead of switching to the existing one.
-    router.navigate({
-      pathname: '/(tabs)',
-      params: { originId: origin.id, destinationId: destination.id, mode },
-    });
+    router.navigate('/(tabs)');
   }
 
   function handleToggleSave() {

@@ -28,7 +28,7 @@ import {
 import tracksGeoJSON from '../../assets/data/tracks.json';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { findRoute, getStation } from '../../src/engine/graph';
-import type { CompiledStation, RouteMode } from '../../src/engine/types';
+import type { CompiledStation } from '../../src/engine/types';
 import { useBasemapStore } from '../../src/map/basemapStore';
 import { FriendFocusStack, type ActiveFriend } from '../../src/map/FriendFocusStack';
 import { FriendsLayer } from '../../src/map/FriendsLayer';
@@ -43,6 +43,7 @@ import { buildStationsGeoJSON } from '../../src/map/stationsGeoJSON';
 import { StationDetailCard } from '../../src/map/StationDetailCard';
 import { UserLocationPin } from '../../src/map/UserLocationPin';
 import { locationChannelManager } from '../../src/realtime/locationChannel';
+import { useActiveRouteStore } from '../../src/route/activeRouteStore';
 import { useLocationStore } from '../../src/realtime/locationStore';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import type { ColorTokens } from '../../src/theme/tokens';
@@ -124,28 +125,36 @@ export default function MapScreen() {
     enabled: isScreenFocused && isAppActive && isLocationGranted,
   });
 
-  const params = useLocalSearchParams<{
-    originId?: string;
-    destinationId?: string;
-    mode?: RouteMode;
-    focusUserId?: string;
-  }>();
+  const params = useLocalSearchParams<{ focusUserId?: string }>();
+
+  // From the store, not navigation params: the planner publishes the journey
+  // the moment it has one, so the highlight and the arrival times below are
+  // already in place when the user arrives here -- and follow a mode switch
+  // or a cleared input without another trip through "Go to map".
+  const routeOriginId = useActiveRouteStore((state) => state.originId);
+  const routeDestinationId = useActiveRouteStore((state) => state.destinationId);
+  const routeMode = useActiveRouteStore((state) => state.mode);
+  const fitToken = useActiveRouteStore((state) => state.fitToken);
+
   const routeGeoJSON = useMemo(() => {
-    if (!params.originId || !params.destinationId) return null;
-    return buildRoutePolylineGeoJSON(params.originId, params.destinationId, params.mode ?? 'fastest');
-  }, [params.originId, params.destinationId, params.mode]);
+    if (!routeOriginId || !routeDestinationId) return null;
+    return buildRoutePolylineGeoJSON(routeOriginId, routeDestinationId, routeMode);
+  }, [routeOriginId, routeDestinationId, routeMode]);
 
   // The itinerary behind the drawn polyline, so tapping a station on it can
   // say when you get there.
   const activeRoute = useMemo(() => {
-    if (!params.originId || !params.destinationId) return null;
-    return findRoute(params.originId, params.destinationId, params.mode ?? 'fastest');
-  }, [params.originId, params.destinationId, params.mode]);
+    if (!routeOriginId || !routeDestinationId) return null;
+    return findRoute(routeOriginId, routeDestinationId, routeMode);
+  }, [routeOriginId, routeDestinationId, routeMode]);
 
   // Captured per journey rather than per render, so arrival times don't drift
-  // while the card is open -- same treatment the itinerary gives them.
+  // while the card is open -- same treatment the itinerary gives them. Also
+  // re-captured on focus: a route can now be planned long before the map is
+  // looked at, and "arrives at" times from an hour ago are worse than none.
   const [routeStartMs, setRouteStartMs] = useState(() => Date.now());
   useEffect(() => setRouteStartMs(Date.now()), [activeRoute]);
+  useFocusEffect(useCallback(() => setRouteStartMs(Date.now()), []));
 
   // Checked, not requested: prompting on mount asks a user who may never touch
   // a location feature. The actual prompt happens on first use, below.
@@ -155,17 +164,27 @@ export default function MapScreen() {
       .catch(() => setPermission(null));
   }, []);
 
+  // Drawing the route is unconditional; framing the camera on it is not. The
+  // camera only exists while this screen is mounted and on top, and an 800ms
+  // fly nobody sees would leave the route off-frame by the time they arrive.
+  // So each new (or re-requested) journey carries a token, and it's spent on
+  // the first focused render after it appears -- once per journey, never
+  // re-hijacking a camera the user has since panned.
+  const framedFitTokenRef = useRef<number | null>(null);
   useEffect(() => {
+    if (!isScreenFocused) return;
+    if (fitToken === framedFitTokenRef.current) return;
     if (!routeGeoJSON || routeGeoJSON.features.length === 0) return;
     const bounds = computeBounds(routeGeoJSON);
     if (!bounds) return;
+    framedFitTokenRef.current = fitToken;
     const [west, south, east, north] = bounds;
     cameraRef.current?.setStop({
       bounds: [west, south, east, north],
       padding: { top: 80, bottom: 80, left: 48, right: 48 },
       duration: 800,
     });
-  }, [routeGeoJSON]);
+  }, [routeGeoJSON, fitToken, isScreenFocused]);
 
   // Depends on the focusUserId *string*, never on the location object: that
   // object is replaced on every broadcast, so depending on it re-flew the
