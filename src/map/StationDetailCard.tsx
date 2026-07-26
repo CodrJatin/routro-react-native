@@ -11,7 +11,10 @@ import Animated, {
   type ExitAnimationsValues,
 } from 'react-native-reanimated';
 import { getCompiledGraph } from '../engine/graph';
-import type { CompiledStation, LineId, RouteResult, StationId } from '../engine/types';
+import type { CompiledStation, RouteResult } from '../engine/types';
+import { formatStationArrival, type RouteClock } from '../route/routeClock';
+import { buildStationMarks, type RouteProgress } from '../route/routeProgress';
+import { findStationOnRoute } from '../route/stationOnRoute';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens } from '../theme/tokens';
 
@@ -19,89 +22,13 @@ interface Props {
   station: CompiledStation | null;
   /** The journey currently drawn on the map, if any. */
   route: RouteResult | null;
-  /** When the journey is treated as starting, for turning offsets into clock
-   * times. Ignored when `route` is null. */
-  startMs: number;
+  /** What the journey's offsets are pinned to on the wall clock. Ignored when
+   * `route` is null. Shared with the itinerary screen, which must not be able
+   * to quote a different arrival time for the same station. */
+  clock: RouteClock;
+  /** Where the user is along that journey, when that's known. */
+  progress: RouteProgress | null;
   onClose: () => void;
-}
-
-export interface StationRoutePosition {
-  /** Seconds from the start of the journey to arriving here. */
-  offsetSeconds: number;
-  /** How many stops in from the origin, origin itself being 0. */
-  stopsFromOrigin: number;
-  line: LineId;
-  isOrigin: boolean;
-  isDestination: boolean;
-}
-
-/**
- * Where a station falls on a journey, or null if the journey doesn't call
- * there. Times accumulate the same way the itinerary does -- transfer time
- * first, then the ride -- so the two screens can't disagree about when you
- * arrive somewhere.
- *
- * Legs only carry a total ride time, not per-hop times, so a station in the
- * middle of a leg is placed by even division across that leg's hops. Boarding
- * and alighting stations are exact.
- */
-export function findStationOnRoute(
-  route: RouteResult,
-  stationId: StationId,
-): StationRoutePosition | null {
-  let offset = 0;
-  let stops = 0;
-
-  for (const leg of route.legs) {
-    offset += leg.transferSecondsBefore;
-
-    if (leg.boardingStation.stationId === stationId) {
-      return position(offset, stops, leg.line, route, stationId);
-    }
-
-    const hops = leg.intermediateStations.length + 1;
-    for (let i = 0; i < leg.intermediateStations.length; i++) {
-      if (leg.intermediateStations[i].stationId === stationId) {
-        return position(
-          offset + (leg.legTimeSeconds * (i + 1)) / hops,
-          stops + i + 1,
-          leg.line,
-          route,
-          stationId,
-        );
-      }
-    }
-
-    offset += leg.legTimeSeconds;
-    stops += hops;
-
-    if (leg.alightingStation.stationId === stationId) {
-      return position(offset, stops, leg.line, route, stationId);
-    }
-  }
-
-  return null;
-}
-
-function position(
-  offsetSeconds: number,
-  stopsFromOrigin: number,
-  line: LineId,
-  route: RouteResult,
-  stationId: StationId,
-): StationRoutePosition {
-  return {
-    offsetSeconds,
-    stopsFromOrigin,
-    line,
-    isOrigin: stationId === route.originStationId,
-    isDestination: stationId === route.destinationStationId,
-  };
-}
-
-function formatClock(startMs: number, offsetSeconds: number): string {
-  const d = new Date(startMs + offsetSeconds * 1000);
-  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
 }
 
 function formatMinutes(seconds: number): string {
@@ -165,7 +92,7 @@ function slideDownToNav(values: ExitAnimationsValues) {
  * entrance doesn't replay -- the box just resizes under `layout` as the
  * content changes height.
  */
-export function StationDetailCard({ station, route, startMs, onClose }: Props) {
+export function StationDetailCard({ station, route, clock, progress, onClose }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const lines = getCompiledGraph().lines;
@@ -179,6 +106,11 @@ export function StationDetailCard({ station, route, startMs, onClose }: Props) {
     () => (station && route ? findStationOnRoute(route, station.id) : null),
     [station, route],
   );
+
+  // By station id rather than by sequence index: this card knows which station
+  // was tapped, not where it falls in the flattened journey.
+  const marks = useMemo(() => buildStationMarks(progress), [progress]);
+  const mark = station ? marks.get(station.id) : undefined;
 
   if (!station) return null;
 
@@ -240,8 +172,8 @@ export function StationDetailCard({ station, route, startMs, onClose }: Props) {
           <View style={styles.statRow}>
             <Stat
               styles={styles}
-              label="Arrive"
-              value={formatClock(startMs, onRoute.offsetSeconds)}
+              label={mark === 'passed' ? 'Status' : 'Arrive'}
+              value={formatStationArrival(clock, onRoute.offsetSeconds, mark)}
             />
             <Stat
               styles={styles}

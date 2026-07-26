@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,6 +11,7 @@ import { useActiveRouteStore } from '../../src/route/activeRouteStore';
 import { ItineraryList } from '../../src/route/ItineraryList';
 import { RouteModeToggle } from '../../src/route/RouteModeToggle';
 import { getRouteProgress } from '../../src/route/routeProgress';
+import { useRouteClock } from '../../src/route/useRouteClock';
 import { RouteSummaryCard } from '../../src/route/RouteSummaryCard';
 import { SavedJourneysSection } from '../../src/route/SavedJourneysSection';
 import { useIsJourneySaved, useSavedJourneysStore, type SavedJourney } from '../../src/route/savedJourneysStore';
@@ -46,18 +47,6 @@ export default function RouteScreen() {
 
   const route = mode === 'fastest' ? fastestRoute : minInterchangeRoute;
 
-  // Captured once per computed route so the itinerary's clock times read as
-  // "if you left now" rather than drifting on every re-render -- and
-  // re-captured on focus, so a screen left open for an hour doesn't keep
-  // showing departure times from an hour ago.
-  const [startMs, setStartMs] = useState(() => Date.now());
-  useEffect(() => setStartMs(Date.now()), [route]);
-  useFocusEffect(
-    useCallback(() => {
-      setStartMs(Date.now());
-    }, []),
-  );
-
   // Published to the map as soon as there's a route to publish, rather than
   // on "Go to map" -- the map keeps the highlight and the station arrival
   // times in sync with whatever is on screen here, including a mode switch or
@@ -78,6 +67,12 @@ export default function RouteScreen() {
   useSeedSelfPosition();
   const selfPosition = useSelfPositionStore((state) => state.position);
   const progress = useMemo(() => getRouteProgress(route, selfPosition), [route, selfPosition]);
+
+  // Arrival times are measured from where the user actually is whenever
+  // progress resolves, and from "leaving now" otherwise -- so a journey
+  // already half done stops quoting the times you'd have hit by starting it
+  // over. See useRouteClock for what each mode costs.
+  const clock = useRouteClock(route, progress);
 
   const lines = useMemo(() => getCompiledGraph().lines, []);
 
@@ -172,7 +167,7 @@ export default function RouteScreen() {
               isSaved={isCurrentSaved}
               onToggleSave={handleToggleSave}
             />
-            <ItineraryList route={route} lines={lines} startMs={startMs} progress={progress} />
+            <ItineraryList route={route} lines={lines} clock={clock} progress={progress} />
           </Animated.View>
         ) : (
           // No route on screen -- the slot below the inputs belongs to the

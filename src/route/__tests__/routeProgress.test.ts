@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { haversineMeters } from '../../engine/geo';
 import { findRoute, getStation, listStations } from '../../engine/graph';
 import type { RouteResult } from '../../engine/types';
+import { findStationOnRoute } from '../stationOnRoute';
 import {
   buildRouteStationSequence,
   buildStationMarks,
@@ -41,6 +42,27 @@ describe('buildRouteStationSequence', () => {
 
   it('numbers stations in travel order with no gaps', () => {
     expect(sequence.map((s) => s.index)).toEqual(sequence.map((_, i) => i));
+  });
+
+  it('times the origin at zero and the destination at the journey total', () => {
+    expect(sequence[0].offsetSeconds).toBe(0);
+    expect(sequence[sequence.length - 1].offsetSeconds).toBeCloseTo(route.totalTimeSeconds, 6);
+  });
+
+  it('never travels backwards in time', () => {
+    for (let i = 1; i < sequence.length; i++) {
+      expect(sequence[i].offsetSeconds).toBeGreaterThanOrEqual(sequence[i - 1].offsetSeconds);
+    }
+  });
+
+  it('agrees with findStationOnRoute, which the map card times stations by', () => {
+    // Two accumulations of the same thing; if they ever drift, the itinerary
+    // and the station card quote different arrival times for one station.
+    for (const station of sequence) {
+      const onRoute = findStationOnRoute(route, station.stationId);
+      expect(onRoute).not.toBeNull();
+      expect(onRoute!.offsetSeconds).toBeCloseTo(station.offsetSeconds, 6);
+    }
   });
 
   it('accounts for every station the legs call at', () => {

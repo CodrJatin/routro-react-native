@@ -19,6 +19,10 @@ export interface RouteStation {
   legIndex: number;
   /** Position in travel order; 0 is the trip origin. */
   index: number;
+  /** Seconds from the start of the journey to arriving here. Offsets are only
+   * meaningful relative to each other -- what wall clock they're pinned to is
+   * decided by `useRouteClock`. */
+  offsetSeconds: number;
 }
 
 export type RouteStationMark = 'passed' | 'current' | 'upcoming';
@@ -40,7 +44,9 @@ export interface RouteProgress {
  * Legs overlap at interchanges: leg N alights where leg N+1 boards. When
  * that's the same station (a cross-platform change) it must appear once, or
  * every index after it is off by one and the walking transfers -- where the
- * two really are different stations -- would be indistinguishable.
+ * two really are different stations -- would be indistinguishable. The one
+ * copy that survives keeps its *arrival* offset, so the transfer that follows
+ * is paid by the stations after it, exactly as the itinerary's clock reads it.
  */
 export function buildRouteStationSequence(route: RouteResult): RouteStation[] {
   const sequence: RouteStation[] = [];
@@ -48,6 +54,7 @@ export function buildRouteStationSequence(route: RouteResult): RouteStation[] {
   const push = (
     step: { stationId: StationId; stationName: string; lat: number; lon: number },
     legIndex: number,
+    offsetSeconds: number,
   ) => {
     const last = sequence[sequence.length - 1];
     if (last && last.stationId === step.stationId) return;
@@ -58,13 +65,27 @@ export function buildRouteStationSequence(route: RouteResult): RouteStation[] {
       lon: step.lon,
       legIndex,
       index: sequence.length,
+      offsetSeconds,
     });
   };
 
+  let offsetSeconds = 0;
+
   route.legs.forEach((leg, legIndex) => {
-    push(leg.boardingStation, legIndex);
-    for (const station of leg.intermediateStations) push(station, legIndex);
-    push(leg.alightingStation, legIndex);
+    offsetSeconds += leg.transferSecondsBefore;
+    push(leg.boardingStation, legIndex, offsetSeconds);
+
+    // Legs carry one total ride time, not per-hop times, so a station in the
+    // middle of a leg is placed by even division across that leg's hops.
+    // Boarding and alighting stations are exact. Same rule findStationOnRoute
+    // uses, so the map card and the itinerary can't disagree.
+    const hops = leg.intermediateStations.length + 1;
+    leg.intermediateStations.forEach((station, i) => {
+      push(station, legIndex, offsetSeconds + (leg.legTimeSeconds * (i + 1)) / hops);
+    });
+
+    offsetSeconds += leg.legTimeSeconds;
+    push(leg.alightingStation, legIndex, offsetSeconds);
   });
 
   return sequence;

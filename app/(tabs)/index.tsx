@@ -46,6 +46,7 @@ import { useSeedSelfPosition, useSelfPositionStore } from '../../src/location/se
 import { locationChannelManager } from '../../src/realtime/locationChannel';
 import { useActiveRouteStore } from '../../src/route/activeRouteStore';
 import { getRouteProgress } from '../../src/route/routeProgress';
+import { useRouteClock } from '../../src/route/useRouteClock';
 import { useLocationStore } from '../../src/realtime/locationStore';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import type { ColorTokens } from '../../src/theme/tokens';
@@ -205,13 +206,11 @@ export default function MapScreen() {
     return buildStationSubsetGeoJSON(routeProgress.passedStationIds);
   }, [routeProgress]);
 
-  // Captured per journey rather than per render, so arrival times don't drift
-  // while the card is open -- same treatment the itinerary gives them. Also
-  // re-captured on focus: a route can now be planned long before the map is
-  // looked at, and "arrives at" times from an hour ago are worse than none.
-  const [routeStartMs, setRouteStartMs] = useState(() => Date.now());
-  useEffect(() => setRouteStartMs(Date.now()), [activeRoute]);
-  useFocusEffect(useCallback(() => setRouteStartMs(Date.now()), []));
+  // The same clock the itinerary screen runs, so the card can't quote an
+  // arrival time the itinerary disagrees with: measured from the user's own
+  // position on the route while they're on it, and from "leaving now"
+  // otherwise.
+  const routeClock = useRouteClock(activeRoute, routeProgress);
 
   // Checked, not requested: prompting on mount asks a user who may never touch
   // a location feature. The actual prompt happens on first use, below.
@@ -537,7 +536,8 @@ export default function MapScreen() {
       <StationDetailCard
         station={selectedStation}
         route={activeRoute}
-        startMs={routeStartMs}
+        clock={routeClock}
+        progress={routeProgress}
         onClose={() => setSelectedStation(null)}
       />
     </View>

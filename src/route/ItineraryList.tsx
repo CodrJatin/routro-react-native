@@ -14,6 +14,7 @@ import Animated, {
 import type { ItineraryLeg, ItineraryStep, RawLines, RouteResult, StationId } from '../engine/types';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../theme/tokens';
+import { formatStationArrival, type RouteClock } from './routeClock';
 import { buildStationMarks, type RouteProgress, type RouteStationMark } from './routeProgress';
 
 const RAIL_WIDTH = 22;
@@ -29,13 +30,6 @@ const LINE_THICKNESS = 3;
  */
 const RAIL_BLEED = { marginTop: -1, marginBottom: -1 } as const;
 
-function formatClock(startMs: number, offsetSeconds: number): string {
-  const d = new Date(startMs + offsetSeconds * 1000);
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  return `${hh}:${mm}`;
-}
-
 function formatStops(count: number): string {
   return `${count} ${count === 1 ? 'Stop' : 'Stops'}`;
 }
@@ -47,12 +41,14 @@ function formatMinutes(seconds: number): string {
 export function ItineraryList({
   route,
   lines,
-  startMs,
+  clock,
   progress,
 }: {
   route: RouteResult;
   lines: RawLines;
-  startMs: number;
+  /** What the journey's offsets are pinned to on the wall clock -- the trip
+   * origin when planning, the user's own position when travelling. */
+  clock: RouteClock;
   /** Where the user is along this journey, when that's known. */
   progress: RouteProgress | null;
 }) {
@@ -67,20 +63,24 @@ export function ItineraryList({
 
   return (
     <View style={styles.card}>
-      {rows.map((row, index) =>
-        row.kind === 'ride' ? (
-          <RideRow key={`ride-${index}`} row={row} marks={marks} styles={styles} colors={colors} />
-        ) : (
+      {rows.map((row, index) => {
+        if (row.kind === 'ride') {
+          return (
+            <RideRow key={`ride-${index}`} row={row} marks={marks} styles={styles} colors={colors} />
+          );
+        }
+        const mark = marks.get(row.step.stationId);
+        return (
           <StationRow
             key={`station-${index}`}
             row={row}
-            mark={marks.get(row.step.stationId)}
-            time={formatClock(startMs, row.timeOffsetSeconds)}
+            mark={mark}
+            time={formatStationArrival(clock, row.timeOffsetSeconds, mark)}
             styles={styles}
             colors={colors}
           />
-        ),
-      )}
+        );
+      })}
     </View>
   );
 }
@@ -197,7 +197,9 @@ function StationRow({
       <View style={[styles.stationContent, mark === 'passed' && styles.passed]}>
         <View style={styles.stationHeaderRow}>
           <Text style={styles.stationName}>{row.step.stationName}</Text>
-          <Text style={styles.stationTime}>{time}</Text>
+          <Text style={[styles.stationTime, mark === 'passed' && styles.stationTimePassed]}>
+            {time}
+          </Text>
         </View>
         {row.kind === 'interchange' && (
           <View style={styles.changeRow}>
@@ -494,6 +496,12 @@ function createStyles(colors: ColorTokens, radius: { none: number; badge: number
     stationTime: {
       ...typography.dataLg,
       color: colors.textPrimary,
+    },
+    /** "Passed" is a state, not a time -- given the same weight as the clock
+     * it shouts down the arrivals that are still ahead of you. */
+    stationTimePassed: {
+      ...typography.dataSm,
+      color: colors.textSecondary,
     },
     changeRow: {
       flexDirection: 'row',
