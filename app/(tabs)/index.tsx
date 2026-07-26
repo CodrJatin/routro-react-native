@@ -10,7 +10,7 @@ import {
 } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -39,15 +39,48 @@ import {
   getMapStyle,
 } from '../../src/map/mapStyle';
 import { buildRoutePolylineGeoJSON, computeBounds } from '../../src/map/routePolyline';
-import { buildStationsGeoJSON } from '../../src/map/stationsGeoJSON';
+import { buildStationSubsetGeoJSON, buildStationsGeoJSON } from '../../src/map/stationsGeoJSON';
 import { StationDetailCard } from '../../src/map/StationDetailCard';
 import { UserLocationPin } from '../../src/map/UserLocationPin';
+import { useSeedSelfPosition, useSelfPositionStore } from '../../src/location/selfPosition';
 import { locationChannelManager } from '../../src/realtime/locationChannel';
 import { useActiveRouteStore } from '../../src/route/activeRouteStore';
+import { getRouteProgress } from '../../src/route/routeProgress';
 import { useLocationStore } from '../../src/realtime/locationStore';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import type { ColorTokens } from '../../src/theme/tokens';
 
+
+// Pulled off the component rather than imported from the style-spec package,
+// which is only here as a transitive dependency.
+type CirclePaint = NonNullable<Extract<ComponentProps<typeof Layer>, { type: 'circle' }>['paint']>;
+
+/** Shared by the base station circles and the "already passed" overlay drawn
+ * on top of them -- if the two ever disagreed, passed stations would sit as a
+ * visibly misaligned blob over their own outline. */
+const STATION_CIRCLE_RADIUS: CirclePaint['circle-radius'] = [
+  'interpolate',
+  ['linear'],
+  ['zoom'],
+  10,
+  ['case', ['get', 'isInterchange'], 3, 2],
+  14,
+  ['case', ['get', 'isInterchange'], 6, 4],
+  18,
+  ['case', ['get', 'isInterchange'], 12, 8],
+];
+
+const STATION_CIRCLE_STROKE_WIDTH: CirclePaint['circle-stroke-width'] = [
+  'interpolate',
+  ['linear'],
+  ['zoom'],
+  10,
+  ['case', ['get', 'isInterchange'], 1.5, 1],
+  14,
+  ['case', ['get', 'isInterchange'], 3, 2],
+  18,
+  ['case', ['get', 'isInterchange'], 6, 4],
+];
 
 export default function MapScreen() {
   const { colors, mode } = useTheme();
@@ -125,6 +158,20 @@ export default function MapScreen() {
     enabled: isScreenFocused && isAppActive && isLocationGranted,
   });
 
+  // This screen owns the only live GPS watcher in the app, so it's also what
+  // keeps the shared position current -- the route planner reads the same
+  // value to place the user along the journey, and the two must not disagree
+  // about which station that is. Seeding covers the gap before the first fix
+  // (and the case where the watcher never starts, e.g. permission refused).
+  useSeedSelfPosition();
+  useEffect(() => {
+    if (!currentPosition) return;
+    useSelfPositionStore
+      .getState()
+      .setLive(currentPosition.coords.latitude, currentPosition.coords.longitude);
+  }, [currentPosition]);
+  const selfPosition = useSelfPositionStore((state) => state.position);
+
   const params = useLocalSearchParams<{ focusUserId?: string }>();
 
   // From the store, not navigation params: the planner publishes the journey
@@ -147,6 +194,17 @@ export default function MapScreen() {
     if (!routeOriginId || !routeDestinationId) return null;
     return findRoute(routeOriginId, routeDestinationId, routeMode);
   }, [routeOriginId, routeDestinationId, routeMode]);
+
+  // Which stations of the journey are already behind the user. Null whenever
+  // that can't be answered honestly -- no fix, or nowhere near this route.
+  const routeProgress = useMemo(
+    () => getRouteProgress(activeRoute, selfPosition),
+    [activeRoute, selfPosition],
+  );
+  const passedStationsGeoJSON = useMemo(() => {
+    if (!routeProgress || routeProgress.passedStationIds.size === 0) return null;
+    return buildStationSubsetGeoJSON(routeProgress.passedStationIds);
+  }, [routeProgress]);
 
   // Captured per journey rather than per render, so arrival times don't drift
   // while the card is open -- same treatment the itinerary gives them. Also
@@ -366,29 +424,9 @@ export default function MapScreen() {
             type="circle"
             afterId="tracks-line"
             paint={{
-              'circle-radius': [
-                'interpolate',
-                ['linear'],
-                ['zoom'],
-                10,
-                ['case', ['get', 'isInterchange'], 3, 2],
-                14,
-                ['case', ['get', 'isInterchange'], 6, 4],
-                18,
-                ['case', ['get', 'isInterchange'], 12, 8],
-              ],
+              'circle-radius': STATION_CIRCLE_RADIUS,
               'circle-color': colors.canvas,
-              'circle-stroke-width': [
-                'interpolate',
-                ['linear'],
-                ['zoom'],
-                10,
-                ['case', ['get', 'isInterchange'], 1.5, 1],
-                14,
-                ['case', ['get', 'isInterchange'], 3, 2],
-                18,
-                ['case', ['get', 'isInterchange'], 6, 4],
-              ],
+              'circle-stroke-width': STATION_CIRCLE_STROKE_WIDTH,
               'circle-stroke-color': [
                 'case',
                 ['get', 'isInterchange'],
@@ -398,6 +436,28 @@ export default function MapScreen() {
             }}
           />
         </GeoJSONSource>
+
+        {/* Stations already behind the user on the active journey: the same
+            circle, solid instead of outlined. Drawn as its own layer over the
+            base one rather than by rebuilding the 290-station source on every
+            GPS fix -- and so the source that owns station taps is left
+            completely alone. Filling with textPrimary is what makes it read
+            as white-on-dark and black-on-light without a second rule. */}
+        {passedStationsGeoJSON && (
+          <GeoJSONSource id="route-passed-stations" data={passedStationsGeoJSON}>
+            <Layer
+              id="route-passed-circle"
+              type="circle"
+              afterId="stations-circle"
+              paint={{
+                'circle-radius': STATION_CIRCLE_RADIUS,
+                'circle-color': colors.textPrimary,
+                'circle-stroke-width': STATION_CIRCLE_STROKE_WIDTH,
+                'circle-stroke-color': colors.textPrimary,
+              }}
+            />
+          </GeoJSONSource>
+        )}
 
         <FriendsLayer />
 

@@ -1,13 +1,33 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
-import type { ItineraryLeg, ItineraryStep, RawLines, RouteResult } from '../engine/types';
+import { useEffect, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
+import type { ItineraryLeg, ItineraryStep, RawLines, RouteResult, StationId } from '../engine/types';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../theme/tokens';
+import { buildStationMarks, type RouteProgress, type RouteStationMark } from './routeProgress';
 
 const RAIL_WIDTH = 22;
 const LINE_THICKNESS = 3;
+
+/**
+ * Every row draws its own piece of the rail, and row heights land on
+ * fractional pixels (text line-heights, minHeights, borders), so where two
+ * rows meet the device rounds each edge independently and leaves a hairline
+ * of card colour showing through. Negative vertical margins stretch each
+ * rail one pixel past its row at both ends, so consecutive pieces overlap
+ * instead of merely touching and there is no seam left to round.
+ */
+const RAIL_BLEED = { marginTop: -1, marginBottom: -1 } as const;
 
 function formatClock(startMs: number, offsetSeconds: number): string {
   const d = new Date(startMs + offsetSeconds * 1000);
@@ -28,25 +48,33 @@ export function ItineraryList({
   route,
   lines,
   startMs,
+  progress,
 }: {
   route: RouteResult;
   lines: RawLines;
   startMs: number;
+  /** Where the user is along this journey, when that's known. */
+  progress: RouteProgress | null;
 }) {
   const { colors, radius, typography } = useTheme();
   const styles = useMemo(() => createStyles(colors, radius, typography), [colors, radius, typography]);
 
   const rows = useMemo(() => buildRows(route.legs, lines), [route.legs, lines]);
+  // By station rather than by index: the itinerary renders legs, which repeat
+  // a station at every interchange, while progress is measured along the
+  // flattened journey.
+  const marks = useMemo(() => buildStationMarks(progress), [progress]);
 
   return (
     <View style={styles.card}>
       {rows.map((row, index) =>
         row.kind === 'ride' ? (
-          <RideRow key={`ride-${index}`} row={row} styles={styles} colors={colors} />
+          <RideRow key={`ride-${index}`} row={row} marks={marks} styles={styles} colors={colors} />
         ) : (
           <StationRow
             key={`station-${index}`}
             row={row}
+            mark={marks.get(row.step.stationId)}
             time={formatClock(startMs, row.timeOffsetSeconds)}
             styles={styles}
             colors={colors}
@@ -131,17 +159,24 @@ function buildRows(legs: ItineraryLeg[], lines: RawLines): Row[] {
 
 function StationRow({
   row,
+  mark,
   time,
   styles,
   colors,
 }: {
   row: StationRowData;
+  mark: RouteStationMark | undefined;
   time: string;
   styles: ReturnType<typeof createStyles>;
   colors: ColorTokens;
 }) {
   return (
     <Animated.View style={styles.row} layout={LinearTransition.duration(200)}>
+      {/* Two flexed halves fill the row edge to edge -- meeting in the middle
+          with nothing between them -- and the marker is laid over the join.
+          The line therefore arrives at the station and leaves it, rather than
+          stopping short on both sides. They stay two halves rather than one
+          because at an interchange the colour changes here. */}
       <View style={styles.rail}>
         <View
           style={[
@@ -149,15 +184,17 @@ function StationRow({
             { backgroundColor: row.kind === 'origin' ? 'transparent' : row.lineColorAbove },
           ]}
         />
-        <StationMarker row={row} styles={styles} colors={colors} />
         <View
           style={[
             styles.railHalf,
             { backgroundColor: row.kind === 'destination' ? 'transparent' : row.lineColorBelow },
           ]}
         />
+        <View style={styles.railMarkerOverlay} pointerEvents="none">
+          <StationMarker row={row} mark={mark} styles={styles} colors={colors} />
+        </View>
       </View>
-      <View style={styles.stationContent}>
+      <View style={[styles.stationContent, mark === 'passed' && styles.passed]}>
         <View style={styles.stationHeaderRow}>
           <Text style={styles.stationName}>{row.step.stationName}</Text>
           <Text style={styles.stationTime}>{time}</Text>
@@ -183,32 +220,91 @@ function StationRow({
 
 function StationMarker({
   row,
+  mark,
   styles,
   colors,
 }: {
   row: StationRowData;
+  mark: RouteStationMark | undefined;
   styles: ReturnType<typeof createStyles>;
   colors: ColorTokens;
 }) {
-  if (row.kind === 'destination') {
-    return <View style={styles.destinationMarker} />;
-  }
-  if (row.kind === 'interchange') {
-    return (
+  const marker =
+    row.kind === 'destination' ? (
+      <View style={styles.destinationMarker} />
+    ) : row.kind === 'interchange' ? (
       <View style={styles.interchangeMarker}>
         <Ionicons name={row.isWalk ? 'walk' : 'swap-vertical'} size={11} color={colors.textPrimary} />
       </View>
+    ) : (
+      <View style={styles.originMarker} />
     );
-  }
-  return <View style={styles.originMarker} />;
+
+  if (mark !== 'current') return marker;
+
+  // At an origin/interchange/destination the row's own marker is carrying
+  // real information (which way to change, where the trip ends), so "you are
+  // here" wraps it rather than replacing it. The ring follows the marker's
+  // shape -- round on the origin dot, square on the two boxes.
+  return (
+    <View style={styles.markerWrap}>
+      <CurrentPulse
+        color={colors.textPrimary}
+        style={
+          row.kind === 'origin'
+            ? styles.ringOrigin
+            : row.kind === 'interchange'
+              ? styles.ringInterchange
+              : styles.ringDestination
+        }
+      />
+      {marker}
+    </View>
+  );
+}
+
+/** Monochrome "you are here": an outline that expands and fades on a loop.
+ * Same pulse language as the broadcast button on the map, so a live,
+ * position-derived thing always reads the same way. */
+function CurrentPulse({
+  color,
+  style,
+  rotate = '0deg',
+}: {
+  color: string;
+  style: StyleProp<ViewStyle>;
+  rotate?: string;
+}) {
+  const pulse = useSharedValue(0);
+
+  useEffect(() => {
+    pulse.value = 0;
+    pulse.value = withRepeat(
+      withTiming(1, { duration: 1700, easing: Easing.out(Easing.ease) }),
+      -1,
+      false,
+    );
+  }, [pulse]);
+
+  // Grows only a little: the rail is 22px wide and the card clips at its
+  // border, so a map-sized ping would either be sliced flat on the left or
+  // sweep across the station name to its right.
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: 0.55 * (1 - pulse.value),
+    transform: [{ rotate }, { scale: 1 + pulse.value * 0.3 }],
+  }));
+
+  return <Animated.View pointerEvents="none" style={[style, { borderColor: color }, animatedStyle]} />;
 }
 
 function RideRow({
   row,
+  marks,
   styles,
   colors,
 }: {
   row: RideRowData;
+  marks: Map<StationId, RouteStationMark>;
   styles: ReturnType<typeof createStyles>;
   colors: ColorTokens;
 }) {
@@ -216,42 +312,101 @@ function RideRow({
   const stopCount = row.leg.intermediateStations.length + 1;
 
   return (
-    <Animated.View style={styles.row} layout={LinearTransition.duration(200)}>
-      <View style={styles.rail}>
-        <View style={[styles.railFull, { backgroundColor: row.color }]} />
-      </View>
-      <View style={styles.rideContent}>
-        <View style={styles.lineBadge}>
-          <Ionicons name="train" size={12} color={colors.textPrimary} />
-          <Text style={styles.lineBadgeText}>{row.lineName.toUpperCase()}</Text>
+    <Animated.View layout={LinearTransition.duration(200)}>
+      <View style={styles.row}>
+        <View style={styles.rail}>
+          <View style={[styles.railFull, { backgroundColor: row.color }]} />
         </View>
-        <Text style={styles.rideMeta}>
-          {formatStops(stopCount)} · {formatMinutes(row.leg.legTimeSeconds)}
-        </Text>
+        <View style={styles.rideContent}>
+          <View style={styles.lineBadge}>
+            <Ionicons name="train" size={12} color={colors.textPrimary} />
+            <Text style={styles.lineBadgeText}>{row.lineName.toUpperCase()}</Text>
+          </View>
+          <Text style={styles.rideMeta}>
+            {formatStops(stopCount)} · {formatMinutes(row.leg.legTimeSeconds)}
+          </Text>
 
-        {row.leg.intermediateStations.length > 0 && (
-          <Pressable style={styles.expandRow} onPress={() => setExpanded((e) => !e)}>
-            <Ionicons
-              name={expanded ? 'chevron-up' : 'chevron-down'}
-              size={13}
-              color={colors.textSecondary}
-            />
-            <Text style={styles.expandText}>
-              {expanded ? 'Hide stops' : `Show ${row.leg.intermediateStations.length} in between`}
-            </Text>
-          </Pressable>
-        )}
-        {expanded && (
-          <Animated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)}>
-            {row.leg.intermediateStations.map((station) => (
-              <Text key={station.stationId} style={styles.intermediateStation} numberOfLines={1}>
-                {station.stationName}
+          {row.leg.intermediateStations.length > 0 && (
+            <Pressable style={styles.expandRow} onPress={() => setExpanded((e) => !e)}>
+              <Ionicons
+                name={expanded ? 'chevron-up' : 'chevron-down'}
+                size={13}
+                color={colors.textSecondary}
+              />
+              <Text style={styles.expandText}>
+                {expanded ? 'Hide stops' : `Show ${row.leg.intermediateStations.length} in between`}
               </Text>
-            ))}
-          </Animated.View>
+            </Pressable>
+          )}
+        </View>
+      </View>
+
+      {/* Outside the content column, so each stop gets its own row with the
+          rail running through it -- the dots have to sit *on* the line, and
+          the position marker has to be able to land on any one of them. */}
+      {expanded && (
+        <Animated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)}>
+          {row.leg.intermediateStations.map((station) => (
+            <IntermediateRow
+              key={station.stationId}
+              station={station}
+              mark={marks.get(station.stationId)}
+              color={row.color}
+              styles={styles}
+              colors={colors}
+            />
+          ))}
+        </Animated.View>
+      )}
+    </Animated.View>
+  );
+}
+
+function IntermediateRow({
+  station,
+  mark,
+  color,
+  styles,
+  colors,
+}: {
+  station: ItineraryStep;
+  mark: RouteStationMark | undefined;
+  color: string;
+  styles: ReturnType<typeof createStyles>;
+  colors: ColorTokens;
+}) {
+  return (
+    <View style={styles.intermediateRow}>
+      <View style={styles.intermediateRail}>
+        <View style={[styles.railBehind, { backgroundColor: color }]} />
+        {mark === 'current' ? (
+          <View style={styles.markerWrap}>
+            <CurrentPulse color={colors.textPrimary} style={styles.ringIntermediate} rotate="45deg" />
+            <View
+              style={[
+                styles.currentDiamond,
+                { backgroundColor: colors.textPrimary, borderColor: colors.surfaceContainerLow },
+              ]}
+            />
+          </View>
+        ) : (
+          <View
+            style={[
+              styles.intermediateDot,
+              mark === 'passed'
+                ? { backgroundColor: colors.textPrimary, borderColor: colors.textPrimary }
+                : { backgroundColor: colors.surfaceContainerLow, borderColor: color },
+            ]}
+          />
         )}
       </View>
-    </Animated.View>
+      <Text
+        style={[styles.intermediateStation, mark === 'passed' && styles.passed]}
+        numberOfLines={1}
+      >
+        {station.stationName}
+      </Text>
+    </View>
   );
 }
 
@@ -270,10 +425,24 @@ function createStyles(colors: ColorTokens, radius: { none: number; badge: number
     rail: {
       width: RAIL_WIDTH,
       alignItems: 'center',
+      ...RAIL_BLEED,
     },
     railHalf: {
       width: LINE_THICKNESS,
       flex: 1,
+    },
+    /** Sits over the join between the two halves. Absolute so the line's
+     * length is decided by the row, not by how tall the marker happens to
+     * be -- a percentage height here resolves to nothing against a
+     * cross-stretched parent, which is what left a gap on either side. */
+    railMarkerOverlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     railFull: {
       width: LINE_THICKNESS,
@@ -375,7 +544,93 @@ function createStyles(colors: ColorTokens, radius: { none: number; badge: number
     intermediateStation: {
       ...typography.dataSm,
       color: colors.textSecondary,
-      paddingLeft: 19,
+      flex: 1,
+      paddingHorizontal: 14,
+    },
+    // No padding on the group: any space here is space the rail doesn't run
+    // through, which shows up as a break in the line before the next station.
+    // The stops get their room from the row height instead.
+    intermediateRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      // The stops used to be bare lines of text stacked tight against each
+      // other; this is what gives each one room to read as its own stop.
+      minHeight: 30,
+    },
+    intermediateRail: {
+      width: RAIL_WIDTH,
+      alignSelf: 'stretch',
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...RAIL_BLEED,
+    },
+    /** The line continues behind the dot rather than being interrupted by
+     * it -- these rows sit mid-leg, the train doesn't stop being on the line. */
+    railBehind: {
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+      width: LINE_THICKNESS,
+      // No `left`: centred by the rail's own alignItems, exactly like the
+      // flexed halves on the station rows. Positioning this one by hand at
+      // 9.5px let the two round to different physical pixels on fractional
+      // densities, which reads as the line stepping sideways.
+    },
+    intermediateDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      borderWidth: 2,
+    },
+    /** Rotated square, not a circle: the origin/interchange/destination
+     * markers set a hard-edged shape language and a soft blob would read as
+     * a different kind of thing entirely. */
+    currentDiamond: {
+      width: 11,
+      height: 11,
+      borderWidth: 2,
+      transform: [{ rotate: '45deg' }],
+    },
+    markerWrap: {
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    // Each ring clears its own marker by ~4px and otherwise stays inside the
+    // rail. Round on the origin dot, square on everything else -- it has to
+    // read as a halo on that marker, not as a second marker.
+    ringOrigin: {
+      position: 'absolute',
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      borderWidth: 1.5,
+    },
+    ringInterchange: {
+      position: 'absolute',
+      width: 26,
+      height: 26,
+      borderRadius: radius.none,
+      borderWidth: 1.5,
+    },
+    ringDestination: {
+      position: 'absolute',
+      width: 21,
+      height: 21,
+      borderRadius: radius.none,
+      borderWidth: 1.5,
+    },
+    /** Rotated, so its diagonal (~21px) is what has to fit the 22px rail. */
+    ringIntermediate: {
+      position: 'absolute',
+      width: 15,
+      height: 15,
+      borderRadius: radius.none,
+      borderWidth: 1.5,
+    },
+    /** Already behind you. Dimmed rather than hidden -- the itinerary is
+     * still the whole journey, you've just done part of it. */
+    passed: {
+      opacity: 0.45,
     },
   });
 }

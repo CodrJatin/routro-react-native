@@ -5,10 +5,12 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { findRoute, getCompiledGraph, getStation } from '../../src/engine/graph';
+import { useSeedSelfPosition, useSelfPositionStore } from '../../src/location/selfPosition';
 import type { CompiledStation, RouteMode, RouteResult } from '../../src/engine/types';
 import { useActiveRouteStore } from '../../src/route/activeRouteStore';
 import { ItineraryList } from '../../src/route/ItineraryList';
 import { RouteModeToggle } from '../../src/route/RouteModeToggle';
+import { getRouteProgress } from '../../src/route/routeProgress';
 import { RouteSummaryCard } from '../../src/route/RouteSummaryCard';
 import { SavedJourneysSection } from '../../src/route/SavedJourneysSection';
 import { useIsJourneySaved, useSavedJourneysStore, type SavedJourney } from '../../src/route/savedJourneysStore';
@@ -69,6 +71,13 @@ export default function RouteScreen() {
     }
     setActiveRoute(origin.id, destination.id, mode);
   }, [route, origin, destination, mode, setActiveRoute, clearActiveRoute]);
+
+  // No GPS watcher of its own: the map screen owns the only one, and this
+  // reads whatever it (or the OS's last-known cache) has put in the shared
+  // store. Null position simply means no progress is shown.
+  useSeedSelfPosition();
+  const selfPosition = useSelfPositionStore((state) => state.position);
+  const progress = useMemo(() => getRouteProgress(route, selfPosition), [route, selfPosition]);
 
   const lines = useMemo(() => getCompiledGraph().lines, []);
 
@@ -163,7 +172,7 @@ export default function RouteScreen() {
               isSaved={isCurrentSaved}
               onToggleSave={handleToggleSave}
             />
-            <ItineraryList route={route} lines={lines} startMs={startMs} />
+            <ItineraryList route={route} lines={lines} startMs={startMs} progress={progress} />
           </Animated.View>
         ) : (
           // No route on screen -- the slot below the inputs belongs to the
