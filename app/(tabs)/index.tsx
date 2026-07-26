@@ -1,11 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
-import type BottomSheet from '@gorhom/bottom-sheet';
 import {
   Camera,
   type CameraRef,
   GeoJSONSource,
   Layer,
   Map as MapLibreMap,
+  type PressEventWithFeatures,
   useCurrentPosition,
 } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
@@ -19,6 +19,7 @@ import {
   type AppStateStatus,
   Easing,
   Linking,
+  type NativeSyntheticEvent,
   Pressable,
   StyleSheet,
   Text,
@@ -26,7 +27,7 @@ import {
 } from 'react-native';
 import tracksGeoJSON from '../../assets/data/tracks.json';
 import { useAuth } from '../../src/auth/AuthProvider';
-import { getStation } from '../../src/engine/graph';
+import { findRoute, getStation } from '../../src/engine/graph';
 import type { CompiledStation, RouteMode } from '../../src/engine/types';
 import { useBasemapStore } from '../../src/map/basemapStore';
 import { FriendFocusStack, type ActiveFriend } from '../../src/map/FriendFocusStack';
@@ -34,7 +35,7 @@ import { FriendsLayer } from '../../src/map/FriendsLayer';
 import { DEFAULT_ZOOM, DELHI_CENTER, getMapStyle } from '../../src/map/mapStyle';
 import { buildRoutePolylineGeoJSON, computeBounds } from '../../src/map/routePolyline';
 import { buildStationsGeoJSON } from '../../src/map/stationsGeoJSON';
-import { StationDetailSheet } from '../../src/map/StationDetailSheet';
+import { StationDetailCard } from '../../src/map/StationDetailCard';
 import { UserLocationPin } from '../../src/map/UserLocationPin';
 import { locationChannelManager } from '../../src/realtime/locationChannel';
 import { useLocationStore } from '../../src/realtime/locationStore';
@@ -55,7 +56,6 @@ export default function MapScreen() {
     [isBasemapEnabled, mode, colors.canvas],
   );
   const cameraRef = useRef<CameraRef>(null);
-  const sheetRef = useRef<BottomSheet>(null);
   const [selectedStation, setSelectedStation] = useState<CompiledStation | null>(null);
   const [isPendingBroadcast, setIsPendingBroadcast] = useState(false);
 
@@ -130,6 +130,18 @@ export default function MapScreen() {
     return buildRoutePolylineGeoJSON(params.originId, params.destinationId, params.mode ?? 'fastest');
   }, [params.originId, params.destinationId, params.mode]);
 
+  // The itinerary behind the drawn polyline, so tapping a station on it can
+  // say when you get there.
+  const activeRoute = useMemo(() => {
+    if (!params.originId || !params.destinationId) return null;
+    return findRoute(params.originId, params.destinationId, params.mode ?? 'fastest');
+  }, [params.originId, params.destinationId, params.mode]);
+
+  // Captured per journey rather than per render, so arrival times don't drift
+  // while the card is open -- same treatment the itinerary gives them.
+  const [routeStartMs, setRouteStartMs] = useState(() => Date.now());
+  useEffect(() => setRouteStartMs(Date.now()), [activeRoute]);
+
   // Checked, not requested: prompting on mount asks a user who may never touch
   // a location feature. The actual prompt happens on first use, below.
   useEffect(() => {
@@ -187,14 +199,23 @@ export default function MapScreen() {
     };
   }, [focusUserId, router]);
 
-  function handleStationPress(event: { nativeEvent: { features: GeoJSON.Feature[] } }) {
+  function handleStationPress(event: NativeSyntheticEvent<PressEventWithFeatures>) {
+    // A source press bubbles up to the map's own onPress, which closes the
+    // card. Stopping it here is what lets tapping station B while station A is
+    // open swap the card over instead of closing it.
+    event.stopPropagation();
     const feature = event.nativeEvent.features[0];
     const stationId = feature?.properties?.id as string | undefined;
     if (!stationId) return;
     const station = getStation(stationId);
     if (!station) return;
     setSelectedStation(station);
-    sheetRef.current?.snapToIndex(0);
+  }
+
+  /** Only reached for taps that hit no station, since station presses stop
+   * propagating. */
+  function handleMapPress() {
+    setSelectedStation(null);
   }
 
   async function handleCenterOnMyLocation() {
@@ -259,6 +280,7 @@ export default function MapScreen() {
         mapStyle={mapStyle}
         logo={false}
         attribution={isBasemapEnabled}
+        onPress={handleMapPress}
       >
         <Camera
           ref={cameraRef}
@@ -417,9 +439,10 @@ export default function MapScreen() {
         </Pressable>
       </View>
 
-      <StationDetailSheet
-        ref={sheetRef}
+      <StationDetailCard
         station={selectedStation}
+        route={activeRoute}
+        startMs={routeStartMs}
         onClose={() => setSelectedStation(null)}
       />
     </View>
