@@ -32,7 +32,12 @@ import type { CompiledStation, RouteMode } from '../../src/engine/types';
 import { useBasemapStore } from '../../src/map/basemapStore';
 import { FriendFocusStack, type ActiveFriend } from '../../src/map/FriendFocusStack';
 import { FriendsLayer } from '../../src/map/FriendsLayer';
-import { DEFAULT_ZOOM, DELHI_CENTER, getMapStyle } from '../../src/map/mapStyle';
+import {
+  BASEMAP_ATTRIBUTION,
+  DEFAULT_ZOOM,
+  DELHI_CENTER,
+  getMapStyle,
+} from '../../src/map/mapStyle';
 import { buildRoutePolylineGeoJSON, computeBounds } from '../../src/map/routePolyline';
 import { buildStationsGeoJSON } from '../../src/map/stationsGeoJSON';
 import { StationDetailCard } from '../../src/map/StationDetailCard';
@@ -273,13 +278,16 @@ export default function MapScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Attribution is required whenever CARTO/OSM tiles are on screen, and
-          pointless over the empty offline canvas -- so it tracks the basemap. */}
+      {/* MapLibre's own attribution control is off: it renders as a floating
+          (i) button over the map. The credit it carries is still required
+          whenever CARTO/OSM tiles are on screen, so it's printed as static
+          text below instead -- and, like the control it replaces, it tracks
+          the basemap rather than showing over the empty offline canvas. */}
       <MapLibreMap
         style={styles.map}
         mapStyle={mapStyle}
         logo={false}
-        attribution={isBasemapEnabled}
+        attribution={false}
         onPress={handleMapPress}
       >
         <Camera
@@ -439,6 +447,12 @@ export default function MapScreen() {
         </Pressable>
       </View>
 
+      {isBasemapEnabled && (
+        <Text style={styles.attribution} pointerEvents="none">
+          {BASEMAP_ATTRIBUTION}
+        </Text>
+      )}
+
       <StationDetailCard
         station={selectedStation}
         route={activeRoute}
@@ -503,6 +517,18 @@ function createStyles(colors: ColorTokens) {
     },
     map: {
       flex: 1,
+    },
+    // Sits in the strip below the station card (which rests at bottom: 24), so
+    // the two can never overlap.
+    attribution: {
+      position: 'absolute',
+      left: 10,
+      bottom: 5,
+      zIndex: 1,
+      fontFamily: 'SpaceMono_400Regular',
+      fontSize: 9,
+      lineHeight: 12,
+      color: colors.textSecondary,
     },
     locateButtonWrapper: {
       position: 'absolute',
