@@ -170,7 +170,7 @@ export function StationDetailCard({ station, route, startMs, onClose }: Props) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const lines = getCompiledGraph().lines;
 
-  const lineChips = useMemo(
+  const stationLines = useMemo(
     () => station?.lines.map((lineId) => lines[lineId]).filter(Boolean) ?? [],
     [station, lines],
   );
@@ -205,27 +205,20 @@ export function StationDetailCard({ station, route, startMs, onClose }: Props) {
         </Pressable>
       </View>
 
-      {lineChips.length > 1 && (
-        <Animated.Text
-          style={styles.interchange}
-          entering={FadeIn.duration(160)}
-          exiting={FadeOut.duration(120)}
-        >
-          INTERCHANGE
-        </Animated.Text>
-      )}
-
-      <Animated.View style={styles.chipRow} layout={RESIZE}>
-        {lineChips.map((line) => (
+      {/* One caption line carries both the lines and the fact that this is an
+          interchange -- two named lines say that on their own, so the separate
+          INTERCHANGE badge that used to sit above the chips is gone. */}
+      <Animated.View style={styles.lineRow} layout={RESIZE}>
+        {stationLines.map((line) => (
           <Animated.View
             key={line.id}
-            style={styles.chip}
+            style={styles.lineItem}
             entering={FadeIn.duration(160)}
             exiting={FadeOut.duration(120)}
             layout={RESIZE}
           >
-            <View style={[styles.chipDot, { backgroundColor: line.color }]} />
-            <Text style={styles.chipText}>{line.name}</Text>
+            <View style={[styles.lineSwatch, { backgroundColor: line.color }]} />
+            <Text style={styles.lineName}>{line.name}</Text>
           </Animated.View>
         ))}
       </Animated.View>
@@ -312,35 +305,26 @@ function createStyles(colors: ColorTokens) {
       lineHeight: 24,
       color: colors.textPrimary,
     },
-    interchange: {
-      fontFamily: 'SpaceMono_700Bold',
-      fontSize: 11,
-      lineHeight: 14,
-      letterSpacing: 1,
-      color: colors.textSecondary,
-    },
-    chipRow: {
+    lineRow: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      gap: 8,
+      alignItems: 'center',
+      gap: 14,
     },
-    chip: {
+    lineItem: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
-      borderWidth: 1,
-      borderColor: colors.border,
-      paddingVertical: 5,
-      paddingHorizontal: 10,
     },
-    chipDot: {
+    lineSwatch: {
       width: 8,
       height: 8,
     },
-    chipText: {
+    lineName: {
       fontFamily: 'Outfit_400Regular',
       fontSize: 13,
-      color: colors.textPrimary,
+      lineHeight: 18,
+      color: colors.textSecondary,
     },
     routeBlock: {
       borderTopWidth: 1,
