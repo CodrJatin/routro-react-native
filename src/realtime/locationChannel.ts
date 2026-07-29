@@ -321,16 +321,29 @@ class LocationChannelManager {
   async setBroadcasting(enabled: boolean): Promise<BroadcastResult> {
     const myBroadcastGeneration = ++this.broadcastGeneration;
 
-    if (!this.ownChannel) {
-      return this.refuse('no-channel', "You're not connected to the location service yet.");
+    // Stopping is handled before any connectivity check, and cannot fail.
+    // Everything that actually stops transmission is local -- kill the
+    // watcher, drop the flag -- so refusing it when the channel happened to
+    // be down answered "stop sharing" with "Couldn't start sharing: you're
+    // not connected", for an action that had in fact already taken effect.
+    // Being unsure whether your location is still going out is the worst
+    // state this screen can leave someone in.
+    if (!enabled) {
+      // Set together with the watcher teardown, not after an await: these
+      // two must never be observed disagreeing.
+      this.stopLocationWatcher();
+      this.setIsBroadcasting(false);
+      // Best-effort courtesy so friends see it immediately. With no channel
+      // they find out when presence times out instead, and the important
+      // half -- that nothing more is being sent -- is already true.
+      if (myBroadcastGeneration === this.broadcastGeneration) {
+        await this.ownChannel?.track({ status: 'online' satisfies PresenceStatus });
+      }
+      return { ok: true };
     }
 
-    if (!enabled) {
-      this.stopLocationWatcher();
-      await this.ownChannel.track({ status: 'online' satisfies PresenceStatus });
-      if (myBroadcastGeneration !== this.broadcastGeneration) return { ok: true };
-      this.setIsBroadcasting(false);
-      return { ok: true };
+    if (!this.ownChannel) {
+      return this.refuse('no-channel', "You're not connected to the location service yet.");
     }
 
     // Already broadcasting with a live watcher -- nothing to do, and

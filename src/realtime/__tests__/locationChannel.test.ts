@@ -359,6 +359,33 @@ describe('locationChannelManager', () => {
     }
   });
 
+  it('always succeeds at stopping, even with no channel at all', async () => {
+    const broadcastingChanges: boolean[] = [];
+    locationChannelManager.setHandlers({
+      onBroadcastingChange: (enabled) => broadcastingChanges.push(enabled),
+      onFriendLocation() {},
+      onFriendPresence() {},
+      onFriendRemoved() {},
+      onConnectionChange() {},
+      onBroadcastInterrupted() {},
+    });
+
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+    await locationChannelManager.setBroadcasting(true);
+
+    // The connection is gone by the time the user reaches for the toggle.
+    await locationChannelManager.leaveOwn();
+
+    const result = await locationChannelManager.setBroadcasting(false);
+
+    // Refusing here answered "stop sharing" with "Couldn't start sharing",
+    // leaving the user unable to tell whether they were still transmitting.
+    expect(result.ok).toBe(true);
+    expect(broadcastingChanges.at(-1)).toBe(false);
+    expect(watchers.every((w) => w.removed)).toBe(true);
+  });
+
   it('stops broadcasting when the channel reports an error', async () => {
     const broadcastingChanges: boolean[] = [];
     locationChannelManager.setHandlers({
