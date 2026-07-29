@@ -25,6 +25,11 @@ interface FakeChannel {
 }
 
 const channels: FakeChannel[] = [];
+/** Makes presence untrack fail, so cleanup's error handling can be exercised. */
+let untrackShouldThrow = false;
+/** Channels handed to supabase.removeChannel -- cleanup must always get here,
+ * however untrack went. */
+const removedChannels: FakeChannel[] = [];
 
 function makeChannel(topic: string): FakeChannel {
   let callback: ((status: SubscribeStatus) => void | Promise<void>) | undefined;
@@ -51,6 +56,7 @@ function makeChannel(topic: string): FakeChannel {
       return 'ok';
     },
     async untrack() {
+      if (untrackShouldThrow) throw new Error('untrack failed');
       return 'ok';
     },
     async send(message) {
@@ -66,7 +72,10 @@ function makeChannel(topic: string): FakeChannel {
 vi.mock('../../lib/supabase', () => ({
   supabase: {
     channel: (topic: string) => makeChannel(topic),
-    removeChannel: async () => 'ok',
+    removeChannel: async (channel: FakeChannel) => {
+      removedChannels.push(channel);
+      return 'ok';
+    },
   },
 }));
 
@@ -173,6 +182,8 @@ describe('locationChannelManager', () => {
     await locationChannelManager.teardown();
     channels.length = 0;
     watchers.length = 0;
+    removedChannels.length = 0;
+    untrackShouldThrow = false;
     permissionStatus = 'granted';
     watchGate = null;
     permissionRequestHook = null;
@@ -220,6 +231,21 @@ describe('locationChannelManager', () => {
 
     // The watcher may have been created, but it must not have survived.
     expect(watchers.every((w) => w.removed)).toBe(true);
+  });
+
+  it('still removes the channel when presence untrack fails', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    const channel = ownChannel();
+    await channel.emit('SUBSCRIBED');
+
+    untrackShouldThrow = true;
+    // Must not reject: neither joinOwn nor teardown is awaited by the
+    // provider, so a throw here surfaced as an unhandled rejection.
+    await expect(locationChannelManager.leaveOwn()).resolves.toBeUndefined();
+
+    // A channel left un-removed is referenced nowhere, still joined, still
+    // receiving, with no handle left to close it.
+    expect(removedChannels).toContain(channel);
   });
 
   it('resumes broadcasting after a background/foreground flip', async () => {

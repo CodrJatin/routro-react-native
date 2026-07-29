@@ -259,8 +259,22 @@ class LocationChannelManager {
       this.lastChannelError = null;
       this.ownUserId = null;
       if (channel) {
-        await channel.untrack();
-        await supabase.removeChannel(channel);
+        // Both steps are best-effort and independently guarded. A throwing
+        // untrack used to skip removeChannel entirely, leaving a channel
+        // referenced nowhere but still joined -- still receiving, still
+        // holding the socket, with no handle left to close it. It also
+        // rejected out through joinOwn/teardown, neither of which is awaited
+        // by the provider, so it surfaced as an unhandled rejection.
+        try {
+          await channel.untrack();
+        } catch (error) {
+          console.warn('[location] untrack failed during cleanup', error);
+        }
+        try {
+          await supabase.removeChannel(channel);
+        } catch (error) {
+          console.warn('[location] removeChannel failed during cleanup', error);
+        }
       }
     };
     // Chain onto whatever cleanup is already in flight so two overlapping
