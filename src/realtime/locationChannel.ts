@@ -703,7 +703,12 @@ class LocationChannelManager {
     this.wasBroadcastingBeforeBackground = false;
     if (!this.ownChannel) return;
     if (wasBroadcasting) {
-      await this.setBroadcasting(true);
+      const result = await this.setBroadcasting(true);
+      // Sharing was on when the user left and isn't now -- GPS switched off
+      // while the app was away being the usual cause. Coming back to a dark
+      // button with no explanation is precisely the failure the interrupted
+      // channel exists to report, and the result was being thrown away.
+      if (!result.ok) this.handlers.onBroadcastInterrupted(result.reason);
     } else {
       await this.ownChannel.track({ status: 'online' satisfies PresenceStatus });
     }

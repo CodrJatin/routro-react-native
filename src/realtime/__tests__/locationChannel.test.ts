@@ -233,6 +233,33 @@ describe('locationChannelManager', () => {
     expect(await locationChannelManager.pauseForBackground()).toBe(true);
   });
 
+  it('says so when sharing cannot be resumed on returning to the app', async () => {
+    const interruptions: string[] = [];
+    locationChannelManager.setHandlers({
+      onBroadcastingChange() {},
+      onFriendLocation() {},
+      onFriendPresence() {},
+      onFriendRemoved() {},
+      onConnectionChange() {},
+      onBroadcastInterrupted: (reason) => interruptions.push(reason),
+    });
+
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+    await locationChannelManager.setBroadcasting(true);
+
+    const wasBroadcasting = await locationChannelManager.pauseForBackground();
+    // Location switched off in Settings while the app was away, and declined
+    // when offered the chance to switch it back on.
+    servicesEnabled = false;
+    await locationChannelManager.resumeForForeground(wasBroadcasting);
+
+    // The button goes dark either way; without this the user has no idea why,
+    // and every reason to assume they are still sharing.
+    expect(interruptions).toHaveLength(1);
+    expect(interruptions[0]).toContain('Location is turned off');
+  });
+
   it('refuses to start broadcasting if the app never returns to the foreground', async () => {
     await locationChannelManager.joinOwn(USER_ID);
     await ownChannel().emit('SUBSCRIBED');
