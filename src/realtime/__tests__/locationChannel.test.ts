@@ -103,7 +103,13 @@ vi.mock('expo-location', () => ({
     callback: (position: unknown) => void,
     errorHandler?: (reason: string) => void,
   ) => {
-    if (watchGate) await watchGate;
+    // One-shot: only the first call parks, so a test can hold one attempt
+    // here while a second one runs past it to completion.
+    if (watchGate) {
+      const gate = watchGate;
+      watchGate = null;
+      await gate;
+    }
     const watcher = {
       removed: false,
       fire: callback,
@@ -357,6 +363,44 @@ describe('locationChannelManager', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('does not let a superseded attempt switch off the newer live one', async () => {
+    const broadcastingChanges: boolean[] = [];
+    locationChannelManager.setHandlers({
+      onBroadcastingChange: (enabled) => broadcastingChanges.push(enabled),
+      onFriendLocation() {},
+      onFriendPresence() {},
+      onFriendRemoved() {},
+      onConnectionChange() {},
+      onBroadcastInterrupted() {},
+    });
+
+    await locationChannelManager.joinOwn(USER_ID);
+    const channel = ownChannel();
+    await channel.emit('SUBSCRIBED');
+
+    // Park the first attempt inside watchPositionAsync...
+    let openGate: () => void = () => {};
+    watchGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    const first = locationChannelManager.setBroadcasting(true);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // ...and let a second one overtake it and genuinely start broadcasting.
+    const second = await locationChannelManager.setBroadcasting(true);
+    expect(second.ok).toBe(true);
+
+    openGate();
+    await first;
+
+    // The loser reporting itself through refuse() flipped the flag off after
+    // the winner had started: a dark button over a live watcher, presence
+    // re-tracked as 'online' by a device still transmitting, and a services
+    // watchdog that short-circuits on the same flag.
+    expect(broadcastingChanges.at(-1)).toBe(true);
+    expect(watchers.filter((w) => !w.removed)).toHaveLength(1);
   });
 
   it('always succeeds at stopping, even with no channel at all', async () => {

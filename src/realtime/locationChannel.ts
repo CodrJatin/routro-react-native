@@ -294,6 +294,24 @@ class LocationChannelManager {
     return { ok: false, reason };
   }
 
+  /** A newer call took over while this one was awaiting.
+   *
+   * Deliberately touches nothing. Routing these through `refuse` meant a
+   * losing call flipped `isBroadcasting` to false *after* the winning call
+   * had genuinely started -- which is the precise outcome the generation
+   * counter exists to prevent. The damage went past a dark button: the
+   * reconnect handler re-tracks presence from that flag (so friends were
+   * told 'online' by a device that was still transmitting) and the services
+   * watchdog short-circuits on it.
+   *
+   * Reported as ok, per `BroadcastResult`: being superseded is a benign
+   * no-op, not a refusal, and alerting the user about an attempt that a
+   * newer one has already taken over is just noise. */
+  private superseded(code: string): BroadcastResult {
+    console.warn(`[broadcast] superseded (${code})`);
+    return { ok: true };
+  }
+
   /** Resolves once the app is in the foreground again, or false on timeout.
    *
    * Asking for location permission opens a system dialog that backgrounds
@@ -356,10 +374,7 @@ class LocationChannelManager {
 
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (myBroadcastGeneration !== this.broadcastGeneration) {
-      return this.refuse(
-        'superseded-permission',
-        'Sharing was interrupted while asking for permission. Try again.',
-      );
+      return this.superseded('permission');
     }
     if (status !== 'granted') {
       return this.refuse(
@@ -377,10 +392,7 @@ class LocationChannelManager {
       );
     }
     if (myBroadcastGeneration !== this.broadcastGeneration) {
-      return this.refuse(
-        'superseded-foreground',
-        'Sharing was interrupted while returning to the app. Try again.',
-      );
+      return this.superseded('foreground');
     }
 
     // Permission granted is not the same as GPS being switched on. Without
@@ -392,10 +404,7 @@ class LocationChannelManager {
       // it themselves and come back.
       const accepted = await this.promptToEnableLocationServices();
       if (myBroadcastGeneration !== this.broadcastGeneration) {
-        return this.refuse(
-          'superseded-services-prompt',
-          'Sharing was interrupted while turning location on. Try again.',
-        );
+        return this.superseded('services-prompt');
       }
       // The dialog hands focus away; wait for it back before deciding
       // anything, same as after the permission prompt.
@@ -406,10 +415,7 @@ class LocationChannelManager {
         );
       }
       if (myBroadcastGeneration !== this.broadcastGeneration) {
-        return this.refuse(
-          'superseded-services-foreground',
-          'Sharing was interrupted while turning location on. Try again.',
-        );
+        return this.superseded('services-foreground');
       }
       // Accepting the dialog resolves as soon as the *setting* flips, which
       // is before the providers report themselves as up -- checking once
@@ -420,10 +426,7 @@ class LocationChannelManager {
         ? await this.waitForLocationServices()
         : await this.hasLocationServices();
       if (myBroadcastGeneration !== this.broadcastGeneration) {
-        return this.refuse(
-          'superseded-services-wait',
-          'Sharing was interrupted while turning location on. Try again.',
-        );
+        return this.superseded('services-wait');
       }
       if (!servicesOn) {
         return this.refuse(
@@ -438,10 +441,7 @@ class LocationChannelManager {
     // silently fall back to one REST POST per message.
     let joined = await this.waitForOwnChannelJoined();
     if (myBroadcastGeneration !== this.broadcastGeneration) {
-      return this.refuse(
-        'superseded-join',
-        'Sharing was interrupted while connecting. Try again.',
-      );
+      return this.superseded('join');
     }
     if (!joined) {
       // A channel can be left sitting closed after the socket dropped --
@@ -458,17 +458,11 @@ class LocationChannelManager {
       await this.rejoinOwnChannel();
       this.lastChannelError ??= priorError;
       if (myBroadcastGeneration !== this.broadcastGeneration) {
-        return this.refuse(
-          'superseded-rejoin',
-          'Sharing was interrupted while reconnecting. Try again.',
-        );
+        return this.superseded('rejoin');
       }
       joined = await this.waitForOwnChannelJoined(REJOIN_WAIT_MS);
       if (myBroadcastGeneration !== this.broadcastGeneration) {
-        return this.refuse(
-          'superseded-rejoin-wait',
-          'Sharing was interrupted while reconnecting. Try again.',
-        );
+        return this.superseded('rejoin-wait');
       }
     }
     if (!joined || !this.ownChannel) {
@@ -480,7 +474,7 @@ class LocationChannelManager {
       );
     }
     await this.ownChannel.track({ status: 'broadcasting' satisfies PresenceStatus });
-    if (myBroadcastGeneration !== this.broadcastGeneration) return { ok: true }; // superseded
+    if (myBroadcastGeneration !== this.broadcastGeneration) return this.superseded('track');
 
     // Belt-and-suspenders: guarantee any previous watcher is gone before
     // assigning a new one, however it might have gotten there.
@@ -520,10 +514,7 @@ class LocationChannelManager {
       // Superseded while awaiting watchPositionAsync -- remove what was just
       // created instead of leaking a watcher with no handle left to stop it.
       subscription.remove();
-      return this.refuse(
-        'superseded-watcher',
-        'Sharing was interrupted while starting GPS. Try again.',
-      );
+      return this.superseded('watcher');
     }
     // The app backgrounded while the watcher was being created. This is the
     // window pauseForBackground() can't cover on its own, and the reason it
