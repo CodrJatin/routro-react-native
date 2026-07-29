@@ -58,7 +58,13 @@ function parseLocPayload(payload: unknown): LocPayload | null {
 
   if (typeof lat !== 'number' || !Number.isFinite(lat) || lat < -90 || lat > 90) return null;
   if (typeof lon !== 'number' || !Number.isFinite(lon) || lon < -180 || lon > 180) return null;
-  if (typeof ts !== 'number' || !Number.isFinite(ts)) return null;
+  // Malformed-input guard only. Deliberately NOT a "is this close to now?"
+  // window: `ts` is the sender's clock, and rejecting on how far it sits
+  // from ours would make a friend whose device clock is wrong permanently
+  // invisible -- the exact cross-device comparison the rest of this file
+  // goes out of its way to avoid. A skewed-but-plausible ts is harmless,
+  // since it is only ever compared against that same sender's previous one.
+  if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) return null;
 
   return { lat, lon, ts };
 }

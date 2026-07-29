@@ -727,6 +727,7 @@ describe('locationChannelManager', () => {
     onBroadcast({ payload: { lat: 28.6, lon: 999, ts: 1 } });
     onBroadcast({ payload: { lat: Number.NaN, lon: 77.2, ts: 1 } });
     onBroadcast({ payload: null });
+    onBroadcast({ payload: { lat: 28.6, lon: 77.2, ts: 0 } });
     expect(received).toHaveLength(0);
 
     onBroadcast({ payload: { lat: 28.6, lon: 77.2, ts: 1 } });
