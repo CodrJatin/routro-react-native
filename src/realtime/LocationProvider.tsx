@@ -17,7 +17,6 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   const userId = session?.user.id;
   const { rows } = useFriendshipsContext();
   const wasBroadcastingBeforeBackground = useRef(false);
-  const previousAppState = useRef<AppStateStatus>(AppState.currentState);
 
   const acceptedFriendIds = userId
     ? rows.filter((r) => r.status === 'accepted').map((r) => otherParty(r, userId).id)
@@ -58,18 +57,17 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isConfigured) return;
     const subscription = AppState.addEventListener('change', async (next: AppStateStatus) => {
-      const prev = previousAppState.current;
-      previousAppState.current = next;
-      const isBackgroundish = next === 'background' || next === 'inactive';
-
-      if (isBackgroundish) {
-        // iOS fires active -> inactive -> background as TWO separate
-        // events. Only the first (a genuine active -> background-ish
-        // transition) should pause and capture the flag -- a repeat
-        // background-ish event must be a no-op, or the second call
-        // overwrites the flag the first call captured with `false` and
-        // broadcasting never resumes.
-        if (prev !== 'active') return;
+      // 'inactive' deliberately does NOT count as backgrounded. On iOS it
+      // fires for a notification pull-down, Control Centre, the app switcher
+      // and an incoming-call banner -- none of which mean the user has left.
+      // Treating them as departures untracked presence, which lands on
+      // friends' devices as "stopped broadcasting" and deletes the pin
+      // outright (see setFriendPresence), losing the movement history the
+      // line badge is derived from; and the trip back re-ran the entire
+      // start-up flow, permission request included. iOS always passes through
+      // 'inactive' on its way to 'background', so a real departure still
+      // pauses immediately.
+      if (next === 'background') {
         wasBroadcastingBeforeBackground.current = await locationChannelManager.pauseForBackground();
       } else if (next === 'active') {
         await locationChannelManager.resumeForForeground(wasBroadcastingBeforeBackground.current);

@@ -222,6 +222,17 @@ describe('locationChannelManager', () => {
     expect(watchers.every((w) => w.removed)).toBe(true);
   });
 
+  it('reports what the first pause captured when backgrounded twice', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+    await locationChannelManager.setBroadcasting(true);
+
+    expect(await locationChannelManager.pauseForBackground()).toBe(true);
+    // Re-reading isBroadcasting here would see the false the first pause just
+    // set, and foregrounding would never resume a session that was live.
+    expect(await locationChannelManager.pauseForBackground()).toBe(true);
+  });
+
   it('refuses to start broadcasting if the app never returns to the foreground', async () => {
     await locationChannelManager.joinOwn(USER_ID);
     await ownChannel().emit('SUBSCRIBED');

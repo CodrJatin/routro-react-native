@@ -125,6 +125,12 @@ class LocationChannelManager {
    * its watcher back down -- without cancelling enables that merely paused
    * behind a permission dialog. */
   private isPausedForBackground = false;
+  /** Whether broadcasting was live when the app most recently went to the
+   * background, so foregrounding knows whether to restart it. Held here
+   * rather than by the caller so that pausing can be idempotent: a repeat
+   * background event must return what the first one captured, not overwrite
+   * it with the `false` that pausing itself just produced. */
+  private wasBroadcastingBeforeBackground = false;
   private servicesWatchdog: ReturnType<typeof setInterval> | null = null;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   /** The last fix actually put on the wire, kept so the heartbeat can repeat
@@ -230,6 +236,13 @@ class LocationChannelManager {
   async leaveOwn(): Promise<void> {
     ++this.generation;
     ++this.broadcastGeneration;
+    // The session is over, so the backgrounding state captured during it must
+    // not outlive it: a retained "was broadcasting" would have the next
+    // foreground resume sharing on behalf of whoever signs in next, and a
+    // retained paused flag would make every later attempt refuse as
+    // 'backgrounded-late'.
+    this.isPausedForBackground = false;
+    this.wasBroadcastingBeforeBackground = false;
     await this.cleanupOwnChannel();
   }
 
@@ -665,6 +678,12 @@ class LocationChannelManager {
    * Returns whether broadcasting was active, so the caller can resume it on
    * foreground. */
   async pauseForBackground(): Promise<boolean> {
+    // Idempotent: a second background event while already paused reports what
+    // the first one captured. Re-running would read `isBroadcasting` after
+    // the first pause had already cleared it, and so resume to 'not
+    // broadcasting' on a session that was.
+    if (this.isPausedForBackground) return this.wasBroadcastingBeforeBackground;
+
     // Deliberately does NOT bump broadcastGeneration. Requesting location
     // permission opens a system dialog, which backgrounds the app and lands
     // here -- bumping the generation made an in-flight setBroadcasting()
@@ -672,15 +691,16 @@ class LocationChannelManager {
     // below, re-checked after the watcher is created, closes the same window
     // without the self-cancellation.
     this.isPausedForBackground = true;
-    const wasBroadcasting = this.isBroadcasting;
+    this.wasBroadcastingBeforeBackground = this.isBroadcasting;
     this.stopLocationWatcher();
     await this.ownChannel?.untrack();
     this.setIsBroadcasting(false);
-    return wasBroadcasting;
+    return this.wasBroadcastingBeforeBackground;
   }
 
   async resumeForForeground(wasBroadcasting: boolean): Promise<void> {
     this.isPausedForBackground = false;
+    this.wasBroadcastingBeforeBackground = false;
     if (!this.ownChannel) return;
     if (wasBroadcasting) {
       await this.setBroadcasting(true);
