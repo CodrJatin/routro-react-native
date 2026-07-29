@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '../auth/AuthProvider';
 import { otherParty } from '../friends/useFriendships';
@@ -16,7 +16,6 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   const { isConfigured, session } = useAuth();
   const userId = session?.user.id;
   const { rows } = useFriendshipsContext();
-  const wasBroadcastingBeforeBackground = useRef(false);
 
   const acceptedFriendIds = userId
     ? rows.filter((r) => r.status === 'accepted').map((r) => otherParty(r, userId).id)
@@ -68,9 +67,9 @@ export function LocationProvider({ children }: { children: ReactNode }) {
       // 'inactive' on its way to 'background', so a real departure still
       // pauses immediately.
       if (next === 'background') {
-        wasBroadcastingBeforeBackground.current = await locationChannelManager.pauseForBackground();
+        await locationChannelManager.pauseForBackground();
       } else if (next === 'active') {
-        await locationChannelManager.resumeForForeground(wasBroadcastingBeforeBackground.current);
+        await locationChannelManager.resumeForForeground();
       }
     });
     return () => subscription.remove();

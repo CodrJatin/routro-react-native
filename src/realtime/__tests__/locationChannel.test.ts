@@ -222,6 +222,21 @@ describe('locationChannelManager', () => {
     expect(watchers.every((w) => w.removed)).toBe(true);
   });
 
+  it('resumes broadcasting after a background/foreground flip', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+    await locationChannelManager.setBroadcasting(true);
+
+    // Deliberately NOT awaited: the OS can deliver 'active' before the pause
+    // has finished, which is what left the caller resuming against a flag it
+    // had not written yet -- and sharing simply never came back.
+    const pausing = locationChannelManager.pauseForBackground();
+    await locationChannelManager.resumeForForeground();
+    await pausing;
+
+    expect(watchers.filter((w) => !w.removed)).toHaveLength(1);
+  });
+
   it('reports what the first pause captured when backgrounded twice', async () => {
     await locationChannelManager.joinOwn(USER_ID);
     await ownChannel().emit('SUBSCRIBED');
@@ -248,11 +263,11 @@ describe('locationChannelManager', () => {
     await ownChannel().emit('SUBSCRIBED');
     await locationChannelManager.setBroadcasting(true);
 
-    const wasBroadcasting = await locationChannelManager.pauseForBackground();
+    await locationChannelManager.pauseForBackground();
     // Location switched off in Settings while the app was away, and declined
     // when offered the chance to switch it back on.
     servicesEnabled = false;
-    await locationChannelManager.resumeForForeground(wasBroadcasting);
+    await locationChannelManager.resumeForForeground();
 
     // The button goes dark either way; without this the user has no idea why,
     // and every reason to assume they are still sharing.
@@ -293,7 +308,7 @@ describe('locationChannelManager', () => {
     // The dialog closes and focus comes back.
     await Promise.resolve();
     setAppState('active');
-    await locationChannelManager.resumeForForeground(false);
+    await locationChannelManager.resumeForForeground();
 
     const result = await pending;
 

@@ -691,15 +691,26 @@ class LocationChannelManager {
     // below, re-checked after the watcher is created, closes the same window
     // without the self-cancellation.
     this.isPausedForBackground = true;
+    // Captured before any await, so a foreground event arriving mid-pause
+    // still reads the right answer. Flag and watcher drop together for the
+    // same reason they do in setBroadcasting: an await between them is a
+    // window where the UI claims to be sharing over a dead watcher.
     this.wasBroadcastingBeforeBackground = this.isBroadcasting;
     this.stopLocationWatcher();
-    await this.ownChannel?.untrack();
     this.setIsBroadcasting(false);
+    await this.ownChannel?.untrack();
     return this.wasBroadcastingBeforeBackground;
   }
 
-  async resumeForForeground(wasBroadcasting: boolean): Promise<void> {
+  /** Takes no argument by design. The caller used to hold "was broadcasting
+   * before backgrounding" and hand it back, but it could only store that
+   * once `pauseForBackground` resolved -- so a quick background/foreground
+   * flip ran this against a value that had not been written yet, and
+   * sharing never came back. The manager captures it synchronously instead;
+   * there is nothing for a caller to get wrong. */
+  async resumeForForeground(): Promise<void> {
     this.isPausedForBackground = false;
+    const wasBroadcasting = this.wasBroadcastingBeforeBackground;
     this.wasBroadcastingBeforeBackground = false;
     if (!this.ownChannel) return;
     if (wasBroadcasting) {
