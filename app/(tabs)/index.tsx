@@ -330,13 +330,16 @@ export default function MapScreen() {
 
   async function handleToggleBroadcast() {
     if (isPendingBroadcast) return;
+    const isStarting = !isBroadcasting;
     setIsPendingBroadcast(true);
     try {
-      const result = await locationChannelManager.setBroadcasting(!isBroadcasting);
+      const result = await locationChannelManager.setBroadcasting(isStarting);
       // A button that spins and then just doesn't light up tells the user
-      // nothing -- say why it couldn't start.
+      // nothing -- say why it couldn't start. Titled by direction: stopping
+      // can no longer fail, but a fixed "Couldn't start sharing" would be
+      // actively misleading if it ever did.
       if (!result.ok) {
-        Alert.alert("Couldn't start sharing", result.reason);
+        Alert.alert(isStarting ? "Couldn't start sharing" : "Couldn't stop sharing", result.reason);
       }
     } finally {
       setIsPendingBroadcast(false);
