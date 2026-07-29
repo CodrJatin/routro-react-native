@@ -174,7 +174,7 @@ function ownChannel(): FakeChannel {
 const JOIN_GIVE_UP_MS = 20_000;
 
 function position(lat: number, lon: number) {
-  return { coords: { latitude: lat, longitude: lon, heading: null }, timestamp: 1_700_000_000_000 };
+  return { coords: { latitude: lat, longitude: lon }, timestamp: 1_700_000_000_000 };
 }
 
 describe('locationChannelManager', () => {
@@ -729,8 +729,8 @@ describe('locationChannelManager', () => {
     onBroadcast({ payload: null });
     expect(received).toHaveLength(0);
 
-    onBroadcast({ payload: { lat: 28.6, lon: 77.2, heading: 90, ts: 1 } });
+    onBroadcast({ payload: { lat: 28.6, lon: 77.2, ts: 1 } });
     expect(received).toHaveLength(1);
-    expect(received[0]).toMatchObject({ userId: FRIEND_ID, lat: 28.6, lon: 77.2, heading: 90 });
+    expect(received[0]).toMatchObject({ userId: FRIEND_ID, lat: 28.6, lon: 77.2 });
   });
 });

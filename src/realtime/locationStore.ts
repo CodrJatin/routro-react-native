@@ -15,7 +15,6 @@ export interface FriendLocation {
   userId: string;
   lat: number;
   lon: number;
-  heading: number | null;
   /** ms since epoch, from the SENDER's device clock -- ordering/dedup only.
    * Never diff this against a local Date.now(); device clock drift makes a
    * friend permanently fresh or permanently stale. */

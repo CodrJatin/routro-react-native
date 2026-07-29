@@ -12,7 +12,7 @@ import { useLocationStore } from '../locationStore';
 const FRIEND = 'friend-user';
 
 function fix(lat: number, lon: number, ts: number) {
-  return { userId: FRIEND, lat, lon, heading: null, ts };
+  return { userId: FRIEND, lat, lon, ts };
 }
 
 function stored() {

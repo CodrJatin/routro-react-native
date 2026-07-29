@@ -44,7 +44,6 @@ function topicFor(userId: string): string {
 interface LocPayload {
   lat: number;
   lon: number;
-  heading: number | null;
   ts: number;
 }
 
@@ -55,14 +54,13 @@ interface LocPayload {
  * into the native GeoJSON layer's `coordinates` if let through unchecked. */
 function parseLocPayload(payload: unknown): LocPayload | null {
   if (typeof payload !== 'object' || payload === null) return null;
-  const { lat, lon, heading, ts } = payload as Record<string, unknown>;
+  const { lat, lon, ts } = payload as Record<string, unknown>;
 
   if (typeof lat !== 'number' || !Number.isFinite(lat) || lat < -90 || lat > 90) return null;
   if (typeof lon !== 'number' || !Number.isFinite(lon) || lon < -180 || lon > 180) return null;
   if (typeof ts !== 'number' || !Number.isFinite(ts)) return null;
 
-  const safeHeading = typeof heading === 'number' && Number.isFinite(heading) ? heading : null;
-  return { lat, lon, heading: safeHeading, ts };
+  return { lat, lon, ts };
 }
 
 /** Callbacks the manager reports through instead of writing to app state
@@ -519,7 +517,6 @@ class LocationChannelManager {
         this.sendFix({
           lat: position.coords.latitude,
           lon: position.coords.longitude,
-          heading: position.coords.heading,
           ts: position.timestamp,
         });
       },
