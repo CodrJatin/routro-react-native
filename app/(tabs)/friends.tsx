@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -11,8 +11,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import * as Location from 'expo-location';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth, type Profile } from '../../src/auth/AuthProvider';
@@ -25,6 +24,7 @@ import { inferCurrentLine } from '../../src/friends/currentLine';
 import { estimateFriendEta } from '../../src/friends/friendEta';
 import { findNearestStation, type NearestStation } from '../../src/friends/nearestStation';
 import { otherParty } from '../../src/friends/useFriendships';
+import { useSeedSelfPosition, useSelfPositionStore } from '../../src/location/selfPosition';
 import { useFriendStatuses, useLocationStore, type FriendLocation, type FriendStatus } from '../../src/realtime/locationStore';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import { useSharedStyles } from '../../src/theme/sharedStyles';
@@ -80,25 +80,14 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
   const router = useRouter();
 
   // The user's own position, for the "how far is this friend from me"
-  // estimate. Deliberately a last-known read on focus rather than a live
-  // watcher: this screen doesn't need tracking, and starting a second GPS
-  // subscription here is exactly what the map screen was fixed to avoid.
-  const [selfPosition, setSelfPosition] = useState<{ lat: number; lon: number } | null>(null);
-  useFocusEffect(
-    useCallback(() => {
-      let cancelled = false;
-      Location.getLastKnownPositionAsync()
-        .then((position) => {
-          if (!cancelled && position) {
-            setSelfPosition({ lat: position.coords.latitude, lon: position.coords.longitude });
-          }
-        })
-        .catch(() => {});
-      return () => {
-        cancelled = true;
-      };
-    }, []),
-  );
+  // estimate -- read from the shared store rather than this screen keeping
+  // its own copy. A private last-known read here meant this tab and the map
+  // could hold different answers at the same moment and place the user at
+  // different stations on one journey, which is the exact thing
+  // selfPosition.ts exists to prevent. Seeding stays watcher-free: the map
+  // owns the app's only live GPS watcher.
+  useSeedSelfPosition();
+  const selfPosition = useSelfPositionStore((state) => state.position);
 
   // Read fresh on every render rather than ticked via a local setInterval --
   // useFriendStatuses() below already re-renders this component on the one
