@@ -745,8 +745,11 @@ class LocationChannelManager {
   private subscribeToFriend(friendId: string): void {
     if (this.friendChannels.has(friendId)) return;
 
+    // No presence key: that option names the key WE would track under, and
+    // we deliberately never track on a friend's channel -- we only listen.
+    // Setting it read as if this device announced itself as the friend.
     const channel = supabase.channel(topicFor(friendId), {
-      config: { private: true, presence: { key: friendId } },
+      config: { private: true },
     });
 
     channel
