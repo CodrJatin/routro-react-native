@@ -309,6 +309,56 @@ describe('locationChannelManager', () => {
     expect(channel.sent).toHaveLength(1);
   });
 
+  it('keeps sending while stationary, so a still friend is not dropped', async () => {
+    // Fake timers go up FIRST: the heartbeat's interval has to be created
+    // under them, or advancing the clock never fires it.
+    vi.useFakeTimers();
+    try {
+      await locationChannelManager.joinOwn(USER_ID);
+      const channel = ownChannel();
+      await channel.emit('SUBSCRIBED');
+      await locationChannelManager.setBroadcasting(true);
+
+      watchers.find((w) => !w.removed)!.fire(position(28.6, 77.2));
+      expect(channel.sent).toHaveLength(1);
+
+      // Standing on a platform: distanceInterval is a hard OS-level filter,
+      // so the watcher legitimately delivers nothing more. Without a
+      // heartbeat the receiver sees silence, fades the pin at 30s and drops
+      // it at 90s while the user believes they are still sharing.
+      await vi.advanceTimersByTimeAsync(50_000);
+
+      expect(channel.sent.length).toBeGreaterThan(1);
+      // Repeats carry the ORIGINAL reading, unrestamped -- that identity is
+      // how the receiver tells a repeat from real movement.
+      expect(channel.sent.at(-1)).toEqual(channel.sent[0]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops repeating the last fix once broadcasting is turned off', async () => {
+    vi.useFakeTimers();
+    try {
+      await locationChannelManager.joinOwn(USER_ID);
+      const channel = ownChannel();
+      await channel.emit('SUBSCRIBED');
+      await locationChannelManager.setBroadcasting(true);
+
+      watchers.find((w) => !w.removed)!.fire(position(28.6, 77.2));
+      await locationChannelManager.setBroadcasting(false);
+      const sentWhenStopped = channel.sent.length;
+
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      // A heartbeat surviving the stop would keep transmitting a position
+      // after the user explicitly stopped sharing it.
+      expect(channel.sent).toHaveLength(sentWhenStopped);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('stops broadcasting when the channel reports an error', async () => {
     const broadcastingChanges: boolean[] = [];
     locationChannelManager.setHandlers({

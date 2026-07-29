@@ -6,6 +6,22 @@ import type { ConnectionState, FriendLocation, PresenceStatus } from './location
 
 const BROADCAST_DISTANCE_METERS = 15;
 const BROADCAST_INTERVAL_MS = 5000;
+/** How long a fix may go un-transmitted before the last one is simply sent
+ * again.
+ *
+ * `BROADCAST_DISTANCE_METERS` is a hard filter in the OS, not a hint --
+ * Android maps it to `setMinUpdateDistanceMeters` and iOS to
+ * `CLLocationManager.distanceFilter`, and neither delivers anything at all
+ * until the device has moved that far (`timeInterval` does not override it,
+ * and iOS ignores that option entirely). So someone standing still --
+ * waiting on a platform, which is precisely when a friend is looking for
+ * them -- transmitted nothing, went stale on the receiver at 30s and was
+ * dropped off the map entirely at 90s while still actively sharing. */
+const HEARTBEAT_RESEND_AFTER_MS = 15_000;
+/** How often the heartbeat checks. Deliberately shorter than the resend
+ * window above, so the worst-case silence is ~20s and stays comfortably
+ * inside the receiver's 30s staleness threshold. */
+const HEARTBEAT_TICK_MS = 5000;
 /** How often to confirm the device still has location switched on while
  * broadcasting. */
 const SERVICES_CHECK_INTERVAL_MS = 15_000;
@@ -55,11 +71,12 @@ function parseLocPayload(payload: unknown): LocPayload | null {
  * wires these straight into the Zustand store. */
 export interface LocationManagerHandlers {
   onBroadcastingChange(enabled: boolean): void;
-  /** Deliberately excludes `receivedAt` and `previous` -- both are derived
-   * by the store's `upsertFriendLocation`, not by the sender. Stamping
-   * `receivedAt` here would put staleness back on the sender's clock, and
-   * `previous` only exists relative to what this device already held. */
-  onFriendLocation(loc: Omit<FriendLocation, 'receivedAt' | 'previous'>): void;
+  /** Deliberately excludes `receivedAt`, `movedAt` and `previous` -- all
+   * three are derived by the store's `upsertFriendLocation`, not by the
+   * sender. Stamping the clocks here would put staleness back on the
+   * sender's clock, and `previous` only exists relative to what this device
+   * already held. */
+  onFriendLocation(loc: Omit<FriendLocation, 'receivedAt' | 'movedAt' | 'previous'>): void;
   onFriendPresence(userId: string, status: PresenceStatus): void;
   onFriendRemoved(userId: string): void;
   onConnectionChange(state: ConnectionState): void;
@@ -109,6 +126,14 @@ class LocationChannelManager {
    * behind a permission dialog. */
   private isPausedForBackground = false;
   private servicesWatchdog: ReturnType<typeof setInterval> | null = null;
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
+  /** The last fix actually put on the wire, kept so the heartbeat can repeat
+   * it verbatim. Its `ts` stays at the original reading's time rather than
+   * being restamped: it describes when the position was taken, not when it
+   * was last transmitted, and the receiver uses that identity to tell a
+   * repeat apart from real movement. */
+  private lastSentFix: LocPayload | null = null;
+  private lastSentAt = 0;
   private friendChannels = new Map<string, RealtimeChannel>();
   private locationSubscription: Location.LocationSubscription | null = null;
   private isBroadcasting = false;
@@ -457,19 +482,11 @@ class LocationChannelManager {
         timeInterval: BROADCAST_INTERVAL_MS,
       },
       (position) => {
-        // Dropping a fix during a reconnect is cheaper and more honest than
-        // realtime-js's silent per-message REST fallback.
-        if (!this.ownChannel || this.ownChannel.state !== 'joined') return;
-        const payload: LocPayload = {
+        this.sendFix({
           lat: position.coords.latitude,
           lon: position.coords.longitude,
           heading: position.coords.heading,
           ts: position.timestamp,
-        };
-        this.ownChannel.send({ type: 'broadcast', event: 'loc', payload }).then((result) => {
-          if (result !== 'ok') {
-            console.warn(`[location] broadcast send did not succeed: ${result}`);
-          }
         });
       },
       // Third argument, previously omitted: the provider reporting a problem
@@ -509,7 +526,50 @@ class LocationChannelManager {
     this.locationSubscription = subscription;
     this.startServicesWatchdog();
     this.setIsBroadcasting(true);
+    // After setIsBroadcasting: the heartbeat checks that flag before sending.
+    this.startHeartbeat();
     return { ok: true };
+  }
+
+  /** The single exit point for outbound fixes, shared by the GPS watcher and
+   * the heartbeat so the two can't drift apart on what counts as sent. */
+  private sendFix(payload: LocPayload): void {
+    // Dropping a fix during a reconnect is cheaper and more honest than
+    // realtime-js's silent per-message REST fallback.
+    const channel = this.ownChannel;
+    if (!channel || channel.state !== 'joined') return;
+    this.lastSentFix = payload;
+    this.lastSentAt = Date.now();
+    void channel.send({ type: 'broadcast', event: 'loc', payload }).then((result) => {
+      if (result !== 'ok') {
+        console.warn(`[location] broadcast send did not succeed: ${result}`);
+      }
+    });
+  }
+
+  /** Repeats the last fix when the watcher has gone quiet -- see
+   * `HEARTBEAT_RESEND_AFTER_MS`. Sends nothing until there is a fix to
+   * repeat, and nothing while the channel is mid-reconnect (`sendFix`
+   * drops those), so a stalled connection doesn't accumulate anything. */
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeat = setInterval(() => {
+      const fix = this.lastSentFix;
+      if (!fix || !this.isBroadcasting) return;
+      if (Date.now() - this.lastSentAt < HEARTBEAT_RESEND_AFTER_MS) return;
+      this.sendFix(fix);
+    }, HEARTBEAT_TICK_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeat !== null) {
+      clearInterval(this.heartbeat);
+      this.heartbeat = null;
+    }
+    // Cleared with the watcher: a fix from a finished session must never be
+    // repeated into a later one.
+    this.lastSentFix = null;
+    this.lastSentAt = 0;
   }
 
   private async hasLocationServices(): Promise<boolean> {
@@ -591,6 +651,7 @@ class LocationChannelManager {
 
   private stopLocationWatcher(): void {
     this.stopServicesWatchdog();
+    this.stopHeartbeat();
     this.locationSubscription?.remove();
     this.locationSubscription = null;
   }

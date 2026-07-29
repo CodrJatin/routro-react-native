@@ -21,13 +21,22 @@ export interface FriendLocation {
    * friend permanently fresh or permanently stale. */
   ts: number;
   /** ms since epoch, from THIS device's clock at the moment the message
-   * arrived -- the only value safe to compare against Date.now(). */
+   * arrived -- the only value safe to compare against Date.now(). Refreshed
+   * by a heartbeat repeat as well as by real movement: it answers "is this
+   * friend still live?", which a repeat does prove. */
   receivedAt: number;
-  /** The fix immediately before this one, when there is one. Retained so
+  /** ms since epoch, this device's clock, for when this position was first
+   * seen. Unlike `receivedAt` a heartbeat repeat does NOT move it, so it is
+   * what pin animation must measure against -- otherwise every repeat resets
+   * the glide and the pin snaps back to replay its last move. */
+  movedAt: number;
+  /** The last DISTINCT fix before this one, when there is one. Retained so
    * consumers can derive direction of travel (which metro line a friend is
    * actually on) and interpolate pin movement between broadcasts, neither
-   * of which is possible from a single point. */
-  previous: { lat: number; lon: number; receivedAt: number } | null;
+   * of which is possible from a single point. Survives heartbeat repeats:
+   * overwriting it with an identical point would erase the very movement
+   * the line badge is read from. */
+  previous: { lat: number; lon: number; movedAt: number } | null;
 }
 
 interface LocationState {
@@ -41,7 +50,7 @@ interface LocationState {
   friendPresence: Record<string, PresenceStatus>;
   setBroadcasting: (value: boolean) => void;
   setConnectionState: (state: ConnectionState) => void;
-  upsertFriendLocation: (loc: Omit<FriendLocation, 'receivedAt' | 'previous'>) => void;
+  upsertFriendLocation: (loc: Omit<FriendLocation, 'receivedAt' | 'movedAt' | 'previous'>) => void;
   setFriendPresence: (userId: string, status: PresenceStatus) => void;
   removeFriend: (userId: string) => void;
 }
@@ -66,18 +75,35 @@ export const useLocationStore = create<LocationState>((set) => ({
   upsertFriendLocation: (loc) =>
     set((state) => {
       const existing = state.friendLocations[loc.userId];
+      const now = Date.now();
+
+      // A heartbeat repeat of a fix we already hold (see
+      // HEARTBEAT_RESEND_AFTER_MS in locationChannel.ts). It proves the
+      // friend is still live, which is the whole point of it -- but it is
+      // not new movement, so it refreshes `receivedAt` and nothing else.
+      // This is what `ts` is carried for: the sender leaves it at the
+      // original reading's time, which makes a repeat identifiable.
+      const isRepeat =
+        existing !== undefined &&
+        existing.ts === loc.ts &&
+        existing.lat === loc.lat &&
+        existing.lon === loc.lon;
+
       return {
         friendLocations: {
           ...state.friendLocations,
           // Stamped with the RECEIVER's clock, here and only here -- this is
           // what staleness/"updated Xs ago" must be measured against.
-          [loc.userId]: {
-            ...loc,
-            receivedAt: Date.now(),
-            previous: existing
-              ? { lat: existing.lat, lon: existing.lon, receivedAt: existing.receivedAt }
-              : null,
-          },
+          [loc.userId]: isRepeat
+            ? { ...existing, receivedAt: now }
+            : {
+                ...loc,
+                receivedAt: now,
+                movedAt: now,
+                previous: existing
+                  ? { lat: existing.lat, lon: existing.lon, movedAt: existing.movedAt }
+                  : null,
+              },
         },
       };
     }),

@@ -23,11 +23,14 @@ function positionAt(location: FriendLocation, now: number): [number, number] {
   const previous = location.previous;
   if (!previous) return [location.lon, location.lat];
 
-  const gap = location.receivedAt - previous.receivedAt;
+  // `movedAt`, not `receivedAt`: a heartbeat repeat refreshes the latter to
+  // prove the friend is still live, and measuring against it would restart
+  // this glide from the previous point every 15 seconds.
+  const gap = location.movedAt - previous.movedAt;
   if (!Number.isFinite(gap) || gap <= 0) return [location.lon, location.lat];
 
   const duration = Math.min(Math.max(gap, MIN_DURATION_MS), MAX_DURATION_MS);
-  const t = (now - location.receivedAt) / duration;
+  const t = (now - location.movedAt) / duration;
   if (t >= 1) return [location.lon, location.lat];
   if (t <= 0) return [previous.lon, previous.lat];
 
@@ -38,10 +41,10 @@ function positionAt(location: FriendLocation, now: number): [number, number] {
 function isAnimating(location: FriendLocation, now: number): boolean {
   const previous = location.previous;
   if (!previous) return false;
-  const gap = location.receivedAt - previous.receivedAt;
+  const gap = location.movedAt - previous.movedAt;
   if (!Number.isFinite(gap) || gap <= 0) return false;
   const duration = Math.min(Math.max(gap, MIN_DURATION_MS), MAX_DURATION_MS);
-  return now - location.receivedAt < duration;
+  return now - location.movedAt < duration;
 }
 
 /**
@@ -66,8 +69,10 @@ export function useInterpolatedPositions(
   const frameRef = useRef<number | null>(null);
 
   // Re-keyed on the fixes themselves: a new broadcast replaces the array, which
-  // restarts the loop for the fresh animation window.
-  const signature = locations.map((l) => `${l.userId}:${l.receivedAt}`).join('|');
+  // restarts the loop for the fresh animation window. Keyed on `movedAt` so a
+  // heartbeat repeat -- which changes nothing about where the pin belongs --
+  // doesn't wake the frame loop for a glide that has already finished.
+  const signature = locations.map((l) => `${l.userId}:${l.movedAt}`).join('|');
 
   useEffect(() => {
     let cancelled = false;
