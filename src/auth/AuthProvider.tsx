@@ -2,6 +2,7 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -81,6 +82,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => subscription.subscription.unsubscribe();
+  }, []);
+
+  // Supabase refreshes the access token on a JS timer, which the OS suspends
+  // along with the rest of the app while it's backgrounded -- so the
+  // documented React Native setup ties the refresher to foreground rather
+  // than leaving it to tick into a suspended runtime. It matters more here
+  // than for plain API calls: the location channels are private and
+  // JWT-gated, so returning to the app on an expired token doesn't present
+  // as an auth problem at all, it presents as "live connection lost" over an
+  // empty map.
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
+    if (AppState.currentState === 'active') void supabase.auth.startAutoRefresh();
+    const subscription = AppState.addEventListener('change', (next: AppStateStatus) => {
+      // 'background' rather than any non-active state, matching
+      // LocationProvider: iOS fires 'inactive' for a notification pull-down,
+      // and cycling the refresher on those is pure churn.
+      if (next === 'active') void supabase.auth.startAutoRefresh();
+      else if (next === 'background') void supabase.auth.stopAutoRefresh();
+    });
+
+    return () => {
+      subscription.remove();
+      void supabase.auth.stopAutoRefresh();
+    };
   }, []);
 
   // Android delivers the OAuth redirect as an app intent rather than resolving
