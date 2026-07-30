@@ -12,6 +12,7 @@
     "@supabase/supabase-js": "^2.110.8",
     "@types/geojson": "^7946.0.16",
     "expo": "~57.0.8",
+    "expo-clipboard": "~57.0.1",
     "expo-constants": "~57.0.7",
     "expo-dev-client": "~57.0.9",
     "expo-font": "~57.0.1",

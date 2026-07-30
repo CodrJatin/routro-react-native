@@ -1,7 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/auth/AuthProvider';
@@ -46,6 +56,13 @@ export default function SettingsScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
 
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
+
+  // The OS shows its own "Copied" toast on clipboard writes (Android 13+'s
+  // system clipboard notification); no app-level feedback needed on top of it.
+  async function handleCopyUserId() {
+    if (!profile) return;
+    await Clipboard.setStringAsync(profile.public_uid);
+  }
 
   function startEditing() {
     setNameInput(profile?.display_name ?? '');
@@ -135,7 +152,16 @@ export default function SettingsScreen() {
               <Text style={styles.profileName}>{profile.display_name ?? profile.email}</Text>
             )}
             <Text style={styles.profileEmail}>{profile.email}</Text>
-            <Text style={styles.profileUid}>ID: {profile.public_uid}</Text>
+            <Pressable
+              style={({ pressed }) => [styles.uidRow, pressed && styles.uidRowPressed]}
+              onPress={handleCopyUserId}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Copy user ID"
+            >
+              <Text style={styles.profileUid}>ID: {profile.public_uid}</Text>
+              <Ionicons name="copy-outline" size={13} color={colors.textSecondary} />
+            </Pressable>
 
             {isEditing && (
               <Animated.View
@@ -315,6 +341,16 @@ function createStyles(colors: ColorTokens, radiusNone: number, shared: ReturnTyp
       color: colors.textSecondary,
       fontSize: 12,
       textAlign: 'center',
+    },
+    uidRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingVertical: 4,
+      paddingHorizontal: 6,
+    },
+    uidRowPressed: {
+      opacity: 0.6,
     },
     editActions: {
       alignSelf: 'stretch',
