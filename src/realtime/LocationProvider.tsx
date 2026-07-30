@@ -9,9 +9,19 @@ import { useLocationStore } from './locationStore';
 /** Mounted once inside the authenticated (tabs) layout. Joins the user's own
  * presence/location channel, keeps friend-channel subscriptions in sync with
  * the accepted-friends list, and pauses broadcasting when the app is
- * backgrounded (no background location -- keeps this app off the
- * background-location permission review path, and matches the "ephemeral,
- * foreground-only" design in the architecture). */
+ * backgrounded.
+ *
+ * That pause is now conditional: while a journey is being tracked, a
+ * foreground service holds the process open and broadcasting deliberately
+ * continues -- friends watching you cross the city are the point of it. With
+ * no journey running the original behaviour is unchanged, so the app still
+ * shares nothing from the background without a visible notification saying so.
+ * `locationChannelManager` decides which of the two applies; see
+ * `setBackgroundAllowed`.
+ *
+ * Note this still never needs ACCESS_BACKGROUND_LOCATION: a location-typed
+ * foreground service grants while-in-use access to the whole process, which is
+ * what keeps this app off the background-location permission review path. */
 export function LocationProvider({ children }: { children: ReactNode }) {
   const { isConfigured, session } = useAuth();
   const userId = session?.user.id;

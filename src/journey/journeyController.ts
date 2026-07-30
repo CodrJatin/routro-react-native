@@ -12,21 +12,26 @@ import {
 import { findRoute } from '../engine/graph';
 import type { RouteMode, RouteResult, StationId } from '../engine/types';
 import { useSelfPositionStore } from '../location/selfPosition';
+import { locationChannelManager } from '../realtime/locationChannel';
 import type { RouteClock } from '../route/routeClock';
 import { getRouteProgress, type RouteProgress } from '../route/routeProgress';
 import { useJourneyStore, type JourneySession } from './journeyStore';
 import { buildJourneyNotification } from './notificationContent';
 
 /**
- * How often the service wakes JS to re-time the notification.
+ * How often the service wakes JS.
  *
- * Nothing to do with how often position arrives -- this is what keeps the
- * arrival clock honest for someone standing still on a platform, where no new
- * fix will arrive but every quoted time is quietly going stale. It must come
- * from the service rather than `setInterval`: React Native stops running JS
- * timers the moment the app is backgrounded. See BACKGROUND.md.
+ * Nothing to do with how often position arrives. It keeps the arrival clock
+ * honest for someone standing still on a platform, where no new fix will
+ * arrive but every quoted time is quietly going stale -- and it is also the
+ * app's only working clock while backgrounded, so `locationChannel` hangs its
+ * heartbeats off it too. See BACKGROUND.md.
+ *
+ * 5s is set by the slowest thing that depends on it: the broadcast heartbeat
+ * resends a fix once 15s old, and friends mark a sender stale at 30s. A 15s
+ * tick would put the worst case at 15 + 15 = exactly the staleness threshold.
  */
-const TICK_INTERVAL_MS = 15_000;
+const TICK_INTERVAL_MS = 5000;
 
 /** Matches the broadcast watcher's settings in `locationChannel.ts`, so a
  * journey doesn't cost noticeably more battery than sharing already does. */
@@ -153,6 +158,14 @@ export async function startJourney(
 
   const session: JourneySession = { originId, destinationId, mode, startedAt: Date.now() };
   useJourneyStore.getState().setSession(session);
+
+  // Deliberately does NOT switch sharing on. Following your own journey and
+  // letting friends watch it are separate decisions, and quietly conflating
+  // them would start broadcasting on the user's behalf. This only means that
+  // sharing, if already on, survives the app being backgrounded.
+  locationChannelManager.setBackgroundAllowed(true);
+  await locationChannelManager.setExternalFixSource(true);
+
   subscribe();
   await startWatcher();
 
@@ -190,6 +203,8 @@ export async function initJourneyController(): Promise<void> {
     return;
   }
   resetClock();
+  locationChannelManager.setBackgroundAllowed(true);
+  await locationChannelManager.setExternalFixSource(true);
   subscribe();
   await startWatcher();
 }
@@ -202,6 +217,13 @@ async function endJourney(notice: string | null): Promise<void> {
   arrivedAt = null;
   useJourneyStore.getState().setSession(null);
   if (notice) useJourneyStore.getState().setEndedNotice(notice);
+
+  // Order matters: hand the GPS back before withdrawing the background
+  // permission, so a user who was sharing keeps sharing across the handover
+  // rather than going quiet between the two calls.
+  await locationChannelManager.setExternalFixSource(false);
+  locationChannelManager.setBackgroundAllowed(false);
+
   await stopJourneyService();
 }
 
@@ -274,6 +296,13 @@ async function startWatcher(): Promise<void> {
         useSelfPositionStore
           .getState()
           .setLive(position.coords.latitude, position.coords.longitude);
+        // Broadcast off the same fix rather than a watcher of its own -- see
+        // `setExternalFixSource`. A no-op unless the user is sharing.
+        locationChannelManager.submitFix(
+          position.coords.latitude,
+          position.coords.longitude,
+          position.timestamp,
+        );
         void refresh();
       },
       (reason) => {
@@ -303,6 +332,9 @@ function stopWatcher(): void {
 function subscribe(): void {
   unsubscribe();
   tickSubscription = addJourneyServiceTickListener(() => {
+    // The service's tick is the app's only working clock while backgrounded,
+    // so everything periodic hangs off it -- not just the notification.
+    locationChannelManager.tick();
     void refresh();
   });
   actionSubscription = addJourneyServiceActionListener(() => {

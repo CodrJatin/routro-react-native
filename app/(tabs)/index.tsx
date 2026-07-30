@@ -45,6 +45,7 @@ import { StationLabels } from '../../src/map/StationLabels';
 import { buildStationSubsetGeoJSON, buildStationsGeoJSON } from '../../src/map/stationsGeoJSON';
 import { StationDetailCard } from '../../src/map/StationDetailCard';
 import { UserLocationPin } from '../../src/map/UserLocationPin';
+import { useIsJourneyActive } from '../../src/journey/journeyStore';
 import { useSeedSelfPosition, useSelfPositionStore } from '../../src/location/selfPosition';
 import { locationChannelManager } from '../../src/realtime/locationChannel';
 import { useActiveRouteStore } from '../../src/route/activeRouteStore';
@@ -173,16 +174,20 @@ export default function MapScreen() {
     return () => subscription.remove();
   }, []);
 
+  // A tracked journey runs its own watcher and writes to the same store, so
+  // this one would be a second GPS consumer producing identical fixes.
+  const isJourneyActive = useIsJourneyActive();
   const isLocationGranted = permission === Location.PermissionStatus.GRANTED;
   const currentPosition = useCurrentPosition({
-    enabled: isScreenFocused && isAppActive && isLocationGranted,
+    enabled: isScreenFocused && isAppActive && isLocationGranted && !isJourneyActive,
   });
 
-  // This screen owns the only live GPS watcher in the app, so it's also what
-  // keeps the shared position current -- the route planner reads the same
-  // value to place the user along the journey, and the two must not disagree
-  // about which station that is. Seeding covers the gap before the first fix
-  // (and the case where the watcher never starts, e.g. permission refused).
+  // This screen owns the live GPS watcher whenever no journey is being tracked,
+  // so it's also what keeps the shared position current -- the route planner
+  // reads the same value to place the user along the journey, and the two must
+  // not disagree about which station that is. Seeding covers the gap before the
+  // first fix (and the case where the watcher never starts, e.g. permission
+  // refused).
   useSeedSelfPosition();
   useEffect(() => {
     if (!currentPosition) return;

@@ -236,6 +236,17 @@ Commit: `drive the journey notification from a non-react session controller`
 - Update the design comments that currently promise "ephemeral, foreground-only"
   — they'll be wrong, and they're load-bearing documentation.
 
+**Decided while building:** starting a journey does *not* switch sharing on.
+Following your own journey and letting friends watch it are separate consents,
+and conflating them would start broadcasting on the user's behalf. A journey
+only means that sharing, if already on, survives being backgrounded.
+
+**Why the service tick is 5s** and not something lazier: the broadcast
+heartbeat resends a fix once it is 15s old, and receivers mark a sender stale
+at 30s. A 15s tick would put the worst case at 15 + 15 — exactly the staleness
+threshold — so someone standing on a platform would flicker in and out on their
+friends' maps.
+
 Commit: `keep broadcasting to friends while a journey is running in the background`
 
 ### M4 — alerts

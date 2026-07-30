@@ -25,6 +25,16 @@ const HEARTBEAT_TICK_MS = 5000;
 /** How often to confirm the device still has location switched on while
  * broadcasting. */
 const SERVICES_CHECK_INTERVAL_MS = 15_000;
+/**
+ * How often to send the realtime socket's own keepalive from `tick()`.
+ *
+ * supabase-js schedules that heartbeat on a JS timer, and React Native stops
+ * running those the moment the app is backgrounded -- so the socket goes
+ * silent, the server drops it after its own timeout, and broadcasting dies
+ * roughly a minute after the app leaves the screen. Slightly under
+ * supabase-js's 30s so ours lands first rather than racing it.
+ */
+const SUPABASE_HEARTBEAT_MS = 25_000;
 /** How long to give the location providers to come up after the user accepts
  * the system enable dialog, and how often to look. */
 const SERVICES_ENABLE_WAIT_MS = 6000;
@@ -124,6 +134,23 @@ class LocationChannelManager {
    * the user *why* rather than just failing to turn green. Cleared on a
    * successful join. */
   private lastChannelError: string | null = null;
+  /**
+   * Set while a journey is being tracked, which means a foreground service is
+   * holding the process open and location flowing. Backgrounding then stops
+   * being a reason to go quiet: the whole point of a tracked journey is that
+   * friends keep seeing you while the phone is in your pocket.
+   *
+   * False is the app's normal state, and there the original foreground-only
+   * behaviour is preserved exactly -- no service, no notification, so
+   * broadcasting from the background would be both undiscoverable and a
+   * battery drain nobody agreed to.
+   */
+  private backgroundAllowed = false;
+  /** Set while the journey controller's watcher is the one producing fixes.
+   * See `setExternalFixSource`. */
+  private usesExternalFixes = false;
+  /** Last time `tick()` sent the realtime keepalive. */
+  private lastSupabaseHeartbeatAt = 0;
   /** Set while the app is backgrounded. Checked after the location watcher
    * is created, so an enable that was in flight across a backgrounding tears
    * its watcher back down -- without cancelling enables that merely paused
@@ -395,9 +422,13 @@ class LocationChannelManager {
       return this.refuse('no-channel', "You're not connected to the location service yet.");
     }
 
-    // Already broadcasting with a live watcher -- nothing to do, and
-    // re-requesting permission/re-tracking would be redundant.
-    if (this.isBroadcasting && this.locationSubscription) return { ok: true };
+    // Already broadcasting with fixes arriving from somewhere -- nothing to do,
+    // and re-requesting permission/re-tracking would be redundant. During a
+    // journey there is no subscription of our own to check, because the
+    // journey's watcher is the source.
+    if (this.isBroadcasting && (this.locationSubscription || this.usesExternalFixes)) {
+      return { ok: true };
+    }
 
     console.warn(
       `[broadcast] starting appState=${String(AppState.currentState)} channelState=${this.ownChannel.state}`,
@@ -511,9 +542,52 @@ class LocationChannelManager {
     // assigning a new one, however it might have gotten there.
     this.stopLocationWatcher();
 
-    let subscription: Location.LocationSubscription;
-    try {
-      subscription = await Location.watchPositionAsync(
+    // A journey already has a watcher running; a second one on the same device
+    // is pure battery cost for the same fixes. Its fixes arrive via
+    // `submitFix` instead.
+    if (!this.usesExternalFixes) {
+      let subscription: Location.LocationSubscription;
+      try {
+        subscription = await this.watchPosition();
+      } catch (error) {
+        return this.refuse(
+          'watcher-failed',
+          error instanceof Error
+            ? `Couldn't start GPS: ${error.message}`
+            : "Couldn't start GPS on this device.",
+        );
+      }
+
+      if (myBroadcastGeneration !== this.broadcastGeneration) {
+        // Superseded while awaiting watchPositionAsync -- remove what was just
+        // created instead of leaking a watcher with no handle left to stop it.
+        subscription.remove();
+        return this.superseded('watcher');
+      }
+      // The app backgrounded while the watcher was being created. This is the
+      // window pauseForBackground() can't cover on its own, and the reason it
+      // no longer needs to cancel the whole attempt to stay safe. A tracked
+      // journey is exempt: backgrounding is expected there, not a departure.
+      if (this.isPausedForBackground && !this.backgroundAllowed) {
+        subscription.remove();
+        return this.refuse(
+          'backgrounded-late',
+          'The app left the foreground before sharing could start. Try again.',
+        );
+      }
+
+      this.locationSubscription = subscription;
+    }
+
+    this.startServicesWatchdog();
+    this.setIsBroadcasting(true);
+    // After setIsBroadcasting: the heartbeat checks that flag before sending.
+    this.startHeartbeat();
+    return { ok: true };
+  }
+
+  private watchPosition(): Promise<Location.LocationSubscription> {
+    return Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.Balanced,
         distanceInterval: BROADCAST_DISTANCE_METERS,
@@ -530,39 +604,7 @@ class LocationChannelManager {
       // (GPS switched off mid-session being the obvious one) used to go
       // nowhere, so sharing looked healthy while no fix would ever arrive.
       (reason) => this.interruptBroadcast(reason),
-      );
-    } catch (error) {
-      return this.refuse(
-        'watcher-failed',
-        error instanceof Error
-          ? `Couldn't start GPS: ${error.message}`
-          : "Couldn't start GPS on this device.",
-      );
-    }
-
-    if (myBroadcastGeneration !== this.broadcastGeneration) {
-      // Superseded while awaiting watchPositionAsync -- remove what was just
-      // created instead of leaking a watcher with no handle left to stop it.
-      subscription.remove();
-      return this.superseded('watcher');
-    }
-    // The app backgrounded while the watcher was being created. This is the
-    // window pauseForBackground() can't cover on its own, and the reason it
-    // no longer needs to cancel the whole attempt to stay safe.
-    if (this.isPausedForBackground) {
-      subscription.remove();
-      return this.refuse(
-        'backgrounded-late',
-        'The app left the foreground before sharing could start. Try again.',
-      );
-    }
-
-    this.locationSubscription = subscription;
-    this.startServicesWatchdog();
-    this.setIsBroadcasting(true);
-    // After setIsBroadcasting: the heartbeat checks that flag before sending.
-    this.startHeartbeat();
-    return { ok: true };
+    );
   }
 
   /** The single exit point for outbound fixes, shared by the GPS watcher and
@@ -587,12 +629,17 @@ class LocationChannelManager {
    * drops those), so a stalled connection doesn't accumulate anything. */
   private startHeartbeat(): void {
     this.stopHeartbeat();
-    this.heartbeat = setInterval(() => {
-      const fix = this.lastSentFix;
-      if (!fix || !this.isBroadcasting) return;
-      if (Date.now() - this.lastSentAt < HEARTBEAT_RESEND_AFTER_MS) return;
-      this.sendFix(fix);
-    }, HEARTBEAT_TICK_MS);
+    this.heartbeat = setInterval(() => this.resendHeartbeatIfDue(), HEARTBEAT_TICK_MS);
+  }
+
+  /** Idempotent by construction -- it does nothing until the resend window has
+   * actually elapsed. That is what lets the JS interval and `tick()` both call
+   * it without either needing to know whether the other is running. */
+  private resendHeartbeatIfDue(): void {
+    const fix = this.lastSentFix;
+    if (!fix || !this.isBroadcasting) return;
+    if (Date.now() - this.lastSentAt < HEARTBEAT_RESEND_AFTER_MS) return;
+    this.sendFix(fix);
   }
 
   private stopHeartbeat(): void {
@@ -651,12 +698,17 @@ class LocationChannelManager {
    * case still surfaces instead of leaving the button lit forever. */
   private startServicesWatchdog(): void {
     this.stopServicesWatchdog();
-    this.servicesWatchdog = setInterval(async () => {
-      if (!this.isBroadcasting) return;
-      if (!(await this.hasLocationServices())) {
-        this.interruptBroadcast('Location was turned off on this device.');
-      }
-    }, SERVICES_CHECK_INTERVAL_MS);
+    this.servicesWatchdog = setInterval(
+      () => void this.checkServicesStillOn(),
+      SERVICES_CHECK_INTERVAL_MS,
+    );
+  }
+
+  private async checkServicesStillOn(): Promise<void> {
+    if (!this.isBroadcasting) return;
+    if (!(await this.hasLocationServices())) {
+      this.interruptBroadcast('Location was turned off on this device.');
+    }
   }
 
   private stopServicesWatchdog(): void {
@@ -690,11 +742,96 @@ class LocationChannelManager {
     this.locationSubscription = null;
   }
 
+  /**
+   * Everything periodic that has to survive backgrounding, driven by the
+   * journey service's native tick rather than a JS timer.
+   *
+   * React Native removes the Choreographer frame callback its timers run on as
+   * soon as the app is backgrounded, so `setInterval` stops dead -- including
+   * the broadcast heartbeat, without which someone standing on a platform goes
+   * stale on their friends' devices at 30s and is dropped entirely at 90s.
+   * That is precisely the moment a friend is looking for them.
+   *
+   * Every step is idempotent and self-scheduling, so this running alongside
+   * the JS intervals in the foreground costs nothing.
+   */
+  tick(): void {
+    this.resendHeartbeatIfDue();
+    void this.checkServicesStillOn();
+    this.sendSupabaseHeartbeatIfDue();
+  }
+
+  /** Keeps the realtime socket from being dropped by the server. See
+   * SUPABASE_HEARTBEAT_MS -- supabase-js's own keepalive is a JS timer and
+   * stops with everything else when the app backgrounds. */
+  private sendSupabaseHeartbeatIfDue(): void {
+    if (!this.ownChannel) return;
+    if (Date.now() - this.lastSupabaseHeartbeatAt < SUPABASE_HEARTBEAT_MS) return;
+    this.lastSupabaseHeartbeatAt = Date.now();
+    void supabase.realtime.sendHeartbeat().catch((error: unknown) => {
+      // realtime-js tears the socket down itself when a heartbeat goes
+      // unanswered, so there is nothing to do here but say so.
+      console.warn('[location] realtime heartbeat failed', error);
+    });
+  }
+
+  /**
+   * Tells the manager a foreground service is holding the app open, so
+   * backgrounding should no longer stop broadcasting.
+   *
+   * Driven by the journey controller rather than read from a store, so the
+   * realtime layer keeps knowing nothing about journeys -- it only knows
+   * whether something is currently keeping the process alive.
+   */
+  setBackgroundAllowed(allowed: boolean): void {
+    this.backgroundAllowed = allowed;
+  }
+
+  /**
+   * Hands fix production over to the journey controller's watcher, or takes it
+   * back. Two GPS watchers on one device produce the same fixes twice at twice
+   * the cost.
+   */
+  async setExternalFixSource(enabled: boolean): Promise<void> {
+    if (this.usesExternalFixes === enabled) return;
+    this.usesExternalFixes = enabled;
+    if (!this.isBroadcasting) return;
+
+    if (enabled) {
+      // Drop only the subscription: the heartbeat and services watchdog are
+      // still ours to run, and stopLocationWatcher would take them too.
+      this.locationSubscription?.remove();
+      this.locationSubscription = null;
+      return;
+    }
+
+    // The journey ended while sharing stayed on -- take the watcher back, or
+    // nothing would be transmitted again until the user toggled sharing.
+    try {
+      this.locationSubscription = await this.watchPosition();
+    } catch (error) {
+      this.interruptBroadcast(
+        error instanceof Error ? `Couldn't restart GPS: ${error.message}` : "Couldn't restart GPS.",
+      );
+    }
+  }
+
+  /** A fix from the journey controller's watcher, when it owns the GPS. */
+  submitFix(lat: number, lon: number, ts: number): void {
+    if (!this.usesExternalFixes || !this.isBroadcasting) return;
+    this.sendFix({ lat, lon, ts });
+  }
+
   /** App backgrounded: go fully invisible to friends (untrack presence) and
    * stop the location watcher, regardless of whether broadcasting was on.
    * Returns whether broadcasting was active, so the caller can resume it on
-   * foreground. */
+   * foreground.
+   *
+   * A no-op while a journey is being tracked -- there, leaving the screen is
+   * the expected case rather than a departure, and the ongoing notification
+   * means the user can see and stop the sharing at any time. */
   async pauseForBackground(): Promise<boolean> {
+    if (this.backgroundAllowed) return this.isBroadcasting;
     // Idempotent: a second background event while already paused reports what
     // the first one captured. Re-running would read `isBroadcasting` after
     // the first pause had already cleared it, and so resume to 'not
@@ -726,6 +863,9 @@ class LocationChannelManager {
    * sharing never came back. The manager captures it synchronously instead;
    * there is nothing for a caller to get wrong. */
   async resumeForForeground(): Promise<void> {
+    // Nothing was paused, so there is nothing to resume -- and running the
+    // restart path anyway would tear down a working watcher to rebuild it.
+    if (this.backgroundAllowed) return;
     this.isPausedForBackground = false;
     const wasBroadcasting = this.wasBroadcastingBeforeBackground;
     this.wasBroadcastingBeforeBackground = false;

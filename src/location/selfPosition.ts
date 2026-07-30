@@ -23,11 +23,13 @@ interface SelfPositionState {
 /**
  * Where the user is, shared across screens.
  *
- * The map runs a live GPS watcher; the route planner and Friends deliberately
- * don't (a second watcher is exactly what the map screen was fixed to avoid).
- * Without somewhere shared to put the answer, those screens each read the
- * OS's last-known fix independently and could place the user at different
- * stations on the same journey at the same moment. One store, one answer.
+ * Exactly one live GPS watcher writes here at a time: the journey controller's
+ * while a journey is tracked, the map screen's otherwise. The route planner and
+ * Friends deliberately run none of their own (a second watcher is exactly what
+ * the map screen was fixed to avoid). Without somewhere shared to put the
+ * answer, those screens each read the OS's last-known fix independently and
+ * could place the user at different stations on the same journey at the same
+ * moment. One store, one answer.
  *
  * In-memory only. A stale position restored from disk on next launch would be
  * worse than none -- it would show progress along a journey the user isn't on.
