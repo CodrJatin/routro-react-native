@@ -51,6 +51,12 @@ Thumbs.db
 /ios
 /android
 
+# local expo modules: source is tracked, gradle output is not (the /android
+# rule above is root-anchored and doesn't reach these)
+modules/*/android/build/
+modules/*/android/.cxx/
+modules/*/ios/build/
+
 # Supabase CLI local state
 /supabase/.temp
 todo.md

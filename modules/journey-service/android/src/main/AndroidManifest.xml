@@ -1,0 +1,24 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- FOREGROUND_SERVICE_LOCATION is what lets the app keep receiving
+       full-rate location while backgrounded. Deliberately NOT
+       ACCESS_BACKGROUND_LOCATION: a location-typed foreground service grants
+       while-in-use access to the whole process, so the "Allow all the time"
+       permission (and the Play review that comes with it) is not needed.
+       See BACKGROUND.md. -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+  <application>
+    <service
+      android:name=".JourneyForegroundService"
+      android:exported="false"
+      android:foregroundServiceType="location" />
+
+    <!-- Manifest-declared rather than registered from JS, so the notification's
+         Stop button still works when the JS runtime has gone away. -->
+    <receiver
+      android:name=".JourneyActionReceiver"
+      android:exported="false" />
+  </application>
+</manifest>

@@ -1,0 +1,151 @@
+package expo.modules.journeyservice
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.graphics.Color
+import android.os.Build
+import androidx.core.app.NotificationCompat
+
+/**
+ * Builds the one notification a tracked journey shows.
+ *
+ * Everything here is rebuilt from scratch on every update rather than mutating
+ * a retained Builder: a Builder that outlives an update is a Builder that can
+ * carry a stale action or progress bar into the next one, and the whole
+ * notification is cheap to construct.
+ */
+internal object JourneyNotification {
+  const val CHANNEL_ID = "metrosync.journey"
+  const val NOTIFICATION_ID = 4817
+
+  /**
+   * IMPORTANCE_LOW, and it must stay that way. This notification is replaced
+   * every time the user reaches a station; at DEFAULT or above that is a sound
+   * and a peek per station for a whole journey, which is how an app gets its
+   * notifications switched off. Alerts that genuinely want attention (get off
+   * here, change lines) belong on their own channel.
+   */
+  fun ensureChannel(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+      ?: return
+    if (manager.getNotificationChannel(CHANNEL_ID) != null) return
+
+    val channel = NotificationChannel(
+      CHANNEL_ID,
+      "Journey progress",
+      NotificationManager.IMPORTANCE_LOW
+    ).apply {
+      description = "Shown while MetroSync is following your journey in the background."
+      setShowBadge(false)
+      enableVibration(false)
+      setSound(null, null)
+    }
+    manager.createNotificationChannel(channel)
+  }
+
+  fun build(context: Context, content: JourneyNotificationContent): Notification {
+    val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+      .setSmallIcon(smallIconRes(context))
+      .setContentTitle(content.title)
+      .setOngoing(true)
+      // Without this, every station replaces the notification loudly enough to
+      // re-announce itself even on a low-importance channel.
+      .setOnlyAlertOnce(true)
+      .setSilent(true)
+      // The journey's elapsed time is not what "when" would show, and a
+      // timestamp that never moves next to text that does reads as staleness.
+      .setShowWhen(false)
+      .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
+      // Show immediately instead of after the system's 10s grace period --
+      // the user just pressed Start and expects to see it.
+      .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+      // Legible on the lock screen, which is where it will mostly be read.
+      .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+
+    content.body?.let { builder.setContentText(it) }
+
+    parseColor(content.color)?.let {
+      builder.setColor(it).setColorized(true)
+    }
+
+    content.progress?.let {
+      // TODO(M5): Android 16 (API 36) has Notification.ProgressStyle, which is
+      // the segmented tracker Maps-style navigation uses. Worth adopting once
+      // there is a NotificationCompat wrapper for it; this renders fine
+      // everywhere in the meantime.
+      builder.setProgress(it.max, it.current, false)
+    }
+
+    launchIntent(context)?.let { builder.setContentIntent(it) }
+
+    if (content.showStopAction) {
+      builder.addAction(
+        NotificationCompat.Action.Builder(0, "Stop", stopIntent(context)).build()
+      )
+    }
+
+    return builder.build()
+  }
+
+  private fun launchIntent(context: Context): PendingIntent? {
+    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+      ?: return null
+    // SINGLE_TOP so tapping the notification returns to the running app rather
+    // than starting a second copy of it on top of itself.
+    intent.flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+    return PendingIntent.getActivity(
+      context,
+      REQUEST_LAUNCH,
+      intent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+  }
+
+  private fun stopIntent(context: Context): PendingIntent {
+    val intent = Intent(context, JourneyActionReceiver::class.java).apply {
+      action = JourneyActionReceiver.ACTION_STOP
+      // Explicit package: an implicit broadcast would be dropped on O+.
+      `package` = context.packageName
+    }
+    return PendingIntent.getBroadcast(
+      context,
+      REQUEST_STOP,
+      intent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+  }
+
+  /**
+   * `notification_icon` is what the expo-notifications config plugin generates
+   * from a monochrome source image. Falling back to the launcher icon keeps
+   * this working before that plugin is added (M4), at the cost of rendering as
+   * a white square -- Android requires small icons to be monochrome.
+   */
+  private fun smallIconRes(context: Context): Int {
+    val generated = context.resources.getIdentifier(
+      "notification_icon",
+      "drawable",
+      context.packageName
+    )
+    return if (generated != 0) generated else context.applicationInfo.icon
+  }
+
+  private fun parseColor(color: String?): Int? {
+    if (color == null) return null
+    return try {
+      Color.parseColor(color)
+    } catch (e: IllegalArgumentException) {
+      // A bad colour is a cosmetic problem; refusing to show the notification
+      // over it would not be.
+      null
+    }
+  }
+
+  private const val REQUEST_LAUNCH = 0
+  private const val REQUEST_STOP = 1
+}

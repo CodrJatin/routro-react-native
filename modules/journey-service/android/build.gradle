@@ -1,0 +1,25 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.journeyservice'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.journeyservice"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  // ServiceCompat/NotificationCompat. Already on the classpath via
+  // expo-modules-core, declared here so this module's own requirements are
+  // visible rather than inherited by accident.
+  implementation "androidx.core:core-ktx:1.17.0"
+}
