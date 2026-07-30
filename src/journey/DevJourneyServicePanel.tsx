@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { isJourneyServiceAvailable } from '../../modules/journey-service';
 import { findRoute, getStation } from '../engine/graph';
 import { useSelfPositionStore } from '../location/selfPosition';
@@ -7,6 +7,7 @@ import { useActiveRouteStore } from '../route/activeRouteStore';
 import { getRouteProgress } from '../route/routeProgress';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens } from '../theme/tokens';
+import { useFriendAlertsStore } from './friendAlerts';
 import { startJourney, stopJourney } from './journeyController';
 import { useJourneyStore } from './journeyStore';
 
@@ -29,8 +30,16 @@ export function DevJourneyServicePanel() {
   const endedNotice = useJourneyStore((state) => state.endedNotice);
   const position = useSelfPositionStore((state) => state.position);
 
+  const friendAlertsEnabled = useFriendAlertsStore((state) => state.isEnabled);
+  const setFriendAlertsEnabled = useFriendAlertsStore((state) => state.setEnabled);
+  const hydrateFriendAlerts = useFriendAlertsStore((state) => state.hydrate);
+
   const [isBusy, setIsBusy] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void hydrateFriendAlerts();
+  }, [hydrateFriendAlerts]);
 
   useEffect(() => {
     if (endedNotice) setLastError(endedNotice);
@@ -102,6 +111,15 @@ export function DevJourneyServicePanel() {
               : 'No fix'}
         </Text>
       </View>
+
+      <View style={styles.statusRow}>
+        <Text style={styles.statusLabel}>Friend alerts</Text>
+        <Switch value={friendAlertsEnabled} onValueChange={setFriendAlertsEnabled} />
+      </View>
+      <Text style={styles.hint}>
+        Off by default. Alerts when a friend gets within two stops, or arrives somewhere — only
+        while a journey is running.
+      </Text>
 
       {lastError && <Text style={styles.error}>{lastError}</Text>}
 

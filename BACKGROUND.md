@@ -270,6 +270,20 @@ owned by the native module.
   alert, the one genuinely worth having, never arrives either. Conservative
   defaults, and friend alerts off until asked for.
 
+**One alert at a time.** `journeyAlertFor` returns at most one, ordered by
+urgency — being told to get off beats being told what is coming up. Two things
+buzzing at once is how an app gets silenced.
+
+**Also fixes** the white-square notification icon: the expo-notifications
+plugin generates the monochrome `notification_icon` drawable that
+`JourneyNotification.kt` was already looking for.
+
+**Still to do here:** the friend-alerts toggle lives in the dev panel and needs
+a real home in Settings (M5), and the alert channel is created on journey start
+— which means a user who never starts a journey never gets the channel, and so
+never sees Android's notification permission prompt. Fine while journeys are
+the only source of alerts.
+
 Commit: `alert on alighting, interchanges and friends arriving`
 
 ### M5 — UI

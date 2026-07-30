@@ -47,7 +47,12 @@ interface LocationState {
   setBroadcastNotice: (notice: string | null) => void;
   friendLocations: Record<string, FriendLocation>;
   friendPresence: Record<string, PresenceStatus>;
+  /** Display names by user id, mirrored from the friendships list so that
+   * background code can name a friend without depending on React state having
+   * loaded. Only ever used for display -- never for identity. */
+  friendNames: Record<string, string>;
   setBroadcasting: (value: boolean) => void;
+  setFriendNames: (names: Record<string, string>) => void;
   setConnectionState: (state: ConnectionState) => void;
   upsertFriendLocation: (loc: Omit<FriendLocation, 'receivedAt' | 'movedAt' | 'previous'>) => void;
   setFriendPresence: (userId: string, status: PresenceStatus) => void;
@@ -64,8 +69,11 @@ export const useLocationStore = create<LocationState>((set) => ({
   broadcastNotice: null,
   friendLocations: {},
   friendPresence: {},
+  friendNames: {},
 
   setBroadcasting: (value) => set({ isBroadcasting: value }),
+
+  setFriendNames: (friendNames) => set({ friendNames }),
 
   setConnectionState: (state) => set({ connectionState: state }),
 

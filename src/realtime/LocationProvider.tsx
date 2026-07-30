@@ -63,6 +63,21 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConfigured, userId, acceptedFriendIdsKey]);
 
+  // Mirrored into the location store so background alerts can name a friend.
+  // They run with nothing mounted, so reaching back into this list at the
+  // moment an alert fires would be a race they'd usually lose.
+  useEffect(() => {
+    if (!userId) return;
+    const names: Record<string, string> = {};
+    for (const row of rows) {
+      if (row.status !== 'accepted') continue;
+      const friend = otherParty(row, userId);
+      const name = friend.display_name?.trim();
+      if (name) names[friend.id] = name;
+    }
+    useLocationStore.getState().setFriendNames(names);
+  }, [rows, userId]);
+
   useEffect(() => {
     if (!isConfigured) return;
     const subscription = AppState.addEventListener('change', async (next: AppStateStatus) => {

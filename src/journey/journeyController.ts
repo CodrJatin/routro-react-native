@@ -15,6 +15,9 @@ import { useSelfPositionStore } from '../location/selfPosition';
 import { locationChannelManager } from '../realtime/locationChannel';
 import type { RouteClock } from '../route/routeClock';
 import { getRouteProgress, type RouteProgress } from '../route/routeProgress';
+import { ensureAlertChannel, presentAlert } from './alertNotifications';
+import { journeyAlertFor } from './alerts';
+import { startFriendAlerts, stopFriendAlerts, useFriendAlertsStore } from './friendAlerts';
 import { useJourneyStore, type JourneySession } from './journeyStore';
 import { buildJourneyNotification } from './notificationContent';
 
@@ -63,6 +66,19 @@ let watcher: Location.LocationSubscription | null = null;
 let tickSubscription: { remove: () => void } | null = null;
 let actionSubscription: { remove: () => void } | null = null;
 let arrivedAt: number | null = null;
+
+/**
+ * Alerts already fired this journey, by `JourneyAlert.key`.
+ *
+ * `journeyAlertFor` is stateless -- it answers what is true at this position,
+ * not what is new -- so without this a user standing at an interchange would
+ * be buzzed every few seconds, and a fix jittering across a station boundary
+ * would buzz them repeatedly for the same event.
+ *
+ * In memory only. The service cannot outlive the process (swiping the app away
+ * stops it), so there is no session that could return with its history lost.
+ */
+let firedAlertKeys = new Set<string>();
 
 /** Bumped by every start/stop so a call that was awaiting something slow can
  * tell it has been superseded, rather than installing a watcher for a journey
@@ -134,7 +150,14 @@ export async function startJourney(
 
   route = nextRoute;
   arrivedAt = null;
+  // A fresh journey has said nothing yet, even if it retraces one that has.
+  firedAlertKeys = new Set();
   resetClock();
+
+  // Created up front rather than on the first alert: Android only honours a
+  // channel's importance at creation, and creating it mid-journey would leave
+  // the very first alert -- often "get off next" -- on default settings.
+  await ensureAlertChannel();
 
   const progress = currentProgress();
   const content = buildJourneyNotification(nextRoute, progress, clockFor(progress));
@@ -165,6 +188,11 @@ export async function startJourney(
   // sharing, if already on, survives the app being backgrounded.
   locationChannelManager.setBackgroundAllowed(true);
   await locationChannelManager.setExternalFixSource(true);
+
+  // Scoped to the journey rather than always-on: a friend two stops away
+  // matters while you are travelling and is just noise while you are at home.
+  await useFriendAlertsStore.getState().hydrate();
+  startFriendAlerts();
 
   subscribe();
   await startWatcher();
@@ -203,8 +231,11 @@ export async function initJourneyController(): Promise<void> {
     return;
   }
   resetClock();
+  await ensureAlertChannel();
   locationChannelManager.setBackgroundAllowed(true);
   await locationChannelManager.setExternalFixSource(true);
+  await useFriendAlertsStore.getState().hydrate();
+  startFriendAlerts();
   subscribe();
   await startWatcher();
 }
@@ -213,6 +244,7 @@ async function endJourney(notice: string | null): Promise<void> {
   ++generation;
   stopWatcher();
   unsubscribe();
+  stopFriendAlerts();
   route = null;
   arrivedAt = null;
   useJourneyStore.getState().setSession(null);
@@ -246,6 +278,10 @@ async function refresh(): Promise<void> {
   const progress = currentProgress();
   const content = buildJourneyNotification(route, progress, clockFor(progress));
 
+  // Before the service call, not after: an alert the user acts on is worth
+  // more than a notification repaint, and a failed repaint ends the journey.
+  await maybeAlert(progress);
+
   if (!(await updateJourneyService(content))) {
     // The service went away underneath us. Nothing is being tracked, so stop
     // claiming otherwise instead of repainting a notification that isn't there.
@@ -268,6 +304,16 @@ async function refresh(): Promise<void> {
 
 function currentProgress(): RouteProgress | null {
   return getRouteProgress(route, useSelfPositionStore.getState().position);
+}
+
+/** Fires the alert for where the user is now, unless it has already been
+ * fired this journey. See `firedAlertKeys`. */
+async function maybeAlert(progress: RouteProgress | null): Promise<void> {
+  if (!route) return;
+  const alert = journeyAlertFor(route, progress);
+  if (!alert || firedAlertKeys.has(alert.key)) return;
+  firedAlertKeys.add(alert.key);
+  await presentAlert(alert);
 }
 
 function hasArrived(progress: RouteProgress | null): boolean {
