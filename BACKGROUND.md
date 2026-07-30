@@ -294,6 +294,16 @@ Commit: `alert on alighting, interchanges and friends arriving`
   while I have the app open" to "friends see me until I stop". Needs to be
   explicit, and the notification is always-visible by design, which helps.
 
+**Also lands here:** the friend-alerts toggle moves from the dev panel into
+Settings, the dev panel is deleted, and `JourneyNotice` surfaces a journey that
+ended on its own. That last one lives in the tabs layout rather than a screen —
+a journey can end while the user is on any tab, and the alternative is finding
+out by noticing an absence.
+
+**"Follow this journey", not "Start journey".** The button describes what the
+app will do rather than what the user is beginning, which is the part they need
+to consent to.
+
 Commit: `add start journey and the active journey bar`
 
 ### M6 — surviving real Android

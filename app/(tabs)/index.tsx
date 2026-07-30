@@ -45,6 +45,7 @@ import { StationLabels } from '../../src/map/StationLabels';
 import { buildStationSubsetGeoJSON, buildStationsGeoJSON } from '../../src/map/stationsGeoJSON';
 import { StationDetailCard } from '../../src/map/StationDetailCard';
 import { UserLocationPin } from '../../src/map/UserLocationPin';
+import { JourneyBar } from '../../src/journey/JourneyBar';
 import { useIsJourneyActive } from '../../src/journey/journeyStore';
 import { useSeedSelfPosition, useSelfPositionStore } from '../../src/location/selfPosition';
 import { locationChannelManager } from '../../src/realtime/locationChannel';
@@ -495,10 +496,15 @@ export default function MapScreen() {
         <UserLocationPin position={currentPosition} />
       </MapLibreMap>
 
+      <JourneyBar />
+
       {/* Without this, a dropped realtime connection is indistinguishable
           from "nobody is sharing right now" -- the map just quietly empties. */}
       {isConfigured && session && connectionState === 'error' && (
-        <View style={styles.connectionBanner} pointerEvents="none">
+        <View
+          style={[styles.connectionBanner, isJourneyActive && styles.connectionBannerLowered]}
+          pointerEvents="none"
+        >
           <Ionicons name="cloud-offline-outline" size={14} color={colors.onSurfaceVariant} />
           <Text style={styles.connectionBannerText}>
             Live connection lost — friend locations may be out of date
@@ -707,6 +713,11 @@ function createStyles(colors: ColorTokens) {
       borderWidth: 1,
       borderColor: colors.border,
       zIndex: 3,
+    },
+    // Out from under the journey bar, which takes the top slot when a journey
+    // is being followed.
+    connectionBannerLowered: {
+      top: 60,
     },
     connectionBannerText: {
       flex: 1,

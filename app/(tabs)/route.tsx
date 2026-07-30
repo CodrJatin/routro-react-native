@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { findRoute, getCompiledGraph, getStation } from '../../src/engine/graph';
+import { StartJourneyButton } from '../../src/journey/StartJourneyButton';
 import { useSeedSelfPosition, useSelfPositionStore } from '../../src/location/selfPosition';
 import type { CompiledStation, RouteMode, RouteResult } from '../../src/engine/types';
 import { useActiveRouteStore } from '../../src/route/activeRouteStore';
@@ -167,6 +168,13 @@ export default function RouteScreen() {
               isSaved={isCurrentSaved}
               onToggleSave={handleToggleSave}
             />
+            {origin && destination && (
+              <StartJourneyButton
+                originId={origin.id}
+                destinationId={destination.id}
+                mode={mode}
+              />
+            )}
             <ItineraryList route={route} lines={lines} clock={clock} progress={progress} />
           </Animated.View>
         ) : (

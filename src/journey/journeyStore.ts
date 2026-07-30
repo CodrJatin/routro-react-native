@@ -3,6 +3,8 @@ import { create } from 'zustand';
 import type { RouteMode, StationId } from '../engine/types';
 
 const STORAGE_KEY = 'metrosync.journeySession';
+/** Whether the user has been told what starting a journey actually does. */
+const INTRO_KEY = 'metrosync.journeyIntroSeen';
 
 export interface JourneySession {
   originId: StationId;
@@ -20,9 +22,13 @@ interface JourneyState {
    * can say so. Cleared once shown -- same contract as
    * `locationStore.broadcastNotice`. */
   endedNotice: string | null;
+  /** False until the user has been shown what tracking a journey involves --
+   * a notification that outlives the app, and sharing that keeps running. */
+  hasSeenIntro: boolean;
   hydrate: () => Promise<void>;
   setSession: (session: JourneySession | null) => void;
   setEndedNotice: (notice: string | null) => void;
+  markIntroSeen: () => void;
 }
 
 /**
@@ -38,15 +44,24 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
   session: null,
   isHydrated: false,
   endedNotice: null,
+  hasSeenIntro: false,
 
   hydrate: async () => {
     if (get().isHydrated) return;
     try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      set({ session: raw ? parseStored(raw) : null, isHydrated: true });
+      const [[, storedSession], [, storedIntro]] = await AsyncStorage.multiGet([
+        STORAGE_KEY,
+        INTRO_KEY,
+      ]);
+      set({
+        session: storedSession ? parseStored(storedSession) : null,
+        hasSeenIntro: storedIntro === 'true',
+        isHydrated: true,
+      });
     } catch {
       // An unreadable store just means we don't know about a previous
-      // journey, which is the same as there not having been one.
+      // journey, which is the same as there not having been one. The intro
+      // defaults to unseen, so the worst case is explaining it twice.
       set({ session: null, isHydrated: true });
     }
   },
@@ -57,6 +72,13 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
   },
 
   setEndedNotice: (endedNotice) => set({ endedNotice }),
+
+  markIntroSeen: () => {
+    set({ hasSeenIntro: true });
+    AsyncStorage.setItem(INTRO_KEY, 'true').catch(() => {
+      // Worst case the explanation appears once more.
+    });
+  },
 }));
 
 /** True while a journey is being tracked. */

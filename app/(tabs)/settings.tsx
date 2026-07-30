@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { Avatar } from '../../src/components/Avatar';
 import { SegmentedToggle } from '../../src/components/SegmentedToggle';
-import { DevJourneyServicePanel } from '../../src/journey/DevJourneyServicePanel';
+import { FriendAlertsSetting } from '../../src/journey/FriendAlertsSetting';
 import { useBasemapStore } from '../../src/map/basemapStore';
 import { useTheme, type ThemePreference } from '../../src/theme/ThemeProvider';
 import { useSharedStyles } from '../../src/theme/sharedStyles';
@@ -240,10 +240,10 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {__DEV__ && (
+        {isConfigured && (
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Developer</Text>
-            <DevJourneyServicePanel />
+            <Text style={styles.sectionLabel}>Journeys</Text>
+            <FriendAlertsSetting />
           </View>
         )}
 

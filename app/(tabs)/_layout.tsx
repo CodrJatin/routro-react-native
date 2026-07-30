@@ -5,6 +5,7 @@ import { useAuth } from '../../src/auth/AuthProvider';
 import { MetroTabBar } from '../../src/components/MetroTabBar';
 import { FriendshipsProvider } from '../../src/friends/FriendshipsProvider';
 import { initJourneyController } from '../../src/journey/journeyController';
+import { JourneyNotice } from '../../src/journey/JourneyNotice';
 import { LocationProvider } from '../../src/realtime/LocationProvider';
 
 export default function TabsLayout() {
@@ -21,6 +22,7 @@ export default function TabsLayout() {
   return (
     <FriendshipsProvider userId={session?.user.id}>
       <LocationProvider>
+        <JourneyNotice />
         <Tabs
           screenOptions={{ headerShown: false }}
           tabBar={(props) => <MetroTabBar {...props} />}
