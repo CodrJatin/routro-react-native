@@ -1,5 +1,32 @@
-import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+
+type NotificationsModule = typeof import('expo-notifications');
+
+/** `undefined` means "not tried yet", `null` means "tried and unavailable". */
+let notifications: NotificationsModule | null | undefined;
+let isHandlerSet = false;
+
+/**
+ * Loads expo-notifications on demand rather than importing it at module scope.
+ *
+ * The package throws from its own top level when its native module is missing,
+ * which is the normal state of affairs whenever JS has been updated but the
+ * native app hasn't been rebuilt. A static import turns that into a crash on
+ * launch, because the import chain reaches this file from the tabs layout --
+ * so a stale build took down the whole app rather than just its alerts.
+ * Losing alerts in that situation is acceptable; losing the app is not.
+ */
+function getNotifications(): NotificationsModule | null {
+  if (notifications !== undefined) return notifications;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    notifications = require('expo-notifications') as NotificationsModule;
+  } catch (error) {
+    console.warn('[journey] notifications unavailable, alerts disabled', error);
+    notifications = null;
+  }
+  return notifications;
+}
 
 /**
  * Alerts live on their own channel, separate from the journey's ongoing
@@ -23,17 +50,31 @@ let isConfigured = false;
  * "get off next" alert fires, and silently swallowing it is the one failure
  * this feature cannot afford.
  */
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+function ensureHandler(Notifications: NotificationsModule): void {
+  if (isHandlerSet) return;
+  isHandlerSet = true;
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
 
 export async function ensureAlertChannel(): Promise<void> {
-  if (isConfigured || Platform.OS !== 'android') {
+  if (isConfigured) return;
+
+  const Notifications = getNotifications();
+  if (!Notifications) {
+    // Marked configured so every later alert doesn't re-attempt the require.
+    isConfigured = true;
+    return;
+  }
+  ensureHandler(Notifications);
+
+  if (Platform.OS !== 'android') {
     isConfigured = true;
     return;
   }
@@ -68,6 +109,9 @@ export interface AlertNotification {
 export async function presentAlert(alert: AlertNotification): Promise<void> {
   try {
     await ensureAlertChannel();
+    const Notifications = getNotifications();
+    if (!Notifications) return;
+
     await Notifications.scheduleNotificationAsync({
       content: {
         title: alert.title,
