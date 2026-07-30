@@ -1,12 +1,22 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
+import { useEffect } from 'react';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { MetroTabBar } from '../../src/components/MetroTabBar';
 import { FriendshipsProvider } from '../../src/friends/FriendshipsProvider';
+import { initJourneyController } from '../../src/journey/journeyController';
 import { LocationProvider } from '../../src/realtime/LocationProvider';
 
 export default function TabsLayout() {
   const { session } = useAuth();
+
+  // Reconciles a journey left over from a previous launch. The foreground
+  // service can't outlive the process, so this almost always just clears
+  // stale state -- but leaving it uncleared would show a journey bar for a
+  // journey with nothing behind it.
+  useEffect(() => {
+    void initJourneyController();
+  }, []);
 
   return (
     <FriendshipsProvider userId={session?.user.id}>

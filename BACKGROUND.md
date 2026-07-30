@@ -165,6 +165,11 @@ Implementation notes:
   ends the journey and clears the notification, by design. A stale ongoing
   notification pointing at a dead process is the worst outcome here.
 
+**Verified on device:** with the service running, the notification keeps
+updating both while the app is minimised and while the phone is locked. That
+settles the load-bearing assumption — the process stays alive and native events
+reach JS — provided nothing periodic goes through a JS timer.
+
 Commit: `add a foreground service module for background journey tracking`
 
 ### M2 — journey session layer (`src/journey/`)
@@ -184,9 +189,17 @@ Non-React module singletons. The UI observes; it does not drive.
     `promptToEnableLocationServices` logic), start the service, mark the session
     active, turn broadcasting on.
   - `stop(reason)` — reverse, and say why in the UI when it wasn't the user.
-  - `onFix(fix)` — single subscription to `selfPositionStore`: recompute
-    progress → build notification content → `updateAsync` → run alert rules.
-  - Auto-stop at the destination, on a session older than ~4h, or when GPS dies.
+  - Owns the location watcher for the journey's duration and writes to
+    `selfPositionStore`, so the notification, the map and the planner cannot
+    disagree about which station the user is at. (This pulls the
+    "one location source" item forward from M3 — it made M2 independently
+    testable rather than needing M3 to land before anything moved.)
+  - `refresh()` — the single funnel every trigger goes through: recompute
+    progress → build content → `updateAsync`. Driven by location fixes *and*
+    by the service tick, the latter so a user standing on a platform still has
+    their arrival times re-timed rather than quietly going stale.
+  - Auto-stop at the destination (after letting "Arrived" sit for 30s), on a
+    session older than 4h, or when GPS dies.
 - **`notificationContent.ts`** — pure: `(route, progress, clock) → content`.
   e.g. title `"Hauz Khas · 14:32"`, body `"3 stops · next Green Park"`,
   progress `{ current: nearestIndex, max: sequence.length - 1 }`. Unit-tested
@@ -201,11 +214,12 @@ Commit: `drive the journey notification from a non-react session controller`
   same battery cost, same privacy promise.
 - `locationChannel.setBroadcasting`: skip the `waitForForeground()` gates when a
   session is live, otherwise a background resume just times out.
-- **Collapse to one location source.** Today MapLibre's `useCurrentPosition`
-  feeds `selfPositionStore` from the map screen while `locationChannel` runs its
-  own watcher. During a session, `locationChannel`'s watcher becomes the single
-  source and feeds the store; the map reads the store and its own watcher is
-  gated off. Three concurrent watchers is a battery problem.
+- **Collapse to one location source.** M2 gave the journey controller its own
+  watcher, so a running journey now means two: MapLibre's `useCurrentPosition`
+  on the map screen and `locationChannel`'s broadcast watcher, plus the
+  journey's. Gate the first two on there being no active journey and let
+  `locationChannel` broadcast from the fixes the journey already receives.
+  Three concurrent GPS watchers is a battery problem.
 - **Move every background-critical `setInterval` onto the service tick.** Per
   "Constraint: JS timers stop in the background", these stop the moment the app
   is minimised:
