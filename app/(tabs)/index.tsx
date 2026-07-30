@@ -7,6 +7,7 @@ import {
   Map as MapLibreMap,
   type PressEventWithFeatures,
   useCurrentPosition,
+  type ViewStateChangeEvent,
 } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -39,6 +40,8 @@ import {
   getMapStyle,
 } from '../../src/map/mapStyle';
 import { buildRoutePolylineGeoJSON, computeBounds } from '../../src/map/routePolyline';
+import type { LabelViewport } from '../../src/map/stationLabelSelection';
+import { StationLabels } from '../../src/map/StationLabels';
 import { buildStationSubsetGeoJSON, buildStationsGeoJSON } from '../../src/map/stationsGeoJSON';
 import { StationDetailCard } from '../../src/map/StationDetailCard';
 import { UserLocationPin } from '../../src/map/UserLocationPin';
@@ -129,6 +132,23 @@ export default function MapScreen() {
 
   const stationsGeoJSON = useMemo(() => buildStationsGeoJSON(), []);
   const router = useRouter();
+
+  // Drives the station name labels. Updated on onRegionDidChange -- i.e. once
+  // a pan/zoom settles -- rather than onRegionIsChanging: the labels are React
+  // Native views, and rebuilding the set on every frame of a pinch would cost
+  // far more than it buys.
+  const [labelViewport, setLabelViewport] = useState<LabelViewport | null>(null);
+  const handleRegionDidChange = useCallback(
+    (event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
+      const { zoom, bounds } = event.nativeEvent;
+      setLabelViewport((previous) =>
+        previous && previous.zoom === zoom && sameBounds(previous.bounds, bounds)
+          ? previous
+          : { zoom, bounds },
+      );
+    },
+    [],
+  );
 
   // MapLibre's useCurrentPosition() starts a *native* GPS watcher. Tabs stay
   // mounted once visited, so an ungated call kept that watcher running on
@@ -367,6 +387,7 @@ export default function MapScreen() {
         logo={false}
         attribution={false}
         onPress={handleMapPress}
+        onRegionDidChange={handleRegionDidChange}
       >
         <Camera
           ref={cameraRef}
@@ -459,6 +480,10 @@ export default function MapScreen() {
             />
           </GeoJSONSource>
         )}
+
+        {/* Before FriendsLayer so a friend's pin is never hidden behind a
+            station name. */}
+        <StationLabels viewport={labelViewport} />
 
         <FriendsLayer />
 
@@ -592,6 +617,13 @@ const pingStyles = StyleSheet.create({
     borderWidth: 2,
   },
 });
+
+/** Region events fire on settle even when nothing actually moved (a tap that
+ * pans by a pixel, a camera stop landing where it already was). Comparing the
+ * viewport before storing it keeps those from re-rendering every label. */
+function sameBounds(a: LabelViewport['bounds'], b: LabelViewport['bounds']): boolean {
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+}
 
 /** Theme colours are opaque hex; this is the only place that wants one of
  * them see-through, so it converts rather than adding a second token that
