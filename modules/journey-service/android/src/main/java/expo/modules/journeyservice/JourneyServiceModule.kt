@@ -20,16 +20,20 @@ class JourneyServiceModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("JourneyService")
 
-    Events("onAction")
+    Events("onAction", "onTick")
 
     OnCreate {
       JourneyServiceBus.listener = { action ->
         sendEvent("onAction", mapOf("action" to action))
       }
+      JourneyServiceBus.tickListener = { at ->
+        sendEvent("onTick", mapOf("at" to at))
+      }
     }
 
     OnDestroy {
       JourneyServiceBus.listener = null
+      JourneyServiceBus.tickListener = null
     }
 
     /**
@@ -38,13 +42,14 @@ class JourneyServiceModule : Module() {
      * for an exemption. That constraint is why journeys begin on an explicit
      * "Start journey" tap rather than starting themselves.
      */
-    AsyncFunction("startAsync") { content: JourneyNotificationContent ->
+    AsyncFunction("startAsync") { content: JourneyNotificationContent, tickIntervalMs: Long ->
       val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
       JourneyNotification.ensureChannel(context)
 
       val intent = Intent(context, JourneyForegroundService::class.java).apply {
         action = JourneyForegroundService.ACTION_START
         content.writeTo(this)
+        putExtra(JourneyForegroundService.EXTRA_TICK_INTERVAL_MS, tickIntervalMs)
       }
 
       try {

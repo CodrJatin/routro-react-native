@@ -26,12 +26,18 @@ export interface JourneyServiceActionEvent {
   action: JourneyServiceAction;
 }
 
+export interface JourneyServiceTickEvent {
+  /** ms since epoch, from the device clock at the moment the tick fired. */
+  at: number;
+}
+
 type JourneyServiceEvents = {
   onAction: (event: JourneyServiceActionEvent) => void;
+  onTick: (event: JourneyServiceTickEvent) => void;
 };
 
 declare class JourneyServiceNativeModule extends NativeModule<JourneyServiceEvents> {
-  startAsync(content: JourneyNotificationContent): Promise<void>;
+  startAsync(content: JourneyNotificationContent, tickIntervalMs: number): Promise<void>;
   updateAsync(content: JourneyNotificationContent): Promise<boolean>;
   stopAsync(): Promise<void>;
   isRunning(): boolean;
@@ -54,9 +60,10 @@ export const isJourneyServiceAvailable = native !== null;
  */
 export async function startJourneyService(
   content: JourneyNotificationContent,
+  { tickIntervalMs = 0 }: { tickIntervalMs?: number } = {},
 ): Promise<boolean> {
   if (!native) return false;
-  await native.startAsync(content);
+  await native.startAsync(content, tickIntervalMs);
   return true;
 }
 
@@ -90,4 +97,20 @@ export function addJourneyServiceActionListener(
 ): { remove: () => void } {
   if (!native) return { remove: () => {} };
   return native.addListener('onAction', listener);
+}
+
+/**
+ * The service's tick, at the `tickIntervalMs` passed to `startJourneyService`.
+ *
+ * **Use this instead of `setInterval` for anything that has to keep running in
+ * the background.** React Native drives JS timers off a Choreographer frame
+ * callback that `JavaTimerManager.onHostPause` removes the moment the app is
+ * backgrounded, so `setInterval` stops dead -- foreground service or not. This
+ * comes off the service's own Looper handler and is unaffected.
+ */
+export function addJourneyServiceTickListener(
+  listener: (event: JourneyServiceTickEvent) => void,
+): { remove: () => void } {
+  if (!native) return { remove: () => {} };
+  return native.addListener('onTick', listener);
 }

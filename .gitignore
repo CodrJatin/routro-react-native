@@ -54,6 +54,7 @@ Thumbs.db
 # local expo modules: source is tracked, gradle output is not (the /android
 # rule above is root-anchored and doesn't reach these)
 modules/*/android/build/
+modules/*/android/.gradle/
 modules/*/android/.cxx/
 modules/*/ios/build/
 

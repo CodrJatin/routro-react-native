@@ -61,6 +61,46 @@ The cost is ~250 lines of Kotlin. It also means nothing restarts the session if
 the process dies — which is exactly the behaviour we want, since swiping the app
 away is meant to end the journey.
 
+## Constraint: JS timers stop in the background
+
+Found the hard way in M1, and it invalidates the obvious way to write all of
+this.
+
+React Native drives `setTimeout`/`setInterval` off a Choreographer frame
+callback. `JavaTimerManager.onHostPause` removes that callback the instant the
+app is backgrounded:
+
+```kotlin
+override fun onHostPause() {
+  isPaused.set(true)
+  clearFrameCallback()
+}
+```
+
+So **`setInterval` stops dead when the app is minimised**, foreground service or
+not. The service keeps the *process* alive; it does not make React Native's
+timer queue run. (`ReactInstance.kt` uses `JavaTimerManager`, so this is the new
+architecture's behaviour, not a legacy path.)
+
+What still works while backgrounded: **anything native calling into JS**.
+Those are posted to the JS thread's Looper rather than scheduled off a frame —
+location fixes from the OS watcher, websocket messages, and the service's own
+tick all arrive normally.
+
+Two consequences:
+
+1. **The service emits an `onTick` event** (`tickIntervalMs` on
+   `startJourneyService`), driven by a `Handler` on the main Looper. Everything
+   periodic subscribes to that instead of using `setInterval`.
+2. **Prefer event-driven over periodic anyway.** Notification updates should
+   hang off location fixes arriving, which is what the feature wants regardless.
+
+The one escape hatch RN offers is an active HeadlessJsTask, which restores the
+frame callback (`clearFrameCallback` no-ops while `hasActiveTasks()`). Not worth
+relying on: the Choreographer is driven by display vsync, which stops on many
+devices when the screen is off — so it would fix "minimised" without fixing
+"pocket", which is the case that matters.
+
 ## What exists today
 
 Foreground-only by design, in several places at once:
@@ -166,6 +206,19 @@ Commit: `drive the journey notification from a non-react session controller`
   own watcher. During a session, `locationChannel`'s watcher becomes the single
   source and feeds the store; the map reads the store and its own watcher is
   gated off. Three concurrent watchers is a battery problem.
+- **Move every background-critical `setInterval` onto the service tick.** Per
+  "Constraint: JS timers stop in the background", these stop the moment the app
+  is minimised:
+
+  | Where | Interval | Matters in background? |
+  |---|---|---|
+  | `locationChannel.startHeartbeat` | 5s | **Yes.** Resends the last fix so a stationary user doesn't go stale on friends' devices at 30s and get dropped at 90s. Without it, standing on a platform makes you vanish — the exact case the heartbeat was written for. |
+  | `locationChannel.startServicesWatchdog` | 15s | **Yes.** Otherwise GPS being switched off mid-journey is never noticed. |
+  | `locationChannel.waitForOwnChannelJoined` | 150ms poll | **Yes**, on any background rejoin — it would hang until foreground. |
+  | supabase-js realtime heartbeat | 30s | **Yes, and it's not our timer.** The server drops the socket without it, so broadcasting dies a minute after backgrounding. Drive `supabase.realtime.sendHeartbeat()` from the tick. Realtime-js's reconnect backoff is also timer-based — a socket that drops while backgrounded may not come back on its own. |
+  | `locationStore.subscribeToTick` | 10s | No — it ages friend pins for the UI, which nobody is looking at. |
+  | `useRouteClock` | 20s | No — same reason. |
+
 - Update the design comments that currently promise "ephemeral, foreground-only"
   — they'll be wrong, and they're load-bearing documentation.
 
@@ -233,6 +286,8 @@ Commit: `track journeys in the background on ios`
 |---|---|
 | OEM battery managers kill the app mid-journey | M6. Realistically can't be fully solved, only mitigated. The user sees the notification disappear, which at least isn't silent. |
 | Stale ongoing notification outliving the process | `onTaskRemoved` stops the service; launch-time reconciliation clears orphaned session state. |
+| A `setInterval` added later silently stops working in the background | It fails quietly, which is the dangerous part — nothing errors, the work just stops. Prefer the service tick, and treat any new timer in `src/journey/` or `src/realtime/` as a review point. |
+| The realtime socket drops while backgrounded and never reconnects | Realtime-js retries on timers we can't reach. Watch for it in M6 testing; the fallback is to detect a dead socket on the tick and rejoin explicitly. |
 | Battery drain | Keep `Accuracy.Balanced` and the existing 15m distance filter; auto-stop at the destination. |
 | Alert spam | Per-station latches; conservative defaults; make friend alerts opt-in. |
 | Privacy expectations shift | Explicit opt-in, always-visible notification, one-tap stop from the notification. |
