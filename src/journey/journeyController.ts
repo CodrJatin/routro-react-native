@@ -17,7 +17,8 @@ import type { RouteClock } from '../route/routeClock';
 import { getRouteProgress, type RouteProgress } from '../route/routeProgress';
 import { ensureAlertChannel, presentAlert } from './alertNotifications';
 import { journeyAlertFor } from './alerts';
-import { startFriendAlerts, stopFriendAlerts, useFriendAlertsStore } from './friendAlerts';
+import { startFriendAlerts, stopFriendAlerts } from './friendAlerts';
+import { isAlertKindEnabled, useNotificationPrefsStore } from './notificationPrefs';
 import { useJourneyStore, type JourneySession } from './journeyStore';
 import { buildJourneyNotification } from './notificationContent';
 
@@ -191,7 +192,7 @@ export async function startJourney(
 
   // Scoped to the journey rather than always-on: a friend two stops away
   // matters while you are travelling and is just noise while you are at home.
-  await useFriendAlertsStore.getState().hydrate();
+  await useNotificationPrefsStore.getState().hydrate();
   startFriendAlerts();
 
   subscribe();
@@ -234,7 +235,7 @@ export async function initJourneyController(): Promise<void> {
   await ensureAlertChannel();
   locationChannelManager.setBackgroundAllowed(true);
   await locationChannelManager.setExternalFixSource(true);
-  await useFriendAlertsStore.getState().hydrate();
+  await useNotificationPrefsStore.getState().hydrate();
   startFriendAlerts();
   subscribe();
   await startWatcher();
@@ -312,7 +313,13 @@ async function maybeAlert(progress: RouteProgress | null): Promise<void> {
   if (!route) return;
   const alert = journeyAlertFor(route, progress);
   if (!alert || firedAlertKeys.has(alert.key)) return;
+
+  // Latched even when the user has this kind switched off, so turning it back
+  // on mid-journey doesn't immediately fire an alert about a station they
+  // passed ten minutes ago.
   firedAlertKeys.add(alert.key);
+  if (!isAlertKindEnabled(alert.kind)) return;
+
   await presentAlert(alert);
 }
 

@@ -1,12 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { create } from 'zustand';
 import { estimateFriendEta } from '../friends/friendEta';
 import { findNearestStation } from '../friends/nearestStation';
 import { useSelfPositionStore } from '../location/selfPosition';
 import { useLocationStore, type FriendLocation } from '../realtime/locationStore';
 import { presentAlert } from './alertNotifications';
-
-const STORAGE_KEY = 'metrosync.friendAlertsEnabled';
+import { areFriendAlertsEnabled } from './notificationPrefs';
 
 /** Stops away at which a friend is worth mentioning. Close enough to act on
  * (get off, wait, meet them), far enough to be useful. */
@@ -15,44 +12,6 @@ const NEARBY_STOPS = 2;
 /** How close a friend has to be to a station to count as having arrived at it,
  * matching what the Friends tab already treats as "at" a station. */
 const AT_STATION_METERS = 250;
-
-interface FriendAlertsState {
-  isEnabled: boolean;
-  isHydrated: boolean;
-  hydrate: () => Promise<void>;
-  setEnabled: (enabled: boolean) => void;
-}
-
-/**
- * Off by default, and deliberately so.
- *
- * A journey already fires alerts for getting off and changing lines. Adding
- * unrequested buzzing about other people on top is how a user ends up
- * disabling MetroSync's notifications wholesale -- which would take the
- * "get off at the next stop" alert with it, the one thing here genuinely worth
- * interrupting someone for.
- */
-export const useFriendAlertsStore = create<FriendAlertsState>((set, get) => ({
-  isEnabled: false,
-  isHydrated: false,
-
-  hydrate: async () => {
-    if (get().isHydrated) return;
-    try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      set({ isEnabled: raw === 'true', isHydrated: true });
-    } catch {
-      set({ isEnabled: false, isHydrated: true });
-    }
-  },
-
-  setEnabled: (isEnabled) => {
-    set({ isEnabled });
-    AsyncStorage.setItem(STORAGE_KEY, String(isEnabled)).catch(() => {
-      // Best-effort; the in-memory value is what this session acts on.
-    });
-  },
-}));
 
 /** Latched per friend and event, so a friend sitting two stops away doesn't
  * re-announce themselves on every broadcast they send. Cleared when the
@@ -73,7 +32,10 @@ export function startFriendAlerts(): void {
   firedKeys = new Set();
 
   unsubscribe = useLocationStore.subscribe((state, previous) => {
-    if (!useFriendAlertsStore.getState().isEnabled) return;
+    // Read per emission rather than captured at start, so switching the
+    // preference off silences alerts immediately rather than at the next
+    // journey.
+    if (!areFriendAlertsEnabled()) return;
     if (state.friendLocations === previous.friendLocations) return;
 
     for (const [userId, location] of Object.entries(state.friendLocations)) {
