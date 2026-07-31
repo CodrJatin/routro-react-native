@@ -6,7 +6,6 @@ import {
   Layer,
   Map as MapLibreMap,
   type PressEventWithFeatures,
-  useCurrentPosition,
   type ViewStateChangeEvent,
 } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
@@ -29,7 +28,7 @@ import {
 import tracksGeoJSON from '../../assets/data/tracks.json';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { findRoute, getStation } from '../../src/engine/graph';
-import type { CompiledStation } from '../../src/engine/types';
+import type { CompiledStation, StationId } from '../../src/engine/types';
 import { useBasemapStore } from '../../src/map/basemapStore';
 import { FriendFocusStack, type ActiveFriend } from '../../src/map/FriendFocusStack';
 import { FriendsLayer } from '../../src/map/FriendsLayer';
@@ -47,7 +46,9 @@ import { StationDetailCard } from '../../src/map/StationDetailCard';
 import { UserLocationPin } from '../../src/map/UserLocationPin';
 import { JourneyBar } from '../../src/journey/JourneyBar';
 import { useIsJourneyActive } from '../../src/journey/journeyStore';
-import { useSeedSelfPosition, useSelfPositionStore } from '../../src/location/selfPosition';
+import { useSelfPositionStore } from '../../src/location/selfPosition';
+import { useSeedSelfPosition } from '../../src/location/useSeedSelfPosition';
+import { useSelfPositionWatcher } from '../../src/location/useSelfPositionWatcher';
 import { locationChannelManager } from '../../src/realtime/locationChannel';
 import { useActiveRouteStore } from '../../src/route/activeRouteStore';
 import { getRouteProgress } from '../../src/route/routeProgress';
@@ -75,6 +76,10 @@ const STATION_CIRCLE_RADIUS: CirclePaint['circle-radius'] = [
   18,
   ['case', ['get', 'isInterchange'], 12, 8],
 ];
+
+/** Module-scoped so the "no route, nothing passed" case keeps a stable
+ * identity and doesn't rebuild the passed-stations source every render. */
+const EMPTY_STATION_IDS: ReadonlySet<StationId> = new Set();
 
 const STATION_CIRCLE_STROKE_WIDTH: CirclePaint['circle-stroke-width'] = [
   'interpolate',
@@ -152,11 +157,9 @@ export default function MapScreen() {
     [],
   );
 
-  // MapLibre's useCurrentPosition() starts a *native* GPS watcher. Tabs stay
-  // mounted once visited, so an ungated call kept that watcher running on
-  // every other tab and in the background -- alongside expo-location's own
-  // watcher while broadcasting. Gate it on "map on screen, app foregrounded,
-  // permission granted" so exactly one watcher runs, only when it's useful.
+  // Tabs stay mounted once visited, so an ungated watcher would keep running
+  // on every other tab and in the background. Gate it on "map on screen, app
+  // foregrounded, permission granted" so it only runs when it's useful.
   const [isScreenFocused, setIsScreenFocused] = useState(false);
   const [isAppActive, setIsAppActive] = useState(() => AppState.currentState === 'active');
   const [permission, setPermission] = useState<Location.PermissionStatus | null>(null);
@@ -175,27 +178,21 @@ export default function MapScreen() {
     return () => subscription.remove();
   }, []);
 
-  // A tracked journey runs its own watcher and writes to the same store, so
-  // this one would be a second GPS consumer producing identical fixes.
+  // A tracked journey and an active broadcast each already run a watcher that
+  // writes to the same store, so this screen only starts one when neither of
+  // them does -- a second consumer of the same GPS is pure battery cost for
+  // identical fixes. Note what this is *not*: the pin does not depend on
+  // sharing being on, it depends on some watcher being on, and these three
+  // cases cover each other.
   const isJourneyActive = useIsJourneyActive();
   const isLocationGranted = permission === Location.PermissionStatus.GRANTED;
-  const currentPosition = useCurrentPosition({
-    enabled: isScreenFocused && isAppActive && isLocationGranted && !isJourneyActive,
-  });
+  useSelfPositionWatcher(
+    isScreenFocused && isAppActive && isLocationGranted && !isJourneyActive && !isBroadcasting,
+  );
 
-  // This screen owns the live GPS watcher whenever no journey is being tracked,
-  // so it's also what keeps the shared position current -- the route planner
-  // reads the same value to place the user along the journey, and the two must
-  // not disagree about which station that is. Seeding covers the gap before the
-  // first fix (and the case where the watcher never starts, e.g. permission
-  // refused).
+  // Seeding covers the gap before the first fix, and the case where no watcher
+  // can start at all (permission refused, location switched off).
   useSeedSelfPosition();
-  useEffect(() => {
-    if (!currentPosition) return;
-    useSelfPositionStore
-      .getState()
-      .setLive(currentPosition.coords.latitude, currentPosition.coords.longitude);
-  }, [currentPosition]);
   const selfPosition = useSelfPositionStore((state) => state.position);
 
   const params = useLocalSearchParams<{ focusUserId?: string }>();
@@ -227,10 +224,15 @@ export default function MapScreen() {
     () => getRouteProgress(activeRoute, selfPosition),
     [activeRoute, selfPosition],
   );
-  const passedStationsGeoJSON = useMemo(() => {
-    if (!routeProgress || routeProgress.passedStationIds.size === 0) return null;
-    return buildStationSubsetGeoJSON(routeProgress.passedStationIds);
-  }, [routeProgress]);
+  // Built even when it's empty, so `route-passed-circle` is always in the
+  // style. It is the anchor the user-location layers hang off (see
+  // UserLocationPin), and an anchor that comes and goes with the active route
+  // would leave the pin waiting on a layer that may never arrive. An empty
+  // source renders nothing and costs nothing.
+  const passedStationsGeoJSON = useMemo(
+    () => buildStationSubsetGeoJSON(routeProgress?.passedStationIds ?? EMPTY_STATION_IDS),
+    [routeProgress],
+  );
 
   // The same clock the itinerary screen runs, so the card can't quote an
   // arrival time the itinerary disagrees with: measured from the user's own
@@ -240,11 +242,27 @@ export default function MapScreen() {
 
   // Checked, not requested: prompting on mount asks a user who may never touch
   // a location feature. The actual prompt happens on first use, below.
+  //
+  // Re-checked on every focus/foreground rather than once on mount. Permission
+  // is also granted from the broadcast toggle, from starting a journey, and
+  // from Settings -- and a mount-only check meant a grant made any of those
+  // ways left this screen believing it still had none, so the watcher never
+  // started and the pin never appeared. Both of those routes hand focus back
+  // here when they're done, which is exactly when this runs.
   useEffect(() => {
+    if (!isScreenFocused || !isAppActive) return;
+    let cancelled = false;
     Location.getForegroundPermissionsAsync()
-      .then(({ status }) => setPermission(status))
-      .catch(() => setPermission(null));
-  }, []);
+      .then(({ status }) => {
+        if (!cancelled) setPermission(status);
+      })
+      .catch(() => {
+        if (!cancelled) setPermission(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isScreenFocused, isAppActive]);
 
   // Drawing the route is unconditional; framing the camera on it is not. The
   // camera only exists while this screen is mounted and on top, and an 800ms
@@ -346,9 +364,9 @@ export default function MapScreen() {
       return;
     }
 
-    if (!currentPosition) return; // button is disabled in this state
+    if (!selfPosition) return; // button is disabled in this state
     cameraRef.current?.flyTo({
-      center: [currentPosition.coords.longitude, currentPosition.coords.latitude],
+      center: [selfPosition.lon, selfPosition.lat],
       zoom: 15,
       duration: 800,
     });
@@ -471,21 +489,19 @@ export default function MapScreen() {
             GPS fix -- and so the source that owns station taps is left
             completely alone. Filling with textPrimary is what makes it read
             as white-on-dark and black-on-light without a second rule. */}
-        {passedStationsGeoJSON && (
-          <GeoJSONSource id="route-passed-stations" data={passedStationsGeoJSON}>
-            <Layer
-              id="route-passed-circle"
-              type="circle"
-              afterId="stations-circle"
-              paint={{
-                'circle-radius': STATION_CIRCLE_RADIUS,
-                'circle-color': colors.textPrimary,
-                'circle-stroke-width': STATION_CIRCLE_STROKE_WIDTH,
-                'circle-stroke-color': colors.textPrimary,
-              }}
-            />
-          </GeoJSONSource>
-        )}
+        <GeoJSONSource id="route-passed-stations" data={passedStationsGeoJSON}>
+          <Layer
+            id="route-passed-circle"
+            type="circle"
+            afterId="stations-circle"
+            paint={{
+              'circle-radius': STATION_CIRCLE_RADIUS,
+              'circle-color': colors.textPrimary,
+              'circle-stroke-width': STATION_CIRCLE_STROKE_WIDTH,
+              'circle-stroke-color': colors.textPrimary,
+            }}
+          />
+        </GeoJSONSource>
 
         {/* Before FriendsLayer so a friend's pin is never hidden behind a
             station name. */}
@@ -493,7 +509,7 @@ export default function MapScreen() {
 
         <FriendsLayer />
 
-        <UserLocationPin position={currentPosition} />
+        <UserLocationPin position={selfPosition} />
       </MapLibreMap>
 
       <JourneyBar />
@@ -546,11 +562,11 @@ export default function MapScreen() {
         <Pressable
           // Only inert while we *have* permission but no fix has arrived yet.
           // Without permission it stays tappable -- that tap is what asks.
-          disabled={isLocationGranted && !currentPosition}
+          disabled={isLocationGranted && !selfPosition}
           style={({ pressed }) => [
             styles.locateButton,
             pressed && { opacity: 0.7 },
-            isLocationGranted && !currentPosition && { opacity: 0.5 },
+            isLocationGranted && !selfPosition && { opacity: 0.5 },
           ]}
           onPress={handleCenterOnMyLocation}
           accessibilityRole="button"

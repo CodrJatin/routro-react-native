@@ -2,6 +2,7 @@ import * as Location from 'expo-location';
 import { AppState, Platform } from 'react-native';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { useSelfPositionStore } from '../location/selfPosition';
 import type { ConnectionState, FriendLocation, PresenceStatus } from './locationStore';
 
 const BROADCAST_DISTANCE_METERS = 15;
@@ -594,6 +595,14 @@ class LocationChannelManager {
         timeInterval: BROADCAST_INTERVAL_MS,
       },
       (position) => {
+        // This watcher is the app's live position while it's the one running,
+        // exactly as the journey controller's is while a journey is tracked.
+        // Writing it to the shared store is what lets the map screen stand its
+        // own watcher down instead of running a second GPS consumer -- and
+        // what keeps the user's pin moving whether they are sharing or not.
+        useSelfPositionStore
+          .getState()
+          .setLive(position.coords.latitude, position.coords.longitude);
         this.sendFix({
           lat: position.coords.latitude,
           lon: position.coords.longitude,

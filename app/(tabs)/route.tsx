@@ -6,7 +6,8 @@ import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanim
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { findRoute, getCompiledGraph, getStation } from '../../src/engine/graph';
 import { StartJourneyButton } from '../../src/journey/StartJourneyButton';
-import { useSeedSelfPosition, useSelfPositionStore } from '../../src/location/selfPosition';
+import { useSelfPositionStore } from '../../src/location/selfPosition';
+import { useSeedSelfPosition } from '../../src/location/useSeedSelfPosition';
 import type { CompiledStation, RouteMode, RouteResult } from '../../src/engine/types';
 import { useActiveRouteStore } from '../../src/route/activeRouteStore';
 import { ItineraryList } from '../../src/route/ItineraryList';
