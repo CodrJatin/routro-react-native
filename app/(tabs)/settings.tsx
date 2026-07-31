@@ -204,39 +204,26 @@ export default function SettingsScreen() {
           </Animated.View>
         )}
 
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Appearance</Text>
-          <SegmentedToggle options={THEME_OPTIONS} value={preference} onChange={setPreference} />
-        </View>
+        <View style={styles.groupedSection}>
+          <Text style={styles.sectionLabel}>Preferences</Text>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Map</Text>
-          <SegmentedToggle
-            options={BASEMAP_OPTIONS}
-            value={isBasemapEnabled ? 'real' : 'simple'}
-            onChange={(value) => setBasemapEnabled(value === 'real')}
-          />
-          <Text style={styles.sectionHint}>
-            {isBasemapEnabled
-              ? 'Streets and place names load over the internet. Metro lines and routing keep working offline.'
-              : 'Metro lines only, on a plain background. Works with no internet connection.'}
-          </Text>
-        </View>
+          <View style={styles.subSection}>
+            <Text style={styles.subSectionLabel}>Appearance</Text>
+            <SegmentedToggle options={THEME_OPTIONS} value={preference} onChange={setPreference} />
+          </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>App Info</Text>
-          <View style={styles.infoCard}>
-            <View style={styles.row}>
-              <Text style={styles.rowText}>Version</Text>
-              <Text style={styles.rowValue}>{appVersion}</Text>
-            </View>
-            <Pressable style={styles.row} onPress={() => Linking.openURL(GITHUB_URL)}>
-              <View style={styles.rowIconLabel}>
-                <Ionicons name="logo-github" size={16} color={colors.textPrimary} />
-                <Text style={styles.rowText}>Source on GitHub</Text>
-              </View>
-              <Ionicons name="open-outline" size={16} color={colors.textSecondary} />
-            </Pressable>
+          <View style={styles.subSection}>
+            <Text style={styles.subSectionLabel}>Map</Text>
+            <SegmentedToggle
+              options={BASEMAP_OPTIONS}
+              value={isBasemapEnabled ? 'real' : 'simple'}
+              onChange={(value) => setBasemapEnabled(value === 'real')}
+            />
+            <Text style={styles.sectionHint}>
+              {isBasemapEnabled
+                ? 'Streets and place names load over the internet. Metro lines and routing keep working offline.'
+                : 'Metro lines only, on a plain background. Works with no internet connection.'}
+            </Text>
           </View>
         </View>
 
@@ -272,6 +259,25 @@ export default function SettingsScreen() {
             )}
           </Pressable>
         )}
+
+        {/* Last, and below Sign Out: version and source link are reference
+            material, not something anyone came to this screen to change. */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>App Info</Text>
+          <View style={styles.infoCard}>
+            <View style={styles.row}>
+              <Text style={styles.rowText}>Version</Text>
+              <Text style={styles.rowValue}>{appVersion}</Text>
+            </View>
+            <Pressable style={styles.row} onPress={() => Linking.openURL(GITHUB_URL)}>
+              <View style={styles.rowIconLabel}>
+                <Ionicons name="logo-github" size={16} color={colors.textPrimary} />
+                <Text style={styles.rowText}>Source on GitHub</Text>
+              </View>
+              <Ionicons name="open-outline" size={16} color={colors.textSecondary} />
+            </Pressable>
+          </View>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -408,7 +414,23 @@ function createStyles(colors: ColorTokens, radiusNone: number, shared: ReturnTyp
     section: {
       gap: 8,
     },
+    // One heading over several controls, so the gap between them has to be
+    // wider than the gap between a control and its own label -- otherwise the
+    // grouping reads as four unrelated rows.
+    groupedSection: {
+      gap: 16,
+    },
+    subSection: {
+      gap: 8,
+    },
     sectionLabel: shared.sectionLabel,
+    // Sentence case against the section heading's caps, so the hierarchy is
+    // legible without indentation.
+    subSectionLabel: {
+      color: colors.textSecondary,
+      fontSize: 13,
+      fontWeight: '600',
+    },
     sectionHint: {
       color: colors.textSecondary,
       fontSize: 12,
