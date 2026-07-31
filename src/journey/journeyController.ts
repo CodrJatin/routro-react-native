@@ -360,6 +360,11 @@ async function startWatcher(): Promise<void> {
         accuracy: Location.Accuracy.Balanced,
         timeInterval: LOCATION_INTERVAL_MS,
         distanceInterval: LOCATION_DISTANCE_METERS,
+        // Off: `startJourney` has already checked location services and
+        // refused with an explanation if they were off. This also runs from
+        // `initJourneyController` at launch, where expo's default would open
+        // Play's "turn on location?" dialog before the app has drawn a frame.
+        mayShowUserSettingsDialog: false,
       },
       (position) => {
         // The journey's watcher is the app's live position while it runs --

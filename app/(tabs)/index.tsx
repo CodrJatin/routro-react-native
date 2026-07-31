@@ -20,6 +20,7 @@ import {
   Easing,
   Linking,
   type NativeSyntheticEvent,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -178,6 +179,14 @@ export default function MapScreen() {
   const [isScreenFocused, setIsScreenFocused] = useState(false);
   const [isAppActive, setIsAppActive] = useState(() => AppState.currentState === 'active');
   const [permission, setPermission] = useState<Location.PermissionStatus | null>(null);
+  // Android stops showing the dialog after the second refusal and resolves
+  // every later request instantly as denied. Asking anyway is a tap that looks
+  // like it did nothing, so this is what sends the user to Settings instead.
+  const [canAskForLocation, setCanAskForLocation] = useState(true);
+  // Guards the request itself rather than the button: the system dialog leaves
+  // the button mounted and enabled underneath it, and a second tap while one
+  // request is in flight queues a second dialog behind the first.
+  const isRequestingLocation = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -268,8 +277,10 @@ export default function MapScreen() {
     if (!isScreenFocused || !isAppActive) return;
     let cancelled = false;
     Location.getForegroundPermissionsAsync()
-      .then(({ status }) => {
-        if (!cancelled) setPermission(status);
+      .then(({ status, canAskAgain }) => {
+        if (cancelled) return;
+        setPermission(status);
+        setCanAskForLocation(canAskAgain);
       })
       .catch(() => {
         if (!cancelled) setPermission(null);
@@ -357,34 +368,101 @@ export default function MapScreen() {
     setSelectedStation(null);
   }
 
+  function showLocationDeniedAlert(canAskAgain: boolean) {
+    Alert.alert(
+      'Location permission needed',
+      'MetroSync needs location access to show where you are on the map.',
+      canAskAgain
+        ? [{ text: 'OK' }]
+        : [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Open settings', onPress: () => void Linking.openSettings() },
+          ],
+    );
+  }
+
   async function handleCenterOnMyLocation() {
     // Previously this bailed silently when there was no fix, so with
     // permission denied the button did nothing at all, forever, with no
     // feedback. Ask on first use; if refused, offer the settings route.
     if (!isLocationGranted) {
-      const { status, canAskAgain } = await Location.requestForegroundPermissionsAsync();
-      setPermission(status);
-      if (status !== Location.PermissionStatus.GRANTED) {
-        Alert.alert(
-          'Location permission needed',
-          'MetroSync needs location access to show where you are on the map.',
-          canAskAgain
-            ? [{ text: 'OK' }]
-            : [
-                { text: 'Not now', style: 'cancel' },
-                { text: 'Open settings', onPress: () => void Linking.openSettings() },
-              ],
-        );
+      if (isRequestingLocation.current) return;
+      // Out of asks -- the OS will not show the dialog again, so go straight
+      // to the only route left rather than firing a request that resolves
+      // denied before the user sees anything.
+      if (!canAskForLocation) {
+        showLocationDeniedAlert(false);
+        return;
+      }
+      isRequestingLocation.current = true;
+      try {
+        const { status, canAskAgain } = await Location.requestForegroundPermissionsAsync();
+        setPermission(status);
+        setCanAskForLocation(canAskAgain);
+        if (status !== Location.PermissionStatus.GRANTED) {
+          showLocationDeniedAlert(canAskAgain);
+        }
+      } finally {
+        isRequestingLocation.current = false;
       }
       return;
     }
 
-    if (!selfPosition) return; // button is disabled in this state
+    // Permission is granted but nothing has arrived. Device location switched
+    // off is by far the usual reason, and the watcher deliberately no longer
+    // says so by opening a system dialog on its own -- so this tap is where
+    // that belongs. Without it the button is inert again, which is exactly the
+    // silence the permission branch above exists to avoid.
+    if (!selfPosition) {
+      if (isRequestingLocation.current) return;
+      isRequestingLocation.current = true;
+      try {
+        await offerLocationServices();
+      } finally {
+        isRequestingLocation.current = false;
+      }
+      return;
+    }
+
     cameraRef.current?.flyTo({
       center: [selfPosition.lon, selfPosition.lat],
       zoom: 15,
       duration: 800,
     });
+  }
+
+  /** Asks about device location -- the setting, not the app's permission --
+   * only ever in response to a tap. Android can offer to switch it on in place;
+   * everywhere else there is nothing to do but explain. */
+  async function offerLocationServices() {
+    const enabled = await Location.hasServicesEnabledAsync().catch(() => true);
+    if (enabled) {
+      Alert.alert(
+        'Still looking for you',
+        'Location is on, but no fix has come through yet. That can take a moment indoors or underground.',
+      );
+      return;
+    }
+
+    if (Platform.OS === 'android') {
+      try {
+        await Location.enableNetworkProviderAsync();
+      } catch {
+        // Declined, or no Play services to ask with. Either way the user has
+        // just answered the question -- following it with an alert would be
+        // asking again in a different font.
+      }
+      return;
+    }
+
+    Alert.alert(
+      'Location is off',
+      'Switch location on in your device settings to see where you are on the map.',
+      [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Open settings', onPress: () => void Linking.openSettings() },
+      ],
+    );
   }
 
   async function handleToggleBroadcast() {
@@ -588,14 +666,20 @@ export default function MapScreen() {
 
       <View style={styles.locateButtonWrapper} pointerEvents="box-none">
         <Pressable
-          // Only inert while we *have* permission but no fix has arrived yet.
-          // Without permission it stays tappable -- that tap is what asks.
-          disabled={isLocationGranted && !selfPosition}
+          // Never inert. Every state this button can be in has something the
+          // tap can do: ask for permission, offer to switch device location
+          // on, say a fix hasn't landed yet, or centre the map. It was
+          // previously disabled while waiting for a fix, which is precisely
+          // the state a device with location switched off is stuck in forever.
           style={({ pressed }) => [styles.locateButton, pressed && styles.locateButtonPressed]}
           onPress={handleCenterOnMyLocation}
           accessibilityRole="button"
           accessibilityLabel={
-            isLocationGranted ? 'Center map on my location' : 'Enable location access'
+            isLocationGranted
+              ? selfPosition
+                ? 'Center map on my location'
+                : 'Waiting for your location'
+              : 'Enable location access'
           }
         >
           {/* Waiting for a fix dims the *icon*, not the button. The button's

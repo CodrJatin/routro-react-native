@@ -395,7 +395,17 @@ class LocationChannelManager {
     });
   }
 
-  async setBroadcasting(enabled: boolean): Promise<BroadcastResult> {
+  /**
+   * @param options.prompt Whether this attempt is allowed to open the system
+   * permission dialog. True for a user tapping the toggle -- they asked, so
+   * asking back is the whole point. False for anything the app decides on its
+   * own; see `resumeForForeground`.
+   */
+  async setBroadcasting(
+    enabled: boolean,
+    options: { prompt?: boolean } = {},
+  ): Promise<BroadcastResult> {
+    const canPrompt = options.prompt ?? true;
     const myBroadcastGeneration = ++this.broadcastGeneration;
 
     // Stopping is handled before any connectivity check, and cannot fail.
@@ -435,14 +445,27 @@ class LocationChannelManager {
       `[broadcast] starting appState=${String(AppState.currentState)} channelState=${this.ownChannel.state}`,
     );
 
-    const { status } = await Location.requestForegroundPermissionsAsync();
+    // Only a tap may open the system dialog. Android revokes a one-time
+    // ("Only this time") grant as soon as the app leaves the foreground, so a
+    // resume that asks would put a permission dialog in front of the user on
+    // every return to the app -- one they never tapped for, and one that
+    // reappears immediately after they dismiss it, since dismissing it is
+    // itself a foreground event. Android also denies the permission
+    // permanently after the second refusal, so those unasked-for prompts spend
+    // a decision the user never chose to make. Checking silently instead ends
+    // sharing with an explanation they can act on when they want to.
+    const { status } = canPrompt
+      ? await Location.requestForegroundPermissionsAsync()
+      : await Location.getForegroundPermissionsAsync();
     if (myBroadcastGeneration !== this.broadcastGeneration) {
       return this.superseded('permission');
     }
     if (status !== 'granted') {
       return this.refuse(
         'permission-denied',
-        'Location permission is needed to share your location.',
+        canPrompt
+          ? 'Location permission is needed to share your location.'
+          : 'Location access was withdrawn while you were away, so sharing stopped. Turn sharing back on to allow it again.',
       );
     }
     // The permission dialog itself backgrounds the app, so wait for it to
@@ -462,6 +485,15 @@ class LocationChannelManager {
     // this, broadcasting "started" happily and then never produced a single
     // fix, leaving the button lit while nothing was shared.
     if (!(await this.hasLocationServices())) {
+      // Same rule as the permission dialog above: only a tap may open one.
+      // A resume that asked would put Play's "turn on location?" dialog in
+      // front of the user every time they returned to the app.
+      if (!canPrompt) {
+        return this.refuse(
+          'services-disabled-silent',
+          'Location is turned off on this device, so sharing stopped. Switch it on and turn sharing back on.',
+        );
+      }
       // Android can offer to switch location on right here, without sending
       // the user off to Settings -- so ask, rather than telling them to go do
       // it themselves and come back.
@@ -593,6 +625,12 @@ class LocationChannelManager {
         accuracy: Location.Accuracy.Balanced,
         distanceInterval: BROADCAST_DISTANCE_METERS,
         timeInterval: BROADCAST_INTERVAL_MS,
+        // Off: `setBroadcasting` has already checked location services and, if
+        // they were off, offered to switch them on at the moment the user
+        // asked to share. Leaving expo's default on meant this could open a
+        // second "turn on location?" dialog by itself -- including from the
+        // silent resume path, where the user tapped nothing at all.
+        mayShowUserSettingsDialog: false,
       },
       (position) => {
         // This watcher is the app's live position while it's the one running,
@@ -880,7 +918,10 @@ class LocationChannelManager {
     this.wasBroadcastingBeforeBackground = false;
     if (!this.ownChannel) return;
     if (wasBroadcasting) {
-      const result = await this.setBroadcasting(true);
+      // Silently: nobody tapped anything to get here. If the grant is gone,
+      // sharing stops and says why, rather than the app demanding permission
+      // back every time it is opened.
+      const result = await this.setBroadcasting(true, { prompt: false });
       // Sharing was on when the user left and isn't now -- GPS switched off
       // while the app was away being the usual cause. Coming back to a dark
       // button with no explanation is precisely the failure the interrupted

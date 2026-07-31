@@ -94,13 +94,18 @@ let watchGate: Promise<void> | null = null;
 /** Lets a test simulate the side effects of the system permission dialog
  * (which takes focus and backgrounds the app) while the request is pending. */
 let permissionRequestHook: (() => void) | null = null;
+/** How many times the system permission dialog has been asked for -- i.e. how
+ * many times the user was shown one. */
+let permissionRequests = 0;
 
 vi.mock('expo-location', () => ({
   Accuracy: { Balanced: 3 },
   requestForegroundPermissionsAsync: async () => {
+    permissionRequests += 1;
     permissionRequestHook?.();
     return { status: permissionStatus };
   },
+  getForegroundPermissionsAsync: async () => ({ status: permissionStatus }),
   hasServicesEnabledAsync: async () => servicesEnabled,
   enableNetworkProviderAsync: async () => {
     enableProviderCalls += 1;
@@ -187,6 +192,7 @@ describe('locationChannelManager', () => {
     permissionStatus = 'granted';
     watchGate = null;
     permissionRequestHook = null;
+    permissionRequests = 0;
     servicesEnabled = true;
     enableProviderCalls = 0;
     enableProviderHook = null;
@@ -299,6 +305,41 @@ describe('locationChannelManager', () => {
     // and every reason to assume they are still sharing.
     expect(interruptions).toHaveLength(1);
     expect(interruptions[0]).toContain('Location is turned off');
+    // Told, not asked. Offering Play's "turn on location?" dialog here put a
+    // system prompt in front of the user on a return to the app they made for
+    // some entirely unrelated reason.
+    expect(enableProviderCalls).toBe(0);
+  });
+
+  it('never opens the permission dialog when resuming on foreground', async () => {
+    const interruptions: string[] = [];
+    locationChannelManager.setHandlers({
+      onBroadcastingChange() {},
+      onFriendLocation() {},
+      onFriendPresence() {},
+      onFriendRemoved() {},
+      onConnectionChange() {},
+      onBroadcastInterrupted: (reason) => interruptions.push(reason),
+    });
+
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+    await locationChannelManager.setBroadcasting(true);
+    expect(permissionRequests).toBe(1);
+
+    await locationChannelManager.pauseForBackground();
+    // Exactly what Android does to a one-time ("Only this time") grant the
+    // moment the app leaves the foreground.
+    permissionStatus = 'denied';
+    await locationChannelManager.resumeForForeground();
+
+    // Asking here put a dialog the user never tapped for in front of them on
+    // every return to the app -- and dismissing it is itself a foreground
+    // event, so it came straight back.
+    expect(permissionRequests).toBe(1);
+    expect(watchers.filter((w) => !w.removed)).toHaveLength(0);
+    expect(interruptions).toHaveLength(1);
+    expect(interruptions[0]).toContain('Location access was withdrawn');
   });
 
   it('refuses to start broadcasting if the app never returns to the foreground', async () => {

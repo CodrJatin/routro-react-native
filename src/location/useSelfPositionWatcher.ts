@@ -27,6 +27,25 @@ const LOCATION_DISTANCE_METERS = 0;
 const RETRY_DELAY_MS = 5000;
 
 /**
+ * Off, and the single most important option here.
+ *
+ * expo-location defaults this to true, which means that on Android, with
+ * device location switched off, `watchPositionAsync` opens Google Play's "turn
+ * on location?" dialog on its own -- and rejects when the user declines. This
+ * watcher starts by itself whenever the map is on screen and retries on
+ * failure, so that combination put a system dialog in front of anyone who
+ * opened the Map tab with location off, and put it back every
+ * `RETRY_DELAY_MS`, forever, no matter how many times they said no.
+ *
+ * Nothing about a pin drawing itself justifies interrupting the user. With
+ * this off the watcher installs quietly and simply never receives a fix, which
+ * is the same state a tunnel produces and is already handled. Asking to switch
+ * location on belongs to the things the user actually asked for -- the locate
+ * button and the sharing toggle -- and only at the moment they ask.
+ */
+const MAY_SHOW_USER_SETTINGS_DIALOG = false;
+
+/**
  * Keeps `useSelfPositionStore` current from a GPS watcher of this screen's
  * own, for as long as `enabled` stays true.
  *
@@ -64,6 +83,7 @@ export function useSelfPositionWatcher(enabled: boolean): void {
             accuracy: Location.Accuracy.Balanced,
             timeInterval: LOCATION_INTERVAL_MS,
             distanceInterval: LOCATION_DISTANCE_METERS,
+            mayShowUserSettingsDialog: MAY_SHOW_USER_SETTINGS_DIALOG,
           },
           (position) => {
             useSelfPositionStore
