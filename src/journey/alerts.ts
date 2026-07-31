@@ -8,6 +8,17 @@ export type JourneyAlertKind =
   | 'approaching-destination'
   | 'arrived';
 
+/**
+ * How close counts as being *at* a station rather than still heading for it.
+ *
+ * `getRouteProgress` reports the nearest station on the route, and "nearest"
+ * flips to the next one at the midpoint of the hop -- so it marks you as being
+ * at a station while the train is still half a hop short of it. Alerts phrased
+ * as "the next stop" have to tell those two apart, or they fire a station and
+ * a half early and the sentence is simply untrue when it arrives.
+ */
+export const AT_STATION_METERS = 300;
+
 export interface JourneyAlert {
   kind: JourneyAlertKind;
   /**
@@ -21,6 +32,17 @@ export interface JourneyAlert {
   body: string;
   /** The line this is about, for tinting. */
   color?: string;
+  /**
+   * The key of an earlier alert that already said everything this one would.
+   *
+   * "Arrived at Hauz Khas" lands about 25 seconds after "Get off at the next
+   * stop", and tells someone already standing at the doors nothing they don't
+   * know. Two buzzes half a minute apart is how an app gets muted, so the
+   * caller drops this one when that key has already fired -- and keeps it when
+   * it hasn't, which is the case where the user got no warning at all (no fix
+   * until late, or they started the journey mid-ride).
+   */
+  redundantAfter?: string;
 }
 
 /**
@@ -41,56 +63,59 @@ export function journeyAlertFor(
 ): JourneyAlert | null {
   if (!progress) return null;
 
-  const { sequence, nearestIndex: current } = progress;
+  const { sequence, nearestIndex: current, distanceMeters } = progress;
   const lastIndex = sequence.length - 1;
 
+  // The whole timing model, in one line. Being *nearest* to a station means
+  // the one before it is behind you; being *at* it means you have arrived.
+  // "The next stop" is only a true statement in the first case.
+  const isAtStation = distanceMeters <= AT_STATION_METERS;
+
   if (current === lastIndex) {
+    const approachingKey = `approaching-destination:${lastIndex}`;
+    if (!isAtStation) {
+      return {
+        kind: 'approaching-destination',
+        key: approachingKey,
+        title: 'Get off at the next stop',
+        body: `${sequence[lastIndex].stationName} is next.`,
+        color: lineColor(route, sequence[lastIndex].legIndex),
+      };
+    }
     return {
       kind: 'arrived',
-      key: `arrived:${current}`,
-      title: `Arrived at ${sequence[current].stationName}`,
+      key: `arrived:${lastIndex}`,
+      title: `Arrived at ${sequence[lastIndex].stationName}`,
       body: 'Journey complete.',
-      color: lineColor(route, sequence[current].legIndex),
+      color: lineColor(route, sequence[lastIndex].legIndex),
+      redundantAfter: approachingKey,
     };
   }
 
   const interchange = nextInterchangeIndex(sequence, current);
+  if (interchange !== current) return null;
 
-  if (interchange === current) {
-    const toLegIndex = sequence[current].legIndex + 1;
-    return {
-      kind: 'interchange-now',
-      key: `interchange-now:${current}`,
-      title: `Change at ${sequence[current].stationName}`,
-      body: `Take the ${lineName(route, toLegIndex)} from here.`,
-      color: lineColor(route, toLegIndex),
-    };
-  }
+  const toLegIndex = sequence[current].legIndex + 1;
+  const approachingKey = `approaching-interchange:${current}`;
 
-  // Destination before interchange: if both are one stop away, the interchange
-  // is the destination's own station and "get off" is the more useful sentence.
-  if (current === lastIndex - 1) {
-    return {
-      kind: 'approaching-destination',
-      key: `approaching-destination:${current}`,
-      title: 'Get off at the next stop',
-      body: `${sequence[lastIndex].stationName} is next.`,
-      color: lineColor(route, sequence[current].legIndex),
-    };
-  }
-
-  if (interchange === current + 1) {
-    const toLegIndex = sequence[interchange].legIndex + 1;
+  if (!isAtStation) {
     return {
       kind: 'approaching-interchange',
-      key: `approaching-interchange:${interchange}`,
+      key: approachingKey,
       title: 'Change at the next stop',
-      body: `Change at ${sequence[interchange].stationName} for the ${lineName(route, toLegIndex)}.`,
+      body: `Change at ${sequence[current].stationName} for the ${lineName(route, toLegIndex)}.`,
       color: lineColor(route, toLegIndex),
     };
   }
 
-  return null;
+  return {
+    kind: 'interchange-now',
+    key: `interchange-now:${current}`,
+    title: `Change at ${sequence[current].stationName}`,
+    body: `Take the ${lineName(route, toLegIndex)} from here.`,
+    color: lineColor(route, toLegIndex),
+    redundantAfter: approachingKey,
+  };
 }
 
 /**

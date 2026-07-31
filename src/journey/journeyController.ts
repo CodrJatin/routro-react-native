@@ -314,10 +314,12 @@ async function maybeAlert(progress: RouteProgress | null): Promise<void> {
   const alert = journeyAlertFor(route, progress);
   if (!alert || firedAlertKeys.has(alert.key)) return;
 
-  // Latched even when the user has this kind switched off, so turning it back
-  // on mid-journey doesn't immediately fire an alert about a station they
-  // passed ten minutes ago.
+  // Latched even when the alert won't be shown, so turning a preference back
+  // on mid-journey doesn't immediately fire an alert about a station passed
+  // ten minutes ago -- and so a superseded alert can't fire later either.
   firedAlertKeys.add(alert.key);
+
+  if (alert.redundantAfter && firedAlertKeys.has(alert.redundantAfter)) return;
   if (!isAlertKindEnabled(alert.kind)) return;
 
   await presentAlert(alert);
