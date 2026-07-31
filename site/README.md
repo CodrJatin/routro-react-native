@@ -1,13 +1,15 @@
 # Invite site
 
 The static half of the add-a-friend-by-link flow. Nothing here is built or
-bundled with the app — it is published on its own and referenced by URL.
+bundled with the app — it is deployed on its own and referenced by URL.
+
+**Live at `https://metro-sync.vercel.app`** (Vercel project with Root Directory
+set to `site`, framework preset "Other", no build command).
 
 | File | Purpose |
 | --- | --- |
 | `ms/index.html` | The page an invite link opens. Reads `?u=<public_uid>` and offers "Open in MetroSync". |
 | `.well-known/assetlinks.json` | Proves to Android that this domain and the app belong together, so verified links skip the page and open the app directly. |
-| `.nojekyll` | GitHub Pages runs Jekyll by default, and Jekyll drops every path starting with a dot — including `.well-known`. Without this the asset links 404. |
 
 ## The domain-root constraint
 
@@ -15,30 +17,13 @@ Android only ever looks for asset links at **`https://<host>/.well-known/assetli
 the root of the domain, never a subpath. `https://example.com/project/.well-known/…`
 is not consulted and App Links will silently stay unverified.
 
-Any host that gives you the domain root works: Vercel, Netlify, Cloudflare
-Pages, S3, or your own domain. It rules out a GitHub Pages *project* site
-(`codrjatin.github.io/metrosync-react-native/…`), which can't write to the
-domain root — that route needs a *user* site instead, a repo named exactly
-`CodrJatin.github.io`.
+That is why this is its own Vercel project rooted at `site/` rather than a page
+inside the app repo's site. Any host giving you the domain root works the same
+way — Netlify, Cloudflare Pages, S3, or a custom domain.
 
-## Publishing to Vercel
-
-Deploy this folder as its own project:
-
-1. New project → import this repo → set **Root Directory** to `site`.
-2. Framework preset **Other**, no build command. The files ship as-is.
-3. Deploy, then confirm both URLs load on the *production* domain:
-   - `https://<project>.vercel.app/ms/?u=a944aac2`
-   - `https://<project>.vercel.app/.well-known/assetlinks.json` (must come back
-     as `application/json`, not HTML)
-
-Two things to watch:
-
-- **Use the production domain, never a preview URL.** Every preview deployment
-  gets its own hostname, and App Links only verify the exact host compiled into
-  the manifest.
-- `.nojekyll` is inert here — it exists for the GitHub Pages route, where Jekyll
-  would otherwise drop `.well-known` entirely. Harmless to leave in place.
+**Use the production domain, never a preview URL.** Every Vercel preview
+deployment gets its own hostname, and App Links only verify the exact host
+compiled into the manifest.
 
 **No `vercel.json` is needed.** Vercel serves `.well-known/assetlinks.json` with
 the right content type on its own, `/ms/` resolves to `index.html` by default,
@@ -71,18 +56,18 @@ Wherever you publish, two values have to agree:
 The second is native config, so it needs a rebuild to take effect. The first
 takes effect on the next JS bundle.
 
-## Filling in the fingerprint
+## The fingerprint
 
-`assetlinks.json` ships with a `REPLACE_WITH_SHA256_FINGERPRINT` placeholder.
-Get the real value from the credentials EAS signs release builds with:
+`assetlinks.json` carries the SHA-256 of the key EAS signs release builds with.
+If it ever needs re-reading:
 
 ```bash
 npx eas credentials -p android
 ```
 
 Pick the `production` profile and copy the value shown as **SHA256 Fingerprint**
-(uppercase hex, colon-separated). Paste it into the array in place of the
-placeholder.
+(uppercase hex, colon-separated, 32 pairs). `keytool -printcert -jarfile <apk>`
+reports the same thing from an already-built APK.
 
 ### When the fingerprint changes
 

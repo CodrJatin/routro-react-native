@@ -32,7 +32,7 @@
           "data": [
             {
               "scheme": "https",
-              "host": "codrjatin.github.io",
+              "host": "metro-sync.vercel.app",
               "pathPrefix": "/ms"
             }
           ],
