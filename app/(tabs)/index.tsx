@@ -25,6 +25,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import tracksGeoJSON from '../../assets/data/tracks.json';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { findRoute, getStation } from '../../src/engine/graph';
@@ -44,7 +45,11 @@ import { StationLabels } from '../../src/map/StationLabels';
 import { buildStationSubsetGeoJSON, buildStationsGeoJSON } from '../../src/map/stationsGeoJSON';
 import { StationDetailCard } from '../../src/map/StationDetailCard';
 import { UserLocationPin } from '../../src/map/UserLocationPin';
-import { JourneyBar } from '../../src/journey/JourneyBar';
+import {
+  JOURNEY_BAR_HEIGHT,
+  JourneyBar,
+  MAP_OVERLAY_TOP_GAP,
+} from '../../src/journey/JourneyBar';
 import { useIsJourneyActive } from '../../src/journey/journeyStore';
 import { useSelfPositionStore } from '../../src/location/selfPosition';
 import { useSeedSelfPosition } from '../../src/location/useSeedSelfPosition';
@@ -94,8 +99,9 @@ const STATION_CIRCLE_STROKE_WIDTH: CirclePaint['circle-stroke-width'] = [
 ];
 
 export default function MapScreen() {
-  const { colors, mode } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, mode, radius } = useTheme();
+  const styles = useMemo(() => createStyles(colors, radius), [colors, radius]);
+  const insets = useSafeAreaInsets();
 
   // Hydration is gated on too: until the stored preference has been read,
   // `isEnabled` is its default `false`, and rendering the basemap only to swap
@@ -527,7 +533,17 @@ export default function MapScreen() {
           from "nobody is sharing right now" -- the map just quietly empties. */}
       {isConfigured && session && connectionState === 'error' && (
         <View
-          style={[styles.connectionBanner, isJourneyActive && styles.connectionBannerLowered]}
+          style={[
+            styles.connectionBanner,
+            {
+              // Below the journey bar when there is one, in the top slot when
+              // there isn't -- and clear of the notch either way.
+              top:
+                insets.top +
+                MAP_OVERLAY_TOP_GAP +
+                (isJourneyActive ? JOURNEY_BAR_HEIGHT + 8 : 0),
+            },
+          ]}
           pointerEvents="none"
         >
           <Ionicons name="cloud-offline-outline" size={14} color={colors.onSurfaceVariant} />
@@ -544,7 +560,10 @@ export default function MapScreen() {
           {isBroadcasting && <BroadcastPing color={colors.success} />}
           <Pressable
             disabled={isPendingBroadcast}
-            style={({ pressed }) => [styles.locateButton, pressed && { opacity: 0.7 }]}
+            // Pressed state is a fill change, not `opacity`: dimming the whole
+            // view lets the elevation shadow show through it, which is the
+            // polygon the opaque background above exists to hide.
+            style={({ pressed }) => [styles.locateButton, pressed && styles.locateButtonPressed]}
             onPress={handleToggleBroadcast}
           >
             <Animated.View
@@ -572,21 +591,21 @@ export default function MapScreen() {
           // Only inert while we *have* permission but no fix has arrived yet.
           // Without permission it stays tappable -- that tap is what asks.
           disabled={isLocationGranted && !selfPosition}
-          style={({ pressed }) => [
-            styles.locateButton,
-            pressed && { opacity: 0.7 },
-            isLocationGranted && !selfPosition && { opacity: 0.5 },
-          ]}
+          style={({ pressed }) => [styles.locateButton, pressed && styles.locateButtonPressed]}
           onPress={handleCenterOnMyLocation}
           accessibilityRole="button"
           accessibilityLabel={
             isLocationGranted ? 'Center map on my location' : 'Enable location access'
           }
         >
+          {/* Waiting for a fix dims the *icon*, not the button. The button's
+              own opacity has to stay at 1 or the elevation shadow shows
+              through it as a polygon. */}
           <Ionicons
             name={isLocationGranted ? 'locate' : 'locate-outline'}
             size={22}
             color={colors.textPrimary}
+            style={isLocationGranted && !selfPosition && styles.iconWaiting}
           />
         </Pressable>
       </View>
@@ -661,18 +680,8 @@ function sameBounds(a: LabelViewport['bounds'], b: LabelViewport['bounds']): boo
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
 }
 
-/** Theme colours are opaque hex; this is the only place that wants one of
- * them see-through, so it converts rather than adding a second token that
- * would have to be kept in step with the first. */
-function withAlpha(hex: string, alpha: number): string {
-  const value = hex.replace('#', '');
-  const r = parseInt(value.slice(0, 2), 16);
-  const g = parseInt(value.slice(2, 4), 16);
-  const b = parseInt(value.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
 
-function createStyles(colors: ColorTokens) {
+function createStyles(colors: ColorTokens, radius: { none: number; badge: number }) {
   return StyleSheet.create({
     container: {
       flex: 1,
@@ -708,11 +717,16 @@ function createStyles(colors: ColorTokens) {
       height: 48,
       borderRadius: 24,
       overflow: 'hidden',
-      // Translucent so the map reads as continuing underneath the controls
-      // rather than being punched out by them. Shared by the locate and
-      // broadcast buttons -- they sit in the same column and any difference
-      // between the two reads as a mistake.
-      backgroundColor: withAlpha(colors.surfaceElevated, 0.72),
+      // Opaque, and it has to stay that way. Android draws the `elevation`
+      // shadow below as a solid shape stamped from the view's outline, and it
+      // approximates that rounded rect with straight segments -- so at the
+      // 0.72 alpha this used to have, the shadow showed *through* the button
+      // as a hard-edged polygon sitting inside it. Any alpha below 1 brings it
+      // back; the only other cure is dropping the elevation.
+      //
+      // Shared by the locate and broadcast buttons -- they sit in the same
+      // column and any difference between the two reads as a mistake.
+      backgroundColor: colors.surfaceElevated,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: 'center',
@@ -723,26 +737,28 @@ function createStyles(colors: ColorTokens) {
       shadowOffset: { width: 0, height: 2 },
       elevation: 4,
     },
+    locateButtonPressed: {
+      backgroundColor: colors.surfaceContainerHighest,
+    },
+    iconWaiting: {
+      opacity: 0.5,
+    },
+    // Squared off and aligned with the journey bar above it. `top` is set at
+    // the call site, which is where the safe-area inset is known.
     connectionBanner: {
       position: 'absolute',
-      top: 12,
-      left: 16,
-      right: 16,
+      left: 12,
+      right: 12,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
       paddingVertical: 8,
       paddingHorizontal: 12,
-      borderRadius: 8,
-      backgroundColor: colors.surfaceElevated,
+      borderRadius: radius.none,
+      backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
       zIndex: 3,
-    },
-    // Out from under the journey bar, which takes the top slot when a journey
-    // is being followed.
-    connectionBannerLowered: {
-      top: 60,
     },
     connectionBannerText: {
       flex: 1,
