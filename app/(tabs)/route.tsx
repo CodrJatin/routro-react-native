@@ -6,6 +6,8 @@ import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanim
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { findRoute, getCompiledGraph, getStation } from '../../src/engine/graph';
 import { isJourneyServiceAvailable } from '../../modules/journey-service';
+import { useIsJourneyActive } from '../../src/journey/journeyStore';
+import { LiveJourneySection } from '../../src/journey/LiveJourneySection';
 import { StartJourneyButton } from '../../src/journey/StartJourneyButton';
 import { useSelfPositionStore } from '../../src/location/selfPosition';
 import { useSeedSelfPosition } from '../../src/location/useSeedSelfPosition';
@@ -89,6 +91,9 @@ export default function RouteScreen() {
   const removeSavedJourney = useSavedJourneysStore((state) => state.remove);
   const toggleSavedJourney = useSavedJourneysStore((state) => state.toggle);
   const isCurrentSaved = useIsJourneySaved(origin?.id, destination?.id);
+  // A live journey card fills the slot the empty state would have taken --
+  // "choose an origin and destination" is poor advice while one is running.
+  const isJourneyActive = useIsJourneyActive();
 
   useEffect(() => {
     hydrateSavedJourneys();
@@ -113,6 +118,18 @@ export default function RouteScreen() {
   function handleToggleSave() {
     if (!origin || !destination) return;
     toggleSavedJourney(origin, destination);
+  }
+
+  function handleOpenLive(
+    liveOrigin: CompiledStation,
+    liveDestination: CompiledStation,
+    liveMode: RouteMode,
+  ) {
+    setOrigin(liveOrigin);
+    setDestination(liveDestination);
+    // The mode too, or the itinerary that comes back could be a different path
+    // from the one actually being followed in the background.
+    setMode(liveMode);
   }
 
   function handleOpenSaved(journey: SavedJourney) {
@@ -228,6 +245,16 @@ export default function RouteScreen() {
               <Text style={styles.notice}>No route could be found between these stations.</Text>
             ) : null}
 
+            {/* Above the saved journeys: a journey already running outranks
+                one you might run later, and this is the only way back to it
+                once the inputs that started it have been cleared. */}
+            <LiveJourneySection
+              lines={lines}
+              onOpen={(liveOrigin, liveDestination, session) =>
+                handleOpenLive(liveOrigin, liveDestination, session.mode)
+              }
+            />
+
             {savedJourneys.length > 0 ? (
               <SavedJourneysSection
                 journeys={savedJourneys}
@@ -235,7 +262,7 @@ export default function RouteScreen() {
                 onOpen={handleOpenSaved}
                 onRemove={removeSavedJourney}
               />
-            ) : (
+            ) : isJourneyActive ? null : (
               <Animated.View
                 style={styles.emptyState}
                 entering={FadeIn.duration(180)}
