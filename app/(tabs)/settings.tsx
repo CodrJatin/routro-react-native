@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { Avatar } from '../../src/components/Avatar';
 import { SegmentedToggle } from '../../src/components/SegmentedToggle';
+import { JourneySimulatorPanel } from '../../src/dev/JourneySimulatorPanel';
 import { NotificationSettings } from '../../src/journey/NotificationSettings';
 import { MapSettings } from '../../src/map/MapSettings';
 import { useTheme, type ThemePreference } from '../../src/theme/ThemeProvider';
@@ -269,6 +270,15 @@ export default function SettingsScreen() {
             </Pressable>
           </View>
         </View>
+
+        {/* Below even App Info: nobody ships with this, and in a dev build it
+            is still the least important thing on the screen. */}
+        {__DEV__ && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Journey Simulator</Text>
+            <JourneySimulatorPanel />
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );

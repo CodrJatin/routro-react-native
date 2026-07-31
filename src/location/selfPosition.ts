@@ -27,11 +27,21 @@ export const SELF_POSITION_STALE_AFTER_MS = 30_000;
 
 interface SelfPositionState {
   position: SelfPosition | null;
+  /** True while a fake journey is driving this store. Dev builds only -- see
+   * `journeySimulator`. Real fixes are ignored rather than blended in: a
+   * simulated user teleporting back to the sofa every few seconds would be
+   * useless for testing, and this makes the override total and obvious. */
+  isSimulated: boolean;
   /** A fix from the live GPS watcher. Always wins: it's now. */
   setLive: (lat: number, lon: number) => void;
   /** A fix from the OS's last-known cache, which may be minutes or hours
    * old -- so it only fills a gap, never overwrites something fresher. */
   seed: (lat: number, lon: number, at: number) => void;
+  /** A fake fix. Takes the store over until `endSimulation`. */
+  setSimulated: (lat: number, lon: number) => void;
+  /** Hands the store back to the real watchers. The last fake position is
+   * left in place -- the next real fix will replace it. */
+  endSimulation: () => void;
 }
 
 /** Folds a new reading into the position already held, carrying the old one
@@ -89,12 +99,22 @@ function advance(
  */
 export const useSelfPositionStore = create<SelfPositionState>((set, get) => ({
   position: null,
+  isSimulated: false,
 
-  setLive: (lat, lon) => set({ position: advance(get().position, lat, lon, Date.now()) }),
+  setLive: (lat, lon) => {
+    if (get().isSimulated) return;
+    set({ position: advance(get().position, lat, lon, Date.now()) });
+  },
 
   seed: (lat, lon, at) => {
     const current = get().position;
+    if (get().isSimulated) return;
     if (current && current.at >= at) return;
     set({ position: advance(current, lat, lon, at) });
   },
+
+  setSimulated: (lat, lon) =>
+    set({ position: advance(get().position, lat, lon, Date.now()), isSimulated: true }),
+
+  endSimulation: () => set({ isSimulated: false }),
 }));

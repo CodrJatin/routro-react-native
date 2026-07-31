@@ -207,6 +207,23 @@ export async function stopJourney(): Promise<void> {
 }
 
 /**
+ * Repaints from whatever is in the position store right now.
+ *
+ * Exists for the journey simulator, which moves the user by writing to that
+ * store directly and so arrives with no fix callback of its own. Without it the
+ * only trigger left is the 5s service tick, and a simulation running at 60x
+ * would cross several stations between two ticks -- skipping the alerts that
+ * fire at them, which is usually the thing being tested.
+ *
+ * Not a code path a real journey ever takes: a real fix already brings its own
+ * refresh. It runs the same `refresh` either way, so nothing here is a
+ * simulation-only branch.
+ */
+export async function refreshJourneyNow(): Promise<void> {
+  await refresh();
+}
+
+/**
  * Reconciles persisted state at launch, and keeps the controller listening for
  * a journey ended from outside JS.
  *
