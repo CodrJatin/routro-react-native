@@ -18,15 +18,25 @@ const ACTION_HEIGHT = 44;
  * for. That constraint turns out to suit the feature -- a notification that
  * outlives the app and keeps sharing your position is not something to switch
  * on quietly on the user's behalf.
+ *
+ * Sized to fill its parent's action row, since it sits beside the save button
+ * in `RouteSummaryCard` rather than standing alone.
  */
 export function StartJourneyButton({
   originId,
   destinationId,
   mode,
+  onStarted,
 }: {
   originId: StationId;
   destinationId: StationId;
   mode: RouteMode;
+  /** Run after a journey actually starts. The route screen sends the user to
+   * the map with it -- starting a journey and then wanting to watch it is the
+   * same intent, and making that two taps was the old "Go to Map" button's
+   * only remaining job. Deliberately not called on stop: ending a journey is
+   * not a request to go anywhere. */
+  onStarted?: () => void;
 }) {
   const { colors, radius, typography } = useTheme();
   const styles = useMemo(
@@ -49,7 +59,11 @@ export function StartJourneyButton({
     setIsBusy(true);
     const result = await startJourney(originId, destinationId, mode);
     setIsBusy(false);
-    if (!result.ok) Alert.alert("Couldn't start the journey", result.reason);
+    if (!result.ok) {
+      Alert.alert("Couldn't start the journey", result.reason);
+      return;
+    }
+    onStarted?.();
   }
 
   function handleStart() {
@@ -61,7 +75,7 @@ export function StartJourneyButton({
     // at it, which is exactly the kind of change that should be stated plainly
     // before it happens rather than discovered from a notification later.
     Alert.alert(
-      'Follow this journey?',
+      'Start this journey?',
       'MetroSync will show a notification with your progress and tell you when to get off — ' +
         'including while the app is closed and your phone is locked.\n\n' +
         'If you are sharing your location, friends will keep seeing you move for the whole ' +
@@ -88,19 +102,22 @@ export function StartJourneyButton({
 
   if (isTrackingThis) {
     return (
-      <Pressable
-        style={({ pressed }) => [styles.stopButton, pressed && styles.pressed]}
-        onPress={handleStop}
-        disabled={isBusy}
-        accessibilityRole="button"
-      >
-        {isBusy ? (
-          <ActivityIndicator size="small" color={colors.danger} />
-        ) : (
-          <Ionicons name="stop-circle-outline" size={18} color={colors.danger} />
-        )}
-        <Text style={styles.stopText}>Stop following</Text>
-      </Pressable>
+      <View style={styles.group}>
+        <Pressable
+          style={({ pressed }) => [styles.stopButton, pressed && styles.pressed]}
+          onPress={handleStop}
+          disabled={isBusy}
+          accessibilityRole="button"
+          accessibilityLabel="Stop following this journey"
+        >
+          {isBusy ? (
+            <ActivityIndicator size="small" color={colors.textPrimary} />
+          ) : (
+            <Ionicons name="stop-circle-outline" size={18} color={colors.textPrimary} />
+          )}
+          <Text style={styles.stopText}>Stop</Text>
+        </Pressable>
+      </View>
     );
   }
 
@@ -117,7 +134,7 @@ export function StartJourneyButton({
         ) : (
           <Ionicons name="navigate" size={16} color={colors.onPrimary} />
         )}
-        <Text style={styles.startText}>Follow this journey</Text>
+        <Text style={styles.startText}>Start journey</Text>
       </Pressable>
       {isTrackingOther && (
         <Text style={styles.hint}>
@@ -134,7 +151,9 @@ function createStyles(
   typography: Record<string, TypeStyle>,
 ) {
   return StyleSheet.create({
+    // Takes the row's free width so the save button beside it stays square.
     group: {
+      flex: 1,
       gap: 8,
     },
     startButton: {
@@ -152,6 +171,10 @@ function createStyles(
       fontWeight: '700',
       color: colors.onPrimary,
     },
+    // Outlined and neutral rather than red. Stopping a journey you started is
+    // ordinary, reversible housekeeping -- the destructive styling belongs to
+    // Sign Out, and spending it here would leave nothing louder for anything
+    // that actually warrants it.
     stopButton: {
       height: ACTION_HEIGHT,
       flexDirection: 'row',
@@ -160,14 +183,14 @@ function createStyles(
       gap: 8,
       borderRadius: radiusNone,
       borderWidth: 1,
-      borderColor: colors.danger,
+      borderColor: colors.outline,
       backgroundColor: colors.surface,
     },
     stopText: {
       ...typography.bodyMd,
       fontSize: 14,
       fontWeight: '700',
-      color: colors.danger,
+      color: colors.textPrimary,
     },
     pressed: {
       opacity: 0.75,

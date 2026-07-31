@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { findRoute, getCompiledGraph, getStation } from '../../src/engine/graph';
+import { isJourneyServiceAvailable } from '../../modules/journey-service';
 import { StartJourneyButton } from '../../src/journey/StartJourneyButton';
 import { useSelfPositionStore } from '../../src/location/selfPosition';
 import { useSeedSelfPosition } from '../../src/location/useSeedSelfPosition';
@@ -78,6 +79,11 @@ export default function RouteScreen() {
 
   const lines = useMemo(() => getCompiledGraph().lines, []);
 
+  // The rail joining the two fields goes live once both ends are chosen --
+  // the planner holds a journey at that point, and the card says so before the
+  // result below it has finished animating in.
+  const railColor = origin && destination ? colors.accent : colors.outlineVariant;
+
   const savedJourneys = useSavedJourneysStore((state) => state.journeys);
   const hydrateSavedJourneys = useSavedJourneysStore((state) => state.hydrate);
   const removeSavedJourney = useSavedJourneysStore((state) => state.remove);
@@ -127,31 +133,48 @@ export default function RouteScreen() {
       >
         <Text style={styles.title}>Plan Your Route</Text>
 
-        <View style={styles.inputsCard}>
-          <StationAutocompleteInput
-            label="From"
-            placeholder="Origin station"
-            selectedStation={origin}
-            onSelect={setOrigin}
-            onClear={() => setOrigin(null)}
-          />
+        {/* One card, one rail: the two fields are the ends of a journey rather
+            than two unrelated text boxes, and the swap button is a square
+            attached to the side of them -- the same wide-block-plus-square
+            pairing the summary card's actions use. */}
+        <View style={styles.plannerCard}>
+          <View style={styles.plannerFields}>
+            <StationAutocompleteInput
+              label="From"
+              placeholder="Origin station"
+              selectedStation={origin}
+              onSelect={setOrigin}
+              onClear={() => setOrigin(null)}
+              marker="origin"
+              lineColor={railColor}
+            />
+            {/* Starts clear of the rail, so the divider separates the two
+                fields without cutting the line running between them. */}
+            <View style={styles.fieldDivider} />
+            <StationAutocompleteInput
+              label="To"
+              placeholder="Destination station"
+              selectedStation={destination}
+              onSelect={setDestination}
+              onClear={() => setDestination(null)}
+              marker="destination"
+              lineColor={railColor}
+            />
+          </View>
           <Pressable
-            style={styles.swapButton}
+            style={({ pressed }) => [styles.swapButton, pressed && styles.swapButtonPressed]}
             onPress={handleSwap}
             disabled={!origin && !destination}
+            accessibilityRole="button"
+            accessibilityLabel="Swap origin and destination"
           >
-            <Ionicons name="swap-vertical" size={18} color={colors.accent} />
+            <Ionicons
+              name="swap-vertical"
+              size={18}
+              color={origin || destination ? colors.textPrimary : colors.textSecondary}
+            />
           </Pressable>
-          <StationAutocompleteInput
-            label="To"
-            placeholder="Destination station"
-            selectedStation={destination}
-            onSelect={setDestination}
-            onClear={() => setDestination(null)}
-          />
         </View>
-
-        <View style={styles.divider} />
 
         {route ? (
           <Animated.View
@@ -166,16 +189,26 @@ export default function RouteScreen() {
               route={route}
               lines={lines}
               onGoToMap={handleGoToMap}
+              // The journey button is the card's primary action rather than a
+              // separate bar below it: starting a journey is what this screen
+              // is for, and it also does what Go to Map used to.
+              // Availability is checked here as well as inside the button:
+              // the button renders nothing where journeys aren't supported,
+              // and an element that renders nothing still counts as an action,
+              // which would leave the row holding only the save button.
+              action={
+                origin && destination && isJourneyServiceAvailable ? (
+                  <StartJourneyButton
+                    originId={origin.id}
+                    destinationId={destination.id}
+                    mode={mode}
+                    onStarted={handleGoToMap}
+                  />
+                ) : undefined
+              }
               isSaved={isCurrentSaved}
               onToggleSave={handleToggleSave}
             />
-            {origin && destination && (
-              <StartJourneyButton
-                originId={origin.id}
-                destinationId={destination.id}
-                mode={mode}
-              />
-            )}
             <ItineraryList route={route} lines={lines} clock={clock} progress={progress} />
           </Animated.View>
         ) : (
@@ -248,31 +281,40 @@ function createStyles(colors: ColorTokens, radiusNone: number, typography: Recor
       fontSize: 26,
       color: colors.textPrimary,
     },
-    inputsCard: {
-      gap: 8,
-    },
-    swapButton: {
-      alignSelf: 'center',
-      width: 32,
-      height: 32,
+    plannerCard: {
+      flexDirection: 'row',
+      backgroundColor: colors.surfaceContainerLow,
       borderRadius: radiusNone,
-      backgroundColor: colors.surface,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: colors.outline,
+      // Deliberately no `overflow: hidden`, unlike the cards below: the
+      // autocomplete dropdown has to escape this card to sit over the results.
+      paddingLeft: 6,
+    },
+    plannerFields: {
+      flex: 1,
+      minWidth: 0,
+    },
+    // Clear of the rail column and of the swap button's own edge, so it reads
+    // as a break between two fields rather than as a line across the card.
+    fieldDivider: {
+      height: 1,
+      marginLeft: 28,
+      backgroundColor: colors.outlineVariant,
+    },
+    // Full height rather than a floating circle between the fields: the old
+    // button owned a whole row of vertical space to hold one 18px icon, and
+    // this way the tap target gets bigger while the section gets shorter.
+    swapButton: {
+      width: 46,
+      alignSelf: 'stretch',
       alignItems: 'center',
       justifyContent: 'center',
-      // The "To" field's label sits between this button and the To input
-      // box, but the "From" field's label sits above the From box instead --
-      // without this offset the button reads as centered on the whole label
-      // stack rather than on the two input boxes. Shifting down by half the
-      // label's rendered height (14 line-height + 6 marginBottom, see
-      // StationAutocompleteInput's `label` style) re-centers it on the boxes
-      // themselves, independent of the actual input height.
-      marginTop: 10,
+      borderLeftWidth: 1,
+      borderLeftColor: colors.outlineVariant,
     },
-    divider: {
-      height: 1,
-      backgroundColor: colors.border,
+    swapButtonPressed: {
+      backgroundColor: colors.surfaceContainerHigh,
     },
     resultGroup: {
       gap: 16,

@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { RawLines, RouteResult } from '../engine/types';
 import { useTheme } from '../theme/ThemeProvider';
@@ -11,12 +11,19 @@ export function RouteSummaryCard({
   route,
   lines,
   onGoToMap,
+  action,
   isSaved,
   onToggleSave,
 }: {
   route: RouteResult;
   lines: RawLines;
   onGoToMap: () => void;
+  /** The card's primary action, filling the row beside the save button. The
+   * route screen puts "Start journey" here, which subsumes what Go to Map did:
+   * it takes you to the map as well as starting the journey. Omitted where
+   * journeys aren't available at all (iOS), and the card falls back to Go to
+   * Map so the row is never just a lone save button. */
+  action?: ReactNode;
   isSaved: boolean;
   onToggleSave: () => void;
 }) {
@@ -58,13 +65,15 @@ export function RouteSummaryCard({
       </Text>
 
       <View style={styles.actionRow}>
-        <Pressable
-          style={({ pressed }) => [styles.goToMapButton, pressed && styles.pressed]}
-          onPress={onGoToMap}
-        >
-          <Ionicons name="map" size={16} color={colors.onPrimary} />
-          <Text style={styles.goToMapText}>Go to Map</Text>
-        </Pressable>
+        {action ?? (
+          <Pressable
+            style={({ pressed }) => [styles.goToMapButton, pressed && styles.pressed]}
+            onPress={onGoToMap}
+          >
+            <Ionicons name="map" size={16} color={colors.onPrimary} />
+            <Text style={styles.goToMapText}>Go to Map</Text>
+          </Pressable>
+        )}
         <Pressable
           style={({ pressed }) => [styles.saveButton, isSaved && styles.saveButtonActive, pressed && styles.pressed]}
           onPress={onToggleSave}
@@ -163,6 +172,10 @@ function createStyles(colors: ColorTokens, radiusNone: number, typography: Recor
     },
     actionRow: {
       flexDirection: 'row',
+      // Top-aligned rather than stretched: the action can grow a line of hint
+      // text under itself, and the save button should stay square beside the
+      // button rather than following that height.
+      alignItems: 'flex-start',
       gap: 8,
     },
     // Fixed height (rather than vertical padding) so the square save button

@@ -21,6 +21,30 @@ import { legStopOffsets } from './stationOnRoute';
 const RAIL_WIDTH = 22;
 const LINE_THICKNESS = 3;
 
+/** How far the card's contents sit from its border. */
+const CARD_PADDING = 22;
+
+/**
+ * Gap between the rail column and the text beside it.
+ *
+ * Tighter than `CARD_PADDING`: the rail and the station name are one thing
+ * read together -- the line says where the name sits in the journey -- and
+ * spacing them as widely as the card is spaced from its own border made them
+ * read as two columns that happen to be adjacent.
+ */
+const RAIL_GAP = 8;
+
+/**
+ * Left inset on the card, chosen so the *centre of the line* lands
+ * `CARD_PADDING` from the border rather than the edge of the rail column.
+ *
+ * The rail is a fixed-width column with the line centred in it, so padding it
+ * like ordinary content would inset the column and push the line another half
+ * a column further in. Centring on the same measurement the times use on the
+ * right is what makes the two sides look equal.
+ */
+const RAIL_INSET = CARD_PADDING - RAIL_WIDTH / 2;
+
 /**
  * Every row draws its own piece of the rail, and row heights land on
  * fractional pixels (text line-heights, minHeights, borders), so where two
@@ -327,6 +351,15 @@ function RideRow({
   const [expanded, setExpanded] = useState(false);
   const stopCount = row.leg.intermediateStations.length + 1;
 
+  // Where the user is, when that is one of the stops this leg runs through.
+  // Boarding and alighting stations are their own rows already, so only the
+  // in-between ones can go missing behind a collapsed list -- which is most of
+  // them, and most of a journey.
+  const currentIndex = row.leg.intermediateStations.findIndex(
+    (station) => marks.get(station.stationId) === 'current',
+  );
+  const currentStation = currentIndex === -1 ? null : row.leg.intermediateStations[currentIndex];
+
   return (
     <Animated.View layout={LinearTransition.duration(200)}>
       <View style={styles.row}>
@@ -357,6 +390,22 @@ function RideRow({
         </View>
       </View>
 
+      {/* Where you are, kept on screen while the leg is collapsed. Without it
+          the one station the user most needs -- their own -- is the one thing
+          the list hides, since it is an ordinary in-between stop on all but
+          the few hops that start or end a leg. Dropped when expanded, where
+          the full list carries the same marker in its proper place. */}
+      {!expanded && currentStation && (
+        <Animated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)}>
+          <CurrentStopRow
+            station={currentStation}
+            color={row.color}
+            styles={styles}
+            colors={colors}
+          />
+        </Animated.View>
+      )}
+
       {/* Outside the content column, so each stop gets its own row with the
           rail running through it -- the dots have to sit *on* the line, and
           the position marker has to be able to land on any one of them. */}
@@ -386,6 +435,49 @@ function RideRow({
         </Animated.View>
       )}
     </Animated.View>
+  );
+}
+
+/**
+ * "You are here", shown on a collapsed leg.
+ *
+ * Pitched between the two row weights either side of it: the same pulsing
+ * diamond and rail as an expanded in-between stop, but a readable name and a
+ * primary-coloured "Now" rather than the dimmed single line those get. It
+ * deliberately stops short of a full station row -- no line badge, no headline
+ * type -- because this is not somewhere the user has to do anything, and
+ * dressing it like an interchange would say that it is.
+ */
+function CurrentStopRow({
+  station,
+  color,
+  styles,
+  colors,
+}: {
+  station: ItineraryStep;
+  color: string;
+  styles: ReturnType<typeof createStyles>;
+  colors: ColorTokens;
+}) {
+  return (
+    <View style={styles.currentStopRow}>
+      <View style={styles.intermediateRail}>
+        <View style={[styles.railBehind, { backgroundColor: color }]} />
+        <View style={styles.markerWrap}>
+          <CurrentPulse color={colors.textPrimary} style={styles.ringIntermediate} rotate="45deg" />
+          <View
+            style={[
+              styles.currentDiamond,
+              { backgroundColor: colors.textPrimary, borderColor: colors.surfaceContainerLow },
+            ]}
+          />
+        </View>
+      </View>
+      <Text style={styles.currentStopName} numberOfLines={1}>
+        {station.stationName}
+      </Text>
+      <Text style={styles.currentStopTime}>Now</Text>
+    </View>
   );
 }
 
@@ -449,6 +541,10 @@ function createStyles(colors: ColorTokens, radius: { none: number; badge: number
       borderWidth: 1,
       borderColor: colors.outline,
       overflow: 'hidden',
+      // Left only. The right-hand inset is the content's own padding, which
+      // has to stay on the content -- a row's rail must still reach the card's
+      // top and bottom edges, and vertical padding here would break the line.
+      paddingLeft: RAIL_INSET,
     },
     row: {
       flexDirection: 'row',
@@ -506,7 +602,8 @@ function createStyles(colors: ColorTokens, radius: { none: number; badge: number
     stationContent: {
       flex: 1,
       paddingVertical: 14,
-      paddingHorizontal: 14,
+      paddingLeft: RAIL_GAP,
+      paddingRight: CARD_PADDING,
       gap: 4,
     },
     stationHeaderRow: {
@@ -545,7 +642,8 @@ function createStyles(colors: ColorTokens, radius: { none: number; badge: number
     rideContent: {
       flex: 1,
       paddingVertical: 10,
-      paddingHorizontal: 14,
+      paddingLeft: RAIL_GAP,
+      paddingRight: CARD_PADDING,
       gap: 6,
     },
     lineBadge: {
@@ -582,8 +680,31 @@ function createStyles(colors: ColorTokens, radius: { none: number; badge: number
       ...typography.dataSm,
       color: colors.textSecondary,
       flex: 1,
-      paddingLeft: 14,
+      // Same gap as the station rows above, so the two sets of names share one
+      // left edge instead of the in-between stops hanging off a second one.
+      paddingLeft: RAIL_GAP,
       paddingRight: 8,
+    },
+    // Taller than an in-between stop and shorter than a station row, matching
+    // where it sits between the two in weight.
+    currentStopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      minHeight: 40,
+    },
+    currentStopName: {
+      ...typography.bodyMd,
+      fontSize: 15,
+      fontWeight: '600',
+      color: colors.textPrimary,
+      flex: 1,
+      paddingLeft: RAIL_GAP,
+      paddingRight: 8,
+    },
+    currentStopTime: {
+      ...typography.dataSm,
+      color: colors.textPrimary,
+      paddingRight: CARD_PADDING,
     },
     /** Quieter than the station rows' clock: these are stops the train runs
      * through, and they shouldn't compete with the boards and changes that
@@ -591,7 +712,7 @@ function createStyles(colors: ColorTokens, radius: { none: number; badge: number
     intermediateTime: {
       ...typography.dataSm,
       color: colors.textSecondary,
-      paddingRight: 14,
+      paddingRight: CARD_PADDING,
     },
     // No padding on the group: any space here is space the rail doesn't run
     // through, which shows up as a break in the line before the next station.
