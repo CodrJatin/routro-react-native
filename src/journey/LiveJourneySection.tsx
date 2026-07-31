@@ -16,7 +16,7 @@ import type { CompiledStation, RawLines } from '../engine/types';
 import { useSelfPositionStore } from '../location/selfPosition';
 import { buildRouteStationSequence, getRouteProgress } from '../route/routeProgress';
 import { useTheme } from '../theme/ThemeProvider';
-import { colorsFor, type ColorTokens, type TypeStyle } from '../theme/tokens';
+import type { ColorTokens, TypeStyle } from '../theme/tokens';
 import { useJourneyStore, type JourneySession } from './journeyStore';
 
 /** Height of the tick a station gets in the meter, and the taller one the
@@ -35,11 +35,11 @@ const CURRENT_TICK_HEIGHT = 26;
  * where the screen already shows what you might want to open next -- and puts
  * the live one back into the fields with one tap.
  *
- * Deliberately shares nothing with `SavedJourneyCard`. A saved journey is a
- * quiet outlined row in a list of equals; this is one solid slab -- the
- * blackest block on a dark screen, the palest on a light one -- because it is a
- * thing that is *happening* rather than a thing you might do later. Its two
- * live parts, the beating dot and the station meter, are the point of it.
+ * It sits on the same fill as every other card, so what marks it out is what
+ * is *in* it rather than a block of contrasting colour: the full-bleed line
+ * bar across its top edge, the departure-board number, the beating dot and the
+ * station meter. A saved journey below it is a quiet outlined row in a list of
+ * equals; this one is a thing that is happening.
  */
 export function LiveJourneySection({
   lines,
@@ -50,14 +50,10 @@ export function LiveJourneySection({
    * the planner's inputs without re-resolving the ids. */
   onOpen: (origin: CompiledStation, destination: CompiledStation, session: JourneySession) => void;
 }) {
-  const { colors, mode, radius, typography } = useTheme();
-  // The slab is painted from the *opposite* theme's palette: a near-black
-  // block sunk into the dark canvas, a pale one raised off the light. Every
-  // colour that sits on it therefore comes from `slab`, not from `colors`.
-  const slab = useMemo(() => colorsFor(mode === 'dark' ? 'light' : 'dark'), [mode]);
+  const { colors, radius, typography } = useTheme();
   const styles = useMemo(
-    () => createStyles(colors, slab, radius, typography),
-    [colors, slab, radius, typography],
+    () => createStyles(colors, radius, typography),
+    [colors, radius, typography],
   );
 
   const session = useJourneyStore((state) => state.session);
@@ -139,7 +135,7 @@ export function LiveJourneySection({
               key={index}
               style={{
                 flex: legWeights[index],
-                backgroundColor: lines[leg.line]?.color ?? slab.onPrimary,
+                backgroundColor: lines[leg.line]?.color ?? colors.textPrimary,
               }}
             />
           ))}
@@ -153,7 +149,7 @@ export function LiveJourneySection({
             </View>
             <View style={styles.openHint}>
               <Text style={styles.openHintText}>OPEN</Text>
-              <Ionicons name="arrow-forward" size={12} color={slab.onPrimary} />
+              <Ionicons name="arrow-forward" size={12} color={colors.textPrimary} />
             </View>
           </View>
 
@@ -178,7 +174,7 @@ export function LiveJourneySection({
                 </>
               ) : remaining === 0 ? (
                 <>
-                  <Ionicons name="flag" size={30} color={slab.onPrimary} />
+                  <Ionicons name="flag" size={30} color={colors.textPrimary} />
                   <Text style={styles.counterLabel}>ARRIVED</Text>
                 </>
               ) : (
@@ -222,7 +218,6 @@ export function LiveJourneySection({
 
 function createStyles(
   colors: ColorTokens,
-  slab: ColorTokens,
   radius: { none: number; badge: number },
   typography: Record<string, TypeStyle>,
 ) {
@@ -233,11 +228,10 @@ function createStyles(
       // the caps header is the visual language of the *lists* below.
       gap: 0,
     },
-    // Pushed away from the canvas rather than lifted off it: in dark mode this
-    // is the blackest thing on screen, in light mode the palest. The hairline
-    // is what keeps its edges findable at either extreme.
+    // The same fill and hairline as every other card on the screen. What sets
+    // this one apart is its contents, not its colour.
     slab: {
-      backgroundColor: slab.accent,
+      backgroundColor: colors.surface,
       borderRadius: radius.none,
       borderWidth: 1,
       borderColor: colors.outlineVariant,
@@ -277,7 +271,7 @@ function createStyles(
     liveLabel: {
       ...typography.labelCaps,
       fontSize: 11,
-      color: slab.onPrimary,
+      color: colors.textPrimary,
     },
     openHint: {
       flexDirection: 'row',
@@ -288,7 +282,7 @@ function createStyles(
     openHintText: {
       ...typography.labelCaps,
       fontSize: 10,
-      color: slab.onPrimary,
+      color: colors.textPrimary,
     },
     headlineRow: {
       flexDirection: 'row',
@@ -303,19 +297,19 @@ function createStyles(
     kicker: {
       ...typography.labelCaps,
       fontSize: 10,
-      color: slab.onPrimary,
+      color: colors.textPrimary,
       opacity: 0.6,
     },
     destination: {
       ...typography.headlineLg,
       fontSize: 24,
       lineHeight: 27,
-      color: slab.onPrimary,
+      color: colors.textPrimary,
     },
     origin: {
       ...typography.bodyMd,
       fontSize: 12,
-      color: slab.onPrimary,
+      color: colors.textPrimary,
       opacity: 0.7,
     },
     // The number is the one thing readable from arm's length on a moving
@@ -329,19 +323,19 @@ function createStyles(
       ...typography.headlineLg,
       fontSize: 40,
       lineHeight: 42,
-      color: slab.onPrimary,
+      color: colors.textPrimary,
     },
     counterDash: {
       ...typography.headlineLg,
       fontSize: 34,
       lineHeight: 42,
-      color: slab.onPrimary,
+      color: colors.textPrimary,
       opacity: 0.5,
     },
     counterLabel: {
       ...typography.labelCaps,
       fontSize: 9,
-      color: slab.onPrimary,
+      color: colors.textPrimary,
       opacity: 0.7,
       marginTop: 2,
     },
@@ -356,7 +350,7 @@ function createStyles(
     tick: {
       flex: 1,
       borderRadius: radius.none,
-      backgroundColor: slab.onPrimary,
+      backgroundColor: colors.textPrimary,
     },
     tickPassed: {
       height: TICK_HEIGHT,

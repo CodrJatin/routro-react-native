@@ -104,9 +104,13 @@ const darkBase = {
 } satisfies Omit<ColorTokens, keyof LegacyAliasKeys>;
 
 const lightBase = {
-  surface: '#fdf8f8',
+  // Off-white rather than the near-#fff this used to be. `surface` is the fill
+  // of every card, sheet and settings row in the app, so it is most of what a
+  // light screen actually is -- at #fdf8f8 that was a page-sized white, and no
+  // canvas dim enough to sit under it comfortably was also light.
+  surface: '#f8f4f3',
   surfaceDim: '#ddd9d8',
-  surfaceBright: '#fdf8f8',
+  surfaceBright: '#f8f4f3',
   surfaceContainerLowest: '#ffffff',
   surfaceContainerLow: '#f7f3f2',
   surfaceContainer: '#f1edec',
@@ -163,10 +167,15 @@ function withLegacyAliases(base: typeof darkBase, mode: ThemeMode): ColorTokens 
     accent: base.primary,
     danger: base.error,
     // Dark mode's background is already the deepest tone (containers step up
-    // from it), so it doubles as the canvas. Light mode's background is
-    // nearly white and identical to `surface`, which flattened every card
-    // into the page -- surfaceContainerLow gives the canvas a visible dip.
-    canvas: mode === 'dark' ? base.background : base.surfaceContainerLow,
+    // from it), so it doubles as the canvas.
+    //
+    // Light mode's own surfaces are all near-white, and a page painted in any
+    // of them glares. This warm grey is pitched to sit *between* the two
+    // things it has to separate: a step below every card fill, and a step
+    // above the live journey slab, so cards read as raised and the slab as
+    // sunk without either gap being a slap. Deliberately its own value rather
+    // than a surface token -- nothing but the page should be this tone.
+    canvas: mode === 'dark' ? base.background : '#e7e3e2',
   };
 }
 

@@ -244,7 +244,9 @@ function createStyles(
     badgeText: {
       ...typography.labelCaps,
       fontSize: 9,
-      color: colors.canvas,
+      // Paired with the `textPrimary` fill behind it. Not `canvas`, which in
+      // light mode is now a mid-grey rather than the palest tone available.
+      color: colors.inverseOnSurface,
     },
     headerText: {
       ...typography.bodyMd,
