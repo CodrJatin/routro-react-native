@@ -101,9 +101,18 @@ export default function MapScreen() {
   // `isEnabled` is its default `false`, and rendering the basemap only to swap
   // it out a frame later would reload the whole style for nothing.
   const isBasemapEnabled = useBasemapStore((state) => state.isEnabled && state.isHydrated);
+  const arePlaceLabelsEnabled = useBasemapStore(
+    (state) => state.arePlaceLabelsEnabled && state.isHydrated,
+  );
   const mapStyle = useMemo(
-    () => getMapStyle({ basemapEnabled: isBasemapEnabled, mode, backgroundColor: colors.canvas }),
-    [isBasemapEnabled, mode, colors.canvas],
+    () =>
+      getMapStyle({
+        basemapEnabled: isBasemapEnabled,
+        placeLabelsEnabled: arePlaceLabelsEnabled,
+        mode,
+        backgroundColor: colors.canvas,
+      }),
+    [isBasemapEnabled, arePlaceLabelsEnabled, mode, colors.canvas],
   );
   const cameraRef = useRef<CameraRef>(null);
   const [selectedStation, setSelectedStation] = useState<CompiledStation | null>(null);

@@ -18,7 +18,7 @@ import { useAuth } from '../../src/auth/AuthProvider';
 import { Avatar } from '../../src/components/Avatar';
 import { SegmentedToggle } from '../../src/components/SegmentedToggle';
 import { NotificationSettings } from '../../src/journey/NotificationSettings';
-import { useBasemapStore } from '../../src/map/basemapStore';
+import { MapSettings } from '../../src/map/MapSettings';
 import { useTheme, type ThemePreference } from '../../src/theme/ThemeProvider';
 import { useSharedStyles } from '../../src/theme/sharedStyles';
 import type { ColorTokens } from '../../src/theme/tokens';
@@ -30,13 +30,6 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: keyof typeof
   { value: 'system', label: 'System', icon: 'phone-portrait-outline' },
 ];
 
-type BasemapOption = 'simple' | 'real';
-
-const BASEMAP_OPTIONS: { value: BasemapOption; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { value: 'simple', label: 'Simple', icon: 'git-network-outline' },
-  { value: 'real', label: 'Real map', icon: 'earth-outline' },
-];
-
 const GITHUB_URL = 'https://github.com/codrjatin/metrosync-react-native';
 
 export default function SettingsScreen() {
@@ -45,9 +38,6 @@ export default function SettingsScreen() {
   const shared = useSharedStyles();
   const styles = useMemo(() => createStyles(colors, radius.none, shared), [colors, radius, shared]);
   const avatarFocus = useFocusAnimation();
-
-  const isBasemapEnabled = useBasemapStore((state) => state.isEnabled);
-  const setBasemapEnabled = useBasemapStore((state) => state.setEnabled);
 
   const [isEditing, setIsEditing] = useState(false);
   const [nameInput, setNameInput] = useState('');
@@ -201,6 +191,44 @@ export default function SettingsScreen() {
                 </View>
               </Animated.View>
             )}
+
+            {/* Hidden while editing: Cancel and Save are the actions in that
+                state, and a third destructive button beside them is one misread
+                tap away from throwing the edit out with the session. */}
+            {!isEditing && (
+              <Animated.View
+                style={styles.signOutSlot}
+                entering={FadeIn.duration(180)}
+                exiting={FadeOut.duration(140)}
+              >
+                <Pressable
+                  style={({ pressed }) => [styles.signOutButton, pressed && styles.signOutButtonPressed]}
+                  onPress={handleSignOut}
+                  disabled={isSigningOut}
+                >
+                  {/* Children as a function: the icon and label are tinted
+                   * per-press too, so the outline button inverts as a whole
+                   * rather than just swapping its background out from under a
+                   * red label. */}
+                  {({ pressed }) => (
+                    <>
+                      {isSigningOut ? (
+                        <ActivityIndicator color={colors.danger} size="small" />
+                      ) : (
+                        <Ionicons
+                          name="log-out-outline"
+                          size={18}
+                          color={pressed ? colors.onError : colors.danger}
+                        />
+                      )}
+                      <Text style={[styles.signOutText, pressed && styles.signOutTextPressed]}>
+                        {isSigningOut ? 'Signing Out' : 'Sign Out'}
+                      </Text>
+                    </>
+                  )}
+                </Pressable>
+              </Animated.View>
+            )}
           </Animated.View>
         )}
 
@@ -214,16 +242,7 @@ export default function SettingsScreen() {
 
           <View style={styles.subSection}>
             <Text style={styles.subSectionLabel}>Map</Text>
-            <SegmentedToggle
-              options={BASEMAP_OPTIONS}
-              value={isBasemapEnabled ? 'real' : 'simple'}
-              onChange={(value) => setBasemapEnabled(value === 'real')}
-            />
-            <Text style={styles.sectionHint}>
-              {isBasemapEnabled
-                ? 'Streets and place names load over the internet. Metro lines and routing keep working offline.'
-                : 'Metro lines only, on a plain background. Works with no internet connection.'}
-            </Text>
+            <MapSettings />
           </View>
         </View>
 
@@ -232,36 +251,8 @@ export default function SettingsScreen() {
           <NotificationSettings />
         </View>
 
-        {isConfigured && profile && (
-          <Pressable
-            style={({ pressed }) => [styles.signOutButton, pressed && styles.signOutButtonPressed]}
-            onPress={handleSignOut}
-            disabled={isSigningOut}
-          >
-            {/* Children as a function: the icon and label are tinted per-press
-             * too, so the outline button inverts as a whole rather than just
-             * swapping its background out from under a red label. */}
-            {({ pressed }) => (
-              <>
-                {isSigningOut ? (
-                  <ActivityIndicator color={colors.danger} size="small" />
-                ) : (
-                  <Ionicons
-                    name="log-out-outline"
-                    size={18}
-                    color={pressed ? colors.onError : colors.danger}
-                  />
-                )}
-                <Text style={[styles.signOutText, pressed && styles.signOutTextPressed]}>
-                  {isSigningOut ? 'Signing Out' : 'Sign Out'}
-                </Text>
-              </>
-            )}
-          </Pressable>
-        )}
-
-        {/* Last, and below Sign Out: version and source link are reference
-            material, not something anyone came to this screen to change. */}
+        {/* Last: version and source link are reference material, not something
+            anyone came to this screen to change. */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>App Info</Text>
           <View style={styles.infoCard}>
@@ -431,11 +422,6 @@ function createStyles(colors: ColorTokens, radiusNone: number, shared: ReturnTyp
       fontSize: 13,
       fontWeight: '600',
     },
-    sectionHint: {
-      color: colors.textSecondary,
-      fontSize: 12,
-      lineHeight: 17,
-    },
     infoCard: {
       backgroundColor: colors.surface,
       borderWidth: 1,
@@ -464,6 +450,13 @@ function createStyles(colors: ColorTokens, radiusNone: number, shared: ReturnTyp
     rowValue: {
       color: colors.textSecondary,
       fontSize: 14,
+    },
+    // Inside the profile card now, so it has to stretch to the card's width
+    // rather than shrink to its own content. The top margin separates it from
+    // the ID row above without widening the card's own padding.
+    signOutSlot: {
+      alignSelf: 'stretch',
+      marginTop: 16,
     },
     signOutButton: {
       flexDirection: 'row',
