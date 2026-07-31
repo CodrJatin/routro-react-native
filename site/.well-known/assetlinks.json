@@ -4,7 +4,7 @@
     "target": {
       "namespace": "android_app",
       "package_name": "com.metrosync.app",
-      "sha256_cert_fingerprints": ["REPLACE_WITH_SHA256_FINGERPRINT"]
+      "sha256_cert_fingerprints": ["4C:57:EB:0C:6E:44:AA:7D:E1:FE:0D:AC:B2:E1:B9:7B:1D:FA:37:E0:30:FC:66:42:1D:E5:B2:69:40:90:FC:34"]
     }
   }
 ]

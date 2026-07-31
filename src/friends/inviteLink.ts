@@ -26,7 +26,7 @@
  *
  * Trailing slash included so a static host resolves it to index.html.
  */
-export const INVITE_BASE_URL = 'https://codrjatin.github.io/ms/';
+export const INVITE_BASE_URL = 'https://metro-sync.vercel.app/ms/';
 
 /** Route segment the invite lands on inside the app. Must stay in step with
  * the file at app/invite/[uid].tsx, which is what expo-router matches on. */
