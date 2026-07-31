@@ -20,6 +20,7 @@ import { PlaceholderScreen } from '../../src/components/PlaceholderScreen';
 import { getCompiledGraph } from '../../src/engine/graph';
 import type { RawLines } from '../../src/engine/types';
 import { useFriendshipsContext } from '../../src/friends/FriendshipsProvider';
+import { InviteSheet } from '../../src/friends/InviteSheet';
 import { inferCurrentLine } from '../../src/friends/currentLine';
 import { estimateFriendEta } from '../../src/friends/friendEta';
 import { findNearestStation, type NearestStation } from '../../src/friends/nearestStation';
@@ -57,6 +58,7 @@ export default function FriendsScreen() {
 }
 
 function FriendsContent({ selfUserId }: { selfUserId: string }) {
+  const { profile } = useAuth();
   const { colors, radius, typography } = useTheme();
   const shared = useSharedStyles();
   const styles = useMemo(
@@ -77,6 +79,7 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
   const [sendError, setSendError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [isInviteOpen, setIsInviteOpen] = useState(false);
   const handleFocus = useFocusAnimation();
   const router = useRouter();
 
@@ -220,6 +223,21 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
         {actionError && <Text style={styles.errorText}>{actionError}</Text>}
         {listError && <Text style={styles.errorText}>{listError}</Text>}
 
+        {/* The other direction: rather than needing their handle, hand them
+            yours as a link or a code and let them come to you. Gated on the
+            profile because the invite is built from its public_uid, which
+            arrives a moment after the session does. */}
+        {profile && (
+          <Pressable
+            style={({ pressed }) => [styles.inviteButton, pressed && styles.inviteButtonPressed]}
+            onPress={() => setIsInviteOpen(true)}
+            accessibilityRole="button"
+          >
+            <Ionicons name="qr-code-outline" size={16} color={colors.textPrimary} />
+            <Text style={styles.inviteButtonText}>Invite by link or QR</Text>
+          </Pressable>
+        )}
+
         {isEmpty && (
           <Animated.View
             style={styles.emptyState}
@@ -230,7 +248,8 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
             <Ionicons name="people-outline" size={28} color={colors.textSecondary} />
             <Text style={styles.emptyTitle}>No friends yet</Text>
             <Text style={styles.emptyNote}>
-              Add someone by their email or ID above to start sharing live locations.
+              Add someone by their email or ID above, or send them your invite link, to start
+              sharing live locations.
             </Text>
           </Animated.View>
         )}
@@ -309,6 +328,15 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
           </Section>
         )}
       </ScrollView>
+
+      {profile && (
+        <InviteSheet
+          visible={isInviteOpen}
+          onClose={() => setIsInviteOpen(false)}
+          publicUid={profile.public_uid}
+          displayName={profile.display_name}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -677,6 +705,24 @@ function createStyles(
       color: colors.danger,
       fontSize: 13,
       marginTop: -12,
+    },
+    inviteButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      marginTop: -12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radiusNone,
+      paddingVertical: 13,
+    },
+    inviteButtonPressed: {
+      opacity: 0.7,
+    },
+    inviteButtonText: {
+      ...typography.labelCaps,
+      color: colors.textPrimary,
     },
     emptyState: {
       alignItems: 'center',

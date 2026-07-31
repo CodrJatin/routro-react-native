@@ -27,6 +27,68 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // of a UUID, always lowercase -- so a valid ID is exactly 8 hex chars.
 const PUBLIC_UID_PATTERN = /^[0-9a-f]{8}$/;
 
+/** The three fields find_user_by_handle is allowed to expose about a stranger
+ * -- enough to send a request and to show who it's going to, nothing more. */
+export interface HandleTarget {
+  id: string;
+  display_name: string | null;
+  public_uid: string;
+}
+
+/** Resolves an email or 8-char public ID to that minimal profile.
+ *
+ * Standalone rather than a method on the hook because the invite-link screen
+ * lives outside the tab group, and so outside FriendshipsProvider -- it needs
+ * the same lookup without a friendship list behind it. */
+export async function lookupUserByHandle(
+  handle: string,
+): Promise<{ target: HandleTarget | null; error: string | null }> {
+  // Lowercased before anything else: emails and public_uids are both stored
+  // lowercase in the DB and the RPC does an exact (non-fuzzy) match, so a
+  // single capital letter -- the mobile keyboard's default for the first
+  // character -- used to make a real match look like "no user found".
+  const normalized = handle.trim().toLowerCase();
+  if (!normalized) return { target: null, error: 'Enter an email or ID.' };
+
+  const looksLikeEmail = normalized.includes('@');
+  const isValid = looksLikeEmail ? EMAIL_PATTERN.test(normalized) : PUBLIC_UID_PATTERN.test(normalized);
+  if (!isValid) {
+    return {
+      target: null,
+      error: looksLikeEmail
+        ? 'Enter a valid email address.'
+        : 'Enter a valid 8-character ID (letters a-f and numbers 0-9).',
+    };
+  }
+
+  const { data, error } = await supabase.rpc('find_user_by_handle', { handle: normalized });
+  if (error) return { target: null, error: error.message };
+
+  const target = (data as HandleTarget[] | null)?.[0] ?? null;
+  if (!target) return { target: null, error: 'No user found with that email or ID.' };
+  return { target, error: null };
+}
+
+/** Inserts the pending row. Split from the lookup so the invite screen can name
+ * who it is about to add and wait for a tap, rather than committing a request
+ * as a side effect of opening a link. */
+export async function createFriendRequest(
+  selfUserId: string,
+  targetUserId: string,
+): Promise<MutationResult> {
+  if (targetUserId === selfUserId) return { error: "You can't add yourself." };
+
+  const { error } = await supabase
+    .from('friendships')
+    .insert({ requester_id: selfUserId, addressee_id: targetUserId });
+  if (error) {
+    return {
+      error: error.code === '23505' ? 'A friendship or request already exists.' : error.message,
+    };
+  }
+  return { error: null };
+}
+
 export function useFriendships(selfUserId: string | undefined) {
   const [rows, setRows] = useState<FriendshipRow[]>([]);
   /** True only for the very first load. Kept separate from `isRefreshing` so
@@ -118,41 +180,11 @@ export function useFriendships(selfUserId: string | undefined) {
   async function sendRequest(handle: string): Promise<MutationResult> {
     if (!selfUserId) return { error: 'Not signed in.' };
 
-    // Lowercased before anything else: emails and public_uids are both
-    // stored lowercase in the DB and the RPC does an exact (non-fuzzy)
-    // match, so a single capital letter -- the mobile keyboard's default
-    // for the first character -- used to make a real match look like "no
-    // user found".
-    const normalized = handle.trim().toLowerCase();
-    if (!normalized) return { error: 'Enter an email or ID.' };
+    const { target, error: lookupError } = await lookupUserByHandle(handle);
+    if (!target) return { error: lookupError ?? 'No user found with that email or ID.' };
 
-    const looksLikeEmail = normalized.includes('@');
-    const isValid = looksLikeEmail ? EMAIL_PATTERN.test(normalized) : PUBLIC_UID_PATTERN.test(normalized);
-    if (!isValid) {
-      return {
-        error: looksLikeEmail
-          ? 'Enter a valid email address.'
-          : 'Enter a valid 8-character ID (letters a-f and numbers 0-9).',
-      };
-    }
-
-    const { data: found, error: lookupError } = await supabase.rpc('find_user_by_handle', {
-      handle: normalized,
-    });
-    if (lookupError) return { error: lookupError.message };
-
-    const target = (found as { id: string }[] | null)?.[0];
-    if (!target) return { error: 'No user found with that email or ID.' };
-    if (target.id === selfUserId) return { error: "You can't add yourself." };
-
-    const { error: insertError } = await supabase
-      .from('friendships')
-      .insert({ requester_id: selfUserId, addressee_id: target.id });
-    if (insertError) {
-      const message =
-        insertError.code === '23505' ? 'A friendship or request already exists.' : insertError.message;
-      return { error: message };
-    }
+    const result = await createFriendRequest(selfUserId, target.id);
+    if (result.error) return result;
 
     await refetch();
     return { error: null };

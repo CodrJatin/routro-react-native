@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>MetroSync invite</title>
+    <meta name="description" content="Someone wants to share their live metro location with you on MetroSync." />
+    <meta name="color-scheme" content="light dark" />
+
+    <!-- Link previews in WhatsApp/Telegram, which is where these get pasted. -->
+    <meta property="og:title" content="MetroSync invite" />
+    <meta property="og:description" content="Share live metro locations with friends on the Delhi Metro." />
+    <meta property="og:type" content="website" />
+
+    <style>
+      /* Mirrors src/theme/tokens.ts: square corners, monochrome, monospace for
+         data and small caps labels. Kept as plain CSS variables rather than
+         imported -- this folder is deployed on its own, without the app. */
+      :root {
+        --canvas: #e7e3e2;
+        --surface: #f7f3f2;
+        --border: #c4c7c7;
+        --text-primary: #1c1b1b;
+        --text-secondary: #444748;
+        --accent: #000000;
+        --on-accent: #ffffff;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --canvas: #141313;
+          --surface: #1c1b1b;
+          --border: #444748;
+          --text-primary: #e5e2e1;
+          --text-secondary: #c4c7c7;
+          --accent: #c8c6c5;
+          --on-accent: #313030;
+        }
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--canvas);
+        color: var(--text-primary);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      main {
+        width: 100%;
+        max-width: 380px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        padding: 32px 24px;
+        text-align: center;
+      }
+
+      /* Inlined from assets/logo/mark.svg, which is the same geometry the app
+         icons are rendered from. It strokes with currentColor, so it inverts
+         with the theme without a second copy. */
+      .mark {
+        width: 42px;
+        height: 42px;
+        color: var(--text-primary);
+        margin-bottom: 16px;
+      }
+
+      .eyebrow {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        color: var(--text-secondary);
+        margin: 0 0 18px;
+      }
+
+      h1 {
+        font-size: 23px;
+        line-height: 1.25;
+        font-weight: 600;
+        margin: 0 0 10px;
+      }
+
+      p {
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--text-secondary);
+        margin: 0 0 20px;
+      }
+
+      .uid {
+        display: inline-block;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 13px;
+        color: var(--text-secondary);
+        border: 1px solid var(--border);
+        padding: 7px 11px;
+        margin-bottom: 22px;
+        user-select: all;
+      }
+
+      a.button {
+        display: block;
+        padding: 16px;
+        font-size: 15px;
+        font-weight: 700;
+        text-decoration: none;
+        background: var(--accent);
+        color: var(--on-accent);
+        margin-bottom: 10px;
+      }
+
+      a.button.secondary {
+        background: transparent;
+        color: var(--text-primary);
+        border: 1px solid var(--border);
+        font-weight: 600;
+      }
+
+      a.button:active { opacity: 0.85; }
+
+      .footnote {
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--text-secondary);
+        margin: 16px 0 0;
+      }
+
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+
+  <body>
+    <main>
+      <svg class="mark" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <g stroke="currentColor" stroke-width="6" stroke-linejoin="miter">
+          <path d="M12 8.76V55.24" />
+          <path d="M52 8.76V55.24" />
+          <path d="M12.88 10.88L26 24" />
+          <path d="M51.12 10.88L38 24" />
+          <path d="M32 18L44 30L32 42L20 30Z" />
+        </g>
+      </svg>
+
+      <p class="eyebrow">METROSYNC INVITE</p>
+
+      <div id="invite" hidden>
+        <h1>Someone wants to add you on MetroSync</h1>
+        <p>
+          Open the invite in the app to send them a friend request. They still have to
+          accept it before either of you can see the other on the map.
+        </p>
+        <span class="uid" id="uid"></span>
+        <a class="button" id="open" href="#">Open in MetroSync</a>
+        <a class="button secondary" id="install" href="#">Get the app</a>
+        <p class="footnote" id="install-note">
+          Already signed in on another device? You can add the ID above by hand from the
+          Friends tab.
+        </p>
+      </div>
+
+      <div id="missing" hidden>
+        <h1>Invite link incomplete</h1>
+        <p>
+          This link is missing its invite code — it was probably cut short when it was
+          copied. Ask for a fresh one, or add the sender by their ID from the Friends tab.
+        </p>
+        <a class="button secondary" id="install-fallback" href="#">Get the app</a>
+      </div>
+    </main>
+
+    <script>
+      // Kept in step by hand with src/friends/inviteLink.ts in the app repo:
+      // INVITE_QUERY_KEY, the metrosync:// scheme, and the /invite/<uid> route.
+      var QUERY_KEY = 'u';
+      var APP_SCHEME = 'metrosync://invite/';
+      var REPO = 'CodrJatin/metrosync-react-native';
+      var RELEASES_URL = 'https://github.com/' + REPO + '/releases/latest';
+      var LATEST_API = 'https://api.github.com/repos/' + REPO + '/releases/latest';
+
+      // Same shape the app validates against: public_uid is the first 8 hex
+      // characters of a UUID, always lowercase. Anything else is a truncated or
+      // mangled link, and building a deep link out of it would just fail later
+      // inside the app with a worse error.
+      var UID_PATTERN = /^[0-9a-f]{8}$/;
+
+      var params = new URLSearchParams(window.location.search);
+      var uid = (params.get(QUERY_KEY) || '').trim().toLowerCase();
+
+      var installLinks = [
+        document.getElementById('install'),
+        document.getElementById('install-fallback')
+      ];
+
+      // The releases page is the starting value, not a last resort: it is what
+      // shows with JavaScript disabled, on iOS (where an APK is useless), and
+      // if the API call below fails. Anything better is an upgrade applied on
+      // top of a link that already works.
+      installLinks.forEach(function (link) {
+        link.href = RELEASES_URL;
+      });
+
+      if (UID_PATTERN.test(uid)) {
+        document.getElementById('uid').textContent = 'ID ' + uid;
+        document.getElementById('open').href = APP_SCHEME + uid;
+        document.getElementById('invite').hidden = false;
+      } else {
+        document.getElementById('missing').hidden = false;
+      }
+
+      // Point straight at the APK on Android rather than dropping the user on a
+      // releases page to hunt for it.
+      //
+      // Resolved through the API instead of GitHub's stable
+      // /releases/latest/download/<name> shortcut, because that shortcut needs
+      // the asset filename to be identical in every release and these are
+      // version-stamped (metrosync-1.1.0.apk). Doing it this way means the
+      // release process doesn't have to change, and a renamed asset can't
+      // silently turn the button into a 404.
+      if (/android/i.test(navigator.userAgent)) {
+        fetch(LATEST_API, { headers: { Accept: 'application/vnd.github+json' } })
+          .then(function (response) {
+            return response.ok ? response.json() : null;
+          })
+          .then(function (release) {
+            if (!release || !release.assets) return;
+
+            var apk = release.assets.filter(function (asset) {
+              return /\.apk$/i.test(asset.name);
+            })[0];
+            if (!apk) return;
+
+            installLinks.forEach(function (link) {
+              link.href = apk.browser_download_url;
+              link.textContent = 'Download the app' + (release.tag_name ? ' (' + release.tag_name + ')' : '');
+            });
+
+            document.getElementById('install-note').textContent =
+              'Android will ask you to allow installs from this source. Already signed in on another device? You can add the ID above by hand instead.';
+          })
+          .catch(function () {
+            // Rate-limited, offline, or no releases yet -- the href set above
+            // still goes somewhere sensible.
+          });
+      }
+
+      // Deliberately no auto-redirect to the app scheme on load. Where App
+      // Links are verified the app has already opened and this page is never
+      // seen; where they aren't, an automatic jump to an unhandled scheme makes
+      // Android show a "can't open" error the user didn't ask for. One tap on a
+      // button they chose is better than a bounce they didn't.
+    </script>
+  </body>
+</html>

@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { MetroTabBar } from '../../src/components/MetroTabBar';
 import { FriendshipsProvider } from '../../src/friends/FriendshipsProvider';
+import { usePendingInviteResume } from '../../src/friends/pendingInvite';
 import { initJourneyController } from '../../src/journey/journeyController';
 import { JourneyNotice } from '../../src/journey/JourneyNotice';
 import { LocationProvider } from '../../src/realtime/LocationProvider';
@@ -18,6 +19,11 @@ export default function TabsLayout() {
   useEffect(() => {
     void initJourneyController();
   }, []);
+
+  // Reopens an invite link that was tapped before signing in -- this layout is
+  // the first thing to mount behind the auth guard, so it's the earliest point
+  // where there's a session to send the request with.
+  usePendingInviteResume(!!session);
 
   return (
     <FriendshipsProvider userId={session?.user.id}>
