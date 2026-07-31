@@ -250,7 +250,14 @@ function StationRow({
             </Text>
           </View>
         )}
-        {row.kind === 'destination' && <Text style={styles.changeText}>Arrived at destination</Text>}
+        {/* Only claims arrival when the user is actually there. On a route
+            being planned -- or one still being travelled -- the last row is
+            where the journey *ends*, not somewhere they have been. */}
+        {row.kind === 'destination' && (
+          <Text style={styles.changeText}>
+            {mark === 'current' || mark === 'passed' ? 'Arrived at destination' : 'Destination'}
+          </Text>
+        )}
       </View>
     </Animated.View>
   );
