@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The outline that turns an interchange into one of this app's markers.
+
+  Drawn over a slot whose background is the line being changed to, so the mark
+  reads as a filled square with a hard edge, matching the boxed interchange and
+  the solid destination marker on the itinerary. The edge is what separates it
+  from the coloured track running underneath.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+  <path
+      android:pathData="M1.75,1.75 L22.25,1.75 L22.25,22.25 L1.75,22.25 Z"
+      android:fillColor="#00000000"
+      android:strokeColor="#FFFFFFFF"
+      android:strokeWidth="3.5" />
+</vector>

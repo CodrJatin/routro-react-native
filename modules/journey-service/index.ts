@@ -7,10 +7,37 @@ export interface JourneyProgress {
   max: number;
 }
 
+/** One leg's share of the tracker, in stations, drawn in that line's colour.
+ * Lengths must add up to `progress.max`: Android derives the bar's maximum
+ * from the segments rather than being told one. */
+export interface JourneyTrackerSegment {
+  length: number;
+  /** `#RRGGBB`. */
+  color?: string;
+}
+
+/** A marker sitting on the tracker -- an interchange, in the colour of the
+ * line being changed to. */
+export interface JourneyTrackerPoint {
+  /** Stations from the start of the journey. */
+  position: number;
+  color?: string;
+}
+
 export interface JourneyNotificationContent {
   title: string;
   body?: string;
+  /** Shown in the header line beside the app name. */
+  subText?: string;
   progress?: JourneyProgress;
+  /** Android 16's segmented tracker. Ignored below that, where `progress`
+   * still draws the ordinary bar. */
+  segments?: JourneyTrackerSegment[];
+  points?: JourneyTrackerPoint[];
+  /** Epoch ms of arrival. Turns the notification's timestamp into a live
+   * countdown the system ticks by itself -- the only part of this surface that
+   * keeps moving between our updates, which are minutes apart. */
+  countdownToMs?: number;
   /** `#RRGGBB` or `#AARRGGBB` -- the line colour, so the notification reads as
    * part of the journey rather than as a generic app notice. */
   color?: string;

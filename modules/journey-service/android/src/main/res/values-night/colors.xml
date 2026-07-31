@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <color name="journey_text_primary">#FFFFFFFF</color>
+  <color name="journey_text_secondary">#B3FFFFFF</color>
+  <color name="journey_tick_ahead">#3DFFFFFF</color>
+</resources>

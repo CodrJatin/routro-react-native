@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!--
+    Explicit colours with a values-night twin, rather than
+    ?android:attr/textColorPrimary and friends.
+
+    A custom notification layout is inflated by SystemUI but resolves theme
+    attributes against *our* package's theme, which is not the shade's. The
+    attribute quietly hands back the light-theme ink and the text comes out
+    black on a black shade. A colour resource has no such ambiguity, and
+    values-night follows the system's dark mode, which is what the shade
+    actually follows.
+  -->
+  <color name="journey_text_primary">#DE000000</color>
+  <color name="journey_text_secondary">#99000000</color>
+
+  <!--
+    The stations still ahead of you. Ink at low opacity rather than a grey, so
+    it sits correctly on whatever background the shade happens to use, and so
+    the bar reads as one material at two strengths rather than as two colours.
+  -->
+  <color name="journey_tick_ahead">#2E000000</color>
+</resources>

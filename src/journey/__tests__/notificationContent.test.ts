@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { findRoute, getCompiledGraph, getStation } from '../../engine/graph';
 import type { RouteResult } from '../../engine/types';
-import type { RouteClock } from '../../route/routeClock';
+import { routeClockMs, type RouteClock } from '../../route/routeClock';
 import { buildRouteStationSequence, getRouteProgress } from '../../route/routeProgress';
 import { buildJourneyNotification } from '../notificationContent';
 
@@ -38,11 +38,12 @@ function firstInterchangeIndex(): number {
 }
 
 describe('buildJourneyNotification', () => {
-  it('names the destination and its arrival time in the title', () => {
-    const content = buildJourneyNotification(route, progressAt(0), clock(true));
+  it('puts the instruction in the title, not the destination alone', () => {
+    const index = 2;
+    const content = buildJourneyNotification(route, progressAt(index), clock(true));
     const destination = getStation(route.destinationStationId);
-    expect(content.title).toContain(destination!.name);
-    expect(content.title).toMatch(/\d{2}:\d{2}/);
+    const remaining = sequence.length - 1 - index;
+    expect(content.title).toBe(`${remaining} stops to ${destination!.name}`);
   });
 
   it('withholds the stop count when there is no fix', () => {
@@ -53,11 +54,18 @@ describe('buildJourneyNotification', () => {
     expect(content.progress).toBeUndefined();
   });
 
+  it('withholds the tracker and the countdown when there is no fix', () => {
+    const content = buildJourneyNotification(route, null, clock(false));
+    // Both draw a confident picture of a position we do not have.
+    expect(content.segments).toBeUndefined();
+    expect(content.countdownToMs).toBeUndefined();
+  });
+
   it('counts stops remaining from where the user actually is', () => {
     const index = 2;
     const content = buildJourneyNotification(route, progressAt(index), clock(true));
     const remaining = sequence.length - 1 - index;
-    expect(content.body).toContain(`${remaining} stops`);
+    expect(content.title).toContain(`${remaining} stops`);
     expect(content.progress).toEqual({ current: index, max: sequence.length - 1 });
   });
 
@@ -66,11 +74,18 @@ describe('buildJourneyNotification', () => {
     expect(content.body).toContain(sequence[2].stationName);
   });
 
+  it('counts the arrival down to the destination clock time', () => {
+    const content = buildJourneyNotification(route, progressAt(2), clock(true));
+    expect(content.countdownToMs).toBe(
+      routeClockMs(clock(true), sequence[sequence.length - 1].offsetSeconds),
+    );
+  });
+
   it('says to change lines when standing at an interchange', () => {
     const index = firstInterchangeIndex();
     const content = buildJourneyNotification(route, progressAt(index), clock(true));
     const nextLine = getCompiledGraph().lines[route.legs[sequence[index].legIndex + 1].line];
-    expect(content.body).toBe(`Change here for the ${nextLine.name}`);
+    expect(content.title).toBe(`Change here for the ${nextLine.name}`);
   });
 
   it('tints itself with the line being changed to, not the one arrived on', () => {
@@ -81,6 +96,9 @@ describe('buildJourneyNotification', () => {
     const changingTo = graph.lines[route.legs[sequence[index].legIndex + 1].line];
     expect(content.color).toBe(changingTo.color);
     expect(content.color).not.toBe(arrivedOn.color);
+    // The header carries the same line, so the notification names the line it
+    // is painted in rather than leaving the colour unexplained.
+    expect(content.subText).toBe(changingTo.name);
   });
 
   it('warns about the change one station ahead of it', () => {
@@ -88,15 +106,16 @@ describe('buildJourneyNotification', () => {
     // Only meaningful if there is a station before the interchange to stand at.
     expect(index).toBeGreaterThan(0);
     const content = buildJourneyNotification(route, progressAt(index - 1), clock(true));
-    expect(content.body).toContain(`change at ${sequence[index].stationName}`);
+    expect(content.body).toContain(sequence[index].stationName);
+    expect(content.body).toContain('change for the');
   });
 
   it('tells the user to get off when the destination is next', () => {
     const content = buildJourneyNotification(route, progressAt(sequence.length - 2), clock(true));
     const destination = getStation(route.destinationStationId);
-    expect(content.body).toBe(`Get off at ${destination!.name} next`);
+    expect(content.title).toBe(`Get off at ${destination!.name} next`);
     // Singular, not "1 stops".
-    expect(content.body).not.toContain('stops');
+    expect(content.title).not.toContain('stops');
   });
 
   it('reports arrival at the destination with a full progress bar', () => {
@@ -113,5 +132,34 @@ describe('buildJourneyNotification', () => {
     for (const progress of [null, progressAt(0), progressAt(sequence.length - 1)]) {
       expect(buildJourneyNotification(route, progress, clock(true)).showStopAction).toBe(true);
     }
+  });
+
+  describe('the tracker', () => {
+    it('spans the whole journey exactly, or is not drawn at all', () => {
+      const content = buildJourneyNotification(route, progressAt(2), clock(true));
+      const total = content.segments!.reduce((sum, segment) => sum + segment.length, 0);
+      // Android derives the bar's maximum from the segments. A total that
+      // disagrees with `progress.max` would misplace the marker for the whole
+      // journey, so this is the one invariant the tracker actually has.
+      expect(total).toBe(content.progress!.max);
+    });
+
+    it('gives every leg its own line colour, in travel order', () => {
+      const content = buildJourneyNotification(route, progressAt(2), clock(true));
+      const graph = getCompiledGraph();
+      expect(content.segments).toHaveLength(route.legs.length);
+      content.segments!.forEach((segment, index) => {
+        expect(segment.color).toBe(graph.lines[route.legs[index].line].color);
+      });
+    });
+
+    it('marks each interchange with the line being changed to', () => {
+      const content = buildJourneyNotification(route, progressAt(2), clock(true));
+      const index = firstInterchangeIndex();
+      const changingTo = getCompiledGraph().lines[route.legs[sequence[index].legIndex + 1].line];
+      expect(content.points).toContainEqual({ position: index, color: changingTo.color });
+      // One point per change, no more.
+      expect(content.points).toHaveLength(route.legs.length - 1);
+    });
   });
 });

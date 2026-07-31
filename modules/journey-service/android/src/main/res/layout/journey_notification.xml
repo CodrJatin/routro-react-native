@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The expanded journey notification.
+
+  Hand-built rather than left to the platform's progress bar, for one reason:
+  every shape Android draws there is a rounded capsule, and this app has square
+  corners everywhere. The meter below is the same row of flat ticks the live
+  journey card uses, with the itinerary's diamond marking where you are.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingTop="2dp"
+    android:paddingBottom="10dp">
+
+  <TextView
+      android:id="@+id/journey_title"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:textColor="@color/journey_text_primary"
+      android:textSize="15sp"
+      android:textStyle="bold"
+      android:maxLines="2"
+      android:ellipsize="end" />
+
+  <TextView
+      android:id="@+id/journey_body"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="2dp"
+      android:textColor="@color/journey_text_secondary"
+      android:textSize="13sp"
+      android:maxLines="1"
+      android:ellipsize="end" />
+
+  <!-- Centre-aligned, so the interchange marks and the diamond grow out of the
+       track by the same amount above and below rather than hanging off its
+       top edge. Filled at runtime, one child per station on the journey. -->
+  <LinearLayout
+      android:id="@+id/journey_meter"
+      android:layout_width="match_parent"
+      android:layout_height="20dp"
+      android:layout_marginTop="12dp"
+      android:orientation="horizontal"
+      android:gravity="center_vertical" />
+
+</LinearLayout>
