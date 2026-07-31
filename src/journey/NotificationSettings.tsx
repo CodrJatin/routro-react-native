@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo } from 'react';
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { SquareSwitch } from '../components/SquareSwitch';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens } from '../theme/tokens';
 import {
@@ -58,8 +59,6 @@ export function NotificationSettings() {
     void hydrate();
   }, [hydrate]);
 
-  const trackColor = { false: colors.border, true: colors.accent };
-
   return (
     <>
       <View style={styles.card}>
@@ -72,12 +71,10 @@ export function NotificationSettings() {
             />
             <Text style={styles.rowTextStrong}>All alerts</Text>
           </View>
-          <Switch
+          <SquareSwitch
             value={prefs.enabled}
             onValueChange={(value) => setPref('enabled', value)}
-            trackColor={trackColor}
-            thumbColor={colors.onPrimary}
-            ios_backgroundColor={colors.border}
+            accessibilityLabel="All alerts"
           />
         </View>
 
@@ -95,13 +92,11 @@ export function NotificationSettings() {
                 <Text style={styles.rowHint}>{row.hint}</Text>
               </View>
             </View>
-            <Switch
+            <SquareSwitch
               value={prefs.enabled && Boolean(prefs[row.key])}
               onValueChange={(value) => setPref(row.key, value)}
               disabled={!prefs.enabled}
-              trackColor={trackColor}
-              thumbColor={colors.onPrimary}
-              ios_backgroundColor={colors.border}
+              accessibilityLabel={row.label}
             />
           </View>
         ))}

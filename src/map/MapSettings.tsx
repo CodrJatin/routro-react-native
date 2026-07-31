@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo } from 'react';
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { SquareSwitch } from '../components/SquareSwitch';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens } from '../theme/tokens';
 import { useBasemapStore } from './basemapStore';
@@ -23,8 +24,6 @@ export function MapSettings() {
   const arePlaceLabelsEnabled = useBasemapStore((state) => state.arePlaceLabelsEnabled);
   const setPlaceLabelsEnabled = useBasemapStore((state) => state.setPlaceLabelsEnabled);
 
-  const trackColor = { false: colors.border, true: colors.accent };
-
   return (
     <>
       <View style={styles.card}>
@@ -42,12 +41,10 @@ export function MapSettings() {
               </Text>
             </View>
           </View>
-          <Switch
+          <SquareSwitch
             value={isBasemapEnabled}
             onValueChange={setBasemapEnabled}
-            trackColor={trackColor}
-            thumbColor={colors.onPrimary}
-            ios_backgroundColor={colors.border}
+            accessibilityLabel="Real map"
           />
         </View>
 
@@ -64,13 +61,11 @@ export function MapSettings() {
               </Text>
             </View>
           </View>
-          <Switch
+          <SquareSwitch
             value={isBasemapEnabled && arePlaceLabelsEnabled}
             onValueChange={setPlaceLabelsEnabled}
             disabled={!isBasemapEnabled}
-            trackColor={trackColor}
-            thumbColor={colors.onPrimary}
-            ios_backgroundColor={colors.border}
+            accessibilityLabel="Place names"
           />
         </View>
       </View>
