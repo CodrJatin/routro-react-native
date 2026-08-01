@@ -259,6 +259,7 @@
       .hero {
         display: flex;
         align-items: center;
+        justify-content: center;
         gap: clamp(24px, 5vw, 64px);
         flex-wrap: wrap;
         padding: clamp(48px, 8vw, 96px) var(--gutter) var(--section);
@@ -402,94 +403,119 @@
         99%, 100% { opacity: 0; }
       }
 
-      /* The rail joining the two planner fields goes live once both ends are
-         chosen -- same tell the real planner card uses. */
-      @keyframes hd-accent-bg {
-        0%, 9.5% { background: #444748; }
-        11%, 93% { background: #c8c6c5; }
-        95%, 100% { background: #444748; }
-      }
-      @keyframes hd-accent-bd {
-        0%, 9.5% { border-color: #444748; }
-        11%, 93% { border-color: #c8c6c5; }
-        95%, 100% { border-color: #444748; }
-      }
-
       /* — Planner scene — */
       /* The whole column scrolls, because it is a ScrollView in the app and the
          itinerary is taller than the screen. */
       .plan { padding: 16px 14px 20px; animation: hd-scroll 22s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
       @keyframes hd-scroll {
         0%, 18.2% { transform: translateY(0); }
-        /* Exactly the overflow: 643px of content in a 473px body. Any less and
-           the destination row never clears the bottom edge. */
         28.2%, 32.7% { transform: translateY(-170px); }
         38.2%, 100% { transform: translateY(0); }
       }
       .plan h4 { margin: 0 0 12px; font-size: 19px; font-weight: 600; color: var(--text); }
-      .planner-card { display: flex; background: var(--surface); border: 1px solid var(--border); padding-left: 6px; }
+
+      .planner-card { display: flex; background: var(--surface); border: 1px solid var(--border); padding-left: 6px; margin-bottom: 16px; }
       .planner-fields { flex: 1; min-width: 0; position: relative; }
       .prail {
-        position: absolute;
-        left: 5px;
-        /* Runs between the two marker centres, so it reads as one journey
-           joining the fields rather than a divider sitting beside them. */
-        top: 31px;
-        bottom: 19px;
-        width: 2px;
-        background: #c8c6c5;
+        position: absolute; left: 5px; top: 31px; bottom: 19px; width: 2px; background: #c8c6c5;
         animation: hd-accent-bg 22s linear infinite;
       }
       .pmark { position: absolute; left: 1px; width: 10px; height: 10px; }
       .pmark--o {
-        top: 26px;
-        border-radius: 50%;
-        border: 2px solid #c8c6c5;
-        background: var(--surface);
+        top: 26px; border-radius: 50%; border: 2px solid #c8c6c5; background: var(--surface);
         animation: hd-accent-bd 22s linear infinite;
       }
       .pmark--d { bottom: 14px; background: #c8c6c5; animation: hd-accent-bg 22s linear infinite; }
       .field { padding: 9px 10px 9px 22px; }
-      .field-label {
-        display: block;
-        font-family: "Space Mono", monospace;
-        font-size: 8px;
-        font-weight: 700;
-        letter-spacing: 1px;
-        color: var(--dim);
-      }
-      /* Block, not inline: the placeholder and the value are stacked on top of
-         each other here, and an inline box would ignore the height that gives
-         them somewhere to stack. */
+      .field-label { display: block; font-family: "Space Mono", monospace; font-size: 8px; font-weight: 700; letter-spacing: 1px; color: var(--dim); }
       .field-slot { display: block; position: relative; height: 18px; margin-top: 1px; }
       .field-slot > span { position: absolute; left: 0; top: 0; font-size: 13px; white-space: nowrap; }
       .field-ph { color: var(--dim); }
       .field-val { color: var(--text); font-weight: 600; }
       .fdiv { height: 1px; margin-left: 22px; background: var(--border); }
-      .swap {
-        width: 40px;
-        align-self: stretch;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-left: 1px solid var(--border);
-        color: var(--dim);
-        font-size: 14px;
-      }
+      .swap { width: 40px; align-self: stretch; display: flex; align-items: center; justify-content: center; border-left: 1px solid var(--border); color: var(--dim); font-size: 14px; }
+      
       .f-o-ph { animation: hd-o-ph 22s linear infinite; }
       .f-o-val { animation: hd-o-val 22s linear infinite; }
       .f-d-ph { animation: hd-d-ph 22s linear infinite; }
       .f-d-val { animation: hd-d-val 22s linear infinite; }
-      @keyframes hd-o-ph { 0%, 4.5% { opacity: 1; } 5.5%, 92% { opacity: 0; } 94%, 100% { opacity: 1; } }
-      @keyframes hd-o-val { 0%, 4.5% { opacity: 0; } 5.5%, 92% { opacity: 1; } 94%, 100% { opacity: 0; } }
-      @keyframes hd-d-ph { 0%, 9% { opacity: 1; } 10%, 92% { opacity: 0; } 94%, 100% { opacity: 1; } }
-      @keyframes hd-d-val { 0%, 9% { opacity: 0; } 10%, 92% { opacity: 1; } 94%, 100% { opacity: 0; } }
 
-      .plan-result { margin-top: 12px; opacity: 0; animation: hd-result 22s linear infinite; }
+      @keyframes hd-accent-bg {
+        0%, 12.5% { background: #444748; }
+        13.5%, 93% { background: #c8c6c5; }
+        95%, 100% { background: #444748; }
+      }
+      @keyframes hd-accent-bd {
+        0%, 12.5% { border-color: #444748; }
+        13.5%, 93% { border-color: #c8c6c5; }
+        95%, 100% { border-color: #444748; }
+      }
+
+      @keyframes hd-o-ph { 0%, 11% { opacity: 1; } 13.5%, 93% { opacity: 0; } 95%, 100% { opacity: 1; } }
+      @keyframes hd-o-val { 0%, 11% { opacity: 0; } 13.5%, 93% { opacity: 1; } 95%, 100% { opacity: 0; } }
+      @keyframes hd-d-ph { 0%, 11% { opacity: 1; } 13.5%, 93% { opacity: 0; } 95%, 100% { opacity: 1; } }
+      @keyframes hd-d-val { 0%, 11% { opacity: 0; } 13.5%, 93% { opacity: 1; } 95%, 100% { opacity: 0; } }
+      
+      .sj-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+      .sj-label { font-family: "Space Mono", monospace; font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: var(--dim); }
+      .sj-count { font-family: "Space Mono", monospace; font-size: 10px; color: var(--dim); }
+
+      .saved-journeys {
+        animation: hd-sj 22s linear infinite;
+        overflow: hidden;
+      }
+      @keyframes hd-sj {
+        0%, 11% { opacity: 1; max-height: 400px; padding-bottom: 12px; }
+        14.5%, 92% { opacity: 0; max-height: 0px; padding-bottom: 0px; margin-bottom: 0px; }
+        94%, 100% { opacity: 0; max-height: 0px; padding-bottom: 0px; margin-bottom: 0px; }
+      }
+
+      .saved-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        padding: 12px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        position: relative;
+        overflow: hidden;
+      }
+      .sc-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+      .sc-path { flex: 1; min-width: 0; }
+      .sc-path-row { display: flex; align-items: center; gap: 10px; }
+      .sc-o { width: 10px; height: 10px; border-radius: 5px; border: 2px solid var(--text); }
+      .sc-d { width: 10px; height: 10px; background: var(--text); }
+      .sc-conn { width: 2px; height: 10px; margin-left: 4px; background: var(--border); }
+      .sc-name { font-size: 15px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 20px; }
+      .sc-remove { width: 28px; height: 28px; border: 1px solid var(--border); background: var(--bg); display: flex; align-items: center; justify-content: center; color: var(--dim); }
+      .sc-meta { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--border); padding-top: 9px; }
+      .sc-swatches { display: flex; align-items: center; gap: 4px; }
+      .sc-swatch { width: 8px; height: 8px; }
+      .sc-meta-text { font-family: "Space Mono", monospace; font-size: 10px; color: var(--dim); letter-spacing: 0.5px; }
+
+      .saved-card--active {
+        animation: hd-press-saved 22s linear infinite;
+      }
+      @keyframes hd-press-saved {
+        0%, 9.5% { transform: none; filter: none; }
+        10.5% { transform: scale(0.97); filter: brightness(0.82); }
+        12%, 100% { transform: none; filter: none; }
+      }
+      .tap--saved { animation: hd-tap-saved 22s linear infinite; }
+      @keyframes hd-tap-saved {
+        0%, 8.5% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+        10% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        12.5%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
+      }
+
+      .plan-result {
+        overflow: hidden;
+        animation: hd-result 22s linear infinite;
+      }
       @keyframes hd-result {
-        0%, 11% { opacity: 0; transform: translateY(10px); }
-        14.5%, 92% { opacity: 1; transform: translateY(0); }
-        94%, 100% { opacity: 0; transform: translateY(10px); }
+        0%, 11% { opacity: 0; transform: translateY(10px); max-height: 0; }
+        14.5%, 92% { opacity: 1; transform: translateY(0); max-height: 800px; }
+        94%, 100% { opacity: 0; transform: translateY(10px); max-height: 0; }
       }
       .summary { background: var(--surface); border: 1px solid var(--border); padding: 12px; }
       .metrics { display: flex; align-items: flex-start; justify-content: space-between; }
@@ -946,7 +972,8 @@
       /* <details name> gives the one-open-at-a-time accordion with no script;
          ::details-content is what lets it slide rather than snap, and browsers
          without it simply fall back to the snap. */
-      .faq { max-width: 760px; }
+      #faq .section-head { margin-left: auto; margin-right: auto; text-align: center; }
+      .faq { max-width: 760px; margin-left: auto; margin-right: auto; width: 100%; }
       .faq details { border-bottom: 1px solid var(--line); }
       .faq summary {
         position: relative;
@@ -1080,6 +1107,7 @@
         <a href="#features">Features</a>
         <a href="#how-it-works">How it works</a>
         <a href="#faq">FAQ</a>
+        <a href="https://github.com/codrjatin" target="_blank" rel="noopener noreferrer">Developer</a>
         <a class="nav-cta" href="#download">DOWNLOAD</a>
       </nav>
     </header>
@@ -1097,10 +1125,7 @@
           texting "which platform?" you just meet them there and go together.
         </p>
         <div class="hero-actions">
-          <a class="btn" href="#download" data-install>Download for Android</a>
-          <a class="btn-text" href="https://github.com/CodrJatin/metrosync-react-native/releases"
-            >or browse all releases</a
-          >
+          <a class="btn" href="https://github.com/CodrJatin/metrosync-react-native/releases/latest" data-install>Download for Android</a>
         </div>
       </div>
 
@@ -1152,6 +1177,70 @@
                       </div>
                     </div>
                     <div class="swap">&#8645;</div>
+                  </div>
+
+                  <div class="saved-journeys">
+                    <div class="sj-header">
+                      <span class="sj-label">SAVED JOURNEYS</span>
+                      <span class="sj-count">2</span>
+                    </div>
+                    
+                    <div class="saved-card saved-card--active" style="margin-bottom: 10px">
+                      <div class="sc-top">
+                        <div class="sc-path">
+                          <div class="sc-path-row">
+                            <div class="sc-o"></div>
+                            <div class="sc-name">Noida Sector 18</div>
+                          </div>
+                          <div class="sc-conn"></div>
+                          <div class="sc-path-row">
+                            <div class="sc-d"></div>
+                            <div class="sc-name">Hauz Khas</div>
+                          </div>
+                        </div>
+                        <div class="sc-remove">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 6L6 18M6 6l12 12" />
+                          </svg>
+                        </div>
+                      </div>
+                      <div class="sc-meta">
+                        <div class="sc-swatches">
+                          <div class="sc-swatch" style="background: var(--blue)"></div>
+                          <div class="sc-swatch" style="background: var(--yellow)"></div>
+                        </div>
+                        <div class="sc-meta-text">38 MIN &middot; &#8377;50 &middot; 1 CHANGE</div>
+                      </div>
+                      <span class="tap tap--saved"></span>
+                    </div>
+
+                    <div class="saved-card" style="opacity: 0.6">
+                      <div class="sc-top">
+                        <div class="sc-path">
+                          <div class="sc-path-row">
+                            <div class="sc-o"></div>
+                            <div class="sc-name">Rajiv Chowk</div>
+                          </div>
+                          <div class="sc-conn"></div>
+                          <div class="sc-path-row">
+                            <div class="sc-d"></div>
+                            <div class="sc-name">IGI Airport</div>
+                          </div>
+                        </div>
+                        <div class="sc-remove">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 6L6 18M6 6l12 12" />
+                          </svg>
+                        </div>
+                      </div>
+                      <div class="sc-meta">
+                        <div class="sc-swatches">
+                          <div class="sc-swatch" style="background: var(--yellow)"></div>
+                          <div class="sc-swatch" style="background: var(--orange)"></div>
+                        </div>
+                        <div class="sc-meta-text">24 MIN &middot; &#8377;40 &middot; 1 CHANGE</div>
+                      </div>
+                    </div>
                   </div>
 
                   <div class="plan-result">
@@ -1356,12 +1445,6 @@
 
                 <div class="map-buttons">
                   <div class="map-btn">
-                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <circle cx="12" cy="12" r="4" />
-                      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
-                    </svg>
-                  </div>
-                  <div class="map-btn">
                     <span class="ping-gate"><span class="ping"></span></span>
                     <span class="bcast-fill"></span>
                     <!-- Same radio glyph the app switches between outline and
@@ -1374,6 +1457,12 @@
                       </svg>
                     </span>
                     <span class="tap tap--bcast"></span>
+                  </div>
+                  <div class="map-btn">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="4" />
+                      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                    </svg>
                   </div>
                 </div>
               </section>
@@ -1869,11 +1958,18 @@
           </p>
         </details>
         <details name="faq">
+          <summary>What data does MetroSync collect?</summary>
+          <p>
+            Your location history is never saved or stored anywhere. The only information kept on our
+            servers is your basic profile — your name and email address from Google sign-in — solely so
+            your friends can identify and connect with you.
+          </p>
+        </details>
+        <details name="faq">
           <summary>Does tracking a journey drain my battery?</summary>
           <p>
             It uses a single low-priority foreground notification rather than constant background
-            polling, and stops automatically when you arrive, after a few hours, or the moment you
-            swipe the app away.
+            polling, and stops automatically when you arrive, or the moment you swipe the app away.
           </p>
         </details>
         <details name="faq">
@@ -1885,7 +1981,7 @@
           </p>
         </details>
         <details name="faq">
-          <summary>Which networks does it cover?</summary>
+          <summary>Which metro networks does it cover?</summary>
           <p>
             The Delhi Metro (all lines), the Airport Express, NCR Metro in Gurugram and Noida, and the
             Delhi–Meerut RRTS — one graph, one app, no switching between line-specific apps.
@@ -1912,7 +2008,6 @@
           <a class="btn" href="https://github.com/CodrJatin/metrosync-react-native/releases/latest" data-install
             >Download for Android</a
           >
-          <a class="btn-text" href="https://github.com/CodrJatin/metrosync-react-native/releases">All releases</a>
         </div>
       </div>
 
@@ -1927,7 +2022,7 @@
               <path d="M32 18L44 30L32 42L20 30Z" />
             </g>
           </svg>
-          <span>MetroSync &copy; 2026</span>
+          <span>MetroSync &copy; 2026 &middot; Developer: <a href="https://github.com/codrjatin" target="_blank" rel="noopener noreferrer" style="color: var(--muted); text-decoration: underline; text-underline-offset: 3px">CodrJatin</a></span>
         </div>
         <span class="disclaimer">Not affiliated with Delhi Metro Rail Corporation.</span>
       </div>
@@ -1944,22 +2039,9 @@
 
         var links = [].slice.call(document.querySelectorAll('[data-install]'));
 
-        // The releases page is the starting value, not a last resort: it is
-        // what shows with JavaScript disabled, on iOS (where an APK is
-        // useless), and if the API call below fails. Anything better is an
-        // upgrade applied on top of a link that already works.
         links.forEach(function (link) {
           link.href = RELEASES_URL;
         });
-
-        // Point straight at the APK on Android rather than dropping the user on
-        // a releases page to hunt for it.
-        //
-        // Resolved through the API instead of GitHub's stable
-        // /releases/latest/download/<name> shortcut, because that shortcut needs
-        // the asset filename to be identical in every release and these are
-        // version-stamped (metrosync-1.1.0.apk).
-        if (!/android/i.test(navigator.userAgent)) return;
 
         fetch(LATEST_API, { headers: { Accept: 'application/vnd.github+json' } })
           .then(function (response) {
@@ -1975,12 +2057,10 @@
 
             links.forEach(function (link) {
               link.href = apk.browser_download_url;
-              link.textContent = 'Download the app' + (release.tag_name ? ' (' + release.tag_name + ')' : '');
             });
           })
           .catch(function () {
-            // Rate-limited, offline, or no releases yet -- the href set above
-            // still goes somewhere sensible.
+            // Rate-limited, offline, or no releases yet -- fallback to releases/latest
           });
       })();
 
