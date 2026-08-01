@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useReducer } from 'react';
 import { create } from 'zustand';
+import type { SharedJourney } from './sharedJourney';
 
 export type PresenceStatus = 'offline' | 'online' | 'broadcasting';
 export type ConnectionState = 'connecting' | 'connected' | 'error';
@@ -47,6 +48,21 @@ interface LocationState {
   setBroadcastNotice: (notice: string | null) => void;
   friendLocations: Record<string, FriendLocation>;
   friendPresence: Record<string, PresenceStatus>;
+  /**
+   * The journey each friend is currently travelling, when they're sharing one.
+   *
+   * Carried on presence rather than in the location broadcast: origin,
+   * destination and mode change once per journey, while a position ticks every
+   * 5s. Presence syncs on join and only re-syncs when the sender calls
+   * `track()` again, which is exactly the cadence this needs -- and it means a
+   * friend's journey is already known the moment we subscribe, without waiting
+   * for them to move.
+   *
+   * Set from every presence sync, including to null when a friend's payload
+   * carries no journey. That makes it live and die with presence itself, so
+   * unlike `friendLocations` there is no separate staleness rule to get wrong.
+   */
+  friendJourneys: Record<string, SharedJourney>;
   /** Display names by user id, mirrored from the friendships list so that
    * background code can name a friend without depending on React state having
    * loaded. Only ever used for display -- never for identity. */
@@ -56,6 +72,8 @@ interface LocationState {
   setConnectionState: (state: ConnectionState) => void;
   upsertFriendLocation: (loc: Omit<FriendLocation, 'receivedAt' | 'movedAt' | 'previous'>) => void;
   setFriendPresence: (userId: string, status: PresenceStatus) => void;
+  /** Null clears it -- see `friendJourneys`. */
+  setFriendJourney: (userId: string, journey: SharedJourney | null) => void;
   removeFriend: (userId: string) => void;
 }
 
@@ -69,6 +87,7 @@ export const useLocationStore = create<LocationState>((set) => ({
   broadcastNotice: null,
   friendLocations: {},
   friendPresence: {},
+  friendJourneys: {},
   friendNames: {},
 
   setBroadcasting: (value) => set({ isBroadcasting: value }),
@@ -129,13 +148,41 @@ export const useLocationStore = create<LocationState>((set) => ({
       return { friendPresence, friendLocations };
     }),
 
+  setFriendJourney: (userId, journey) =>
+    set((state) => {
+      const existing = state.friendJourneys[userId];
+
+      // Presence syncs on every join, leave and re-track on the channel, and
+      // the journey in it is unchanged across almost all of them. Returning a
+      // fresh `friendJourneys` object each time would invalidate every
+      // selector reading it -- and the routes derived from it are memoised on
+      // that identity, so this guard is what keeps a friend's route from being
+      // recomputed on unrelated presence traffic.
+      const isSame =
+        existing === undefined
+          ? journey === null
+          : journey !== null &&
+            existing.originId === journey.originId &&
+            existing.destinationId === journey.destinationId &&
+            existing.mode === journey.mode &&
+            existing.startedAt === journey.startedAt;
+      if (isSame) return state;
+
+      const friendJourneys = { ...state.friendJourneys };
+      if (journey) friendJourneys[userId] = journey;
+      else delete friendJourneys[userId];
+      return { friendJourneys };
+    }),
+
   removeFriend: (userId) =>
     set((state) => {
       const friendLocations = { ...state.friendLocations };
       const friendPresence = { ...state.friendPresence };
+      const friendJourneys = { ...state.friendJourneys };
       delete friendLocations[userId];
       delete friendPresence[userId];
-      return { friendLocations, friendPresence };
+      delete friendJourneys[userId];
+      return { friendLocations, friendPresence, friendJourneys };
     }),
 }));
 

@@ -18,6 +18,7 @@ import { buildStationMarks, type RouteProgress } from '../route/routeProgress';
 import { findStationOnRoute } from '../route/stationOnRoute';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens } from '../theme/tokens';
+import { FriendArrivalsAtStation } from './FriendArrivalsAtStation';
 
 interface Props {
   station: CompiledStation | null;
@@ -187,6 +188,10 @@ export function StationDetailCard({ station, route, clock, progress, onClose }: 
           </View>
         </Animated.View>
       )}
+
+      {/* Below the user's own route block, and shown whether or not they have
+          one: "who else is coming through here" is worth knowing on its own. */}
+      <FriendArrivalsAtStation stationId={station.id} />
     </Animated.View>
   );
 }

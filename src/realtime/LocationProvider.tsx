@@ -42,6 +42,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
       onBroadcastingChange: (enabled) => useLocationStore.getState().setBroadcasting(enabled),
       onFriendLocation: (loc) => useLocationStore.getState().upsertFriendLocation(loc),
       onFriendPresence: (id, status) => useLocationStore.getState().setFriendPresence(id, status),
+      onFriendJourney: (id, journey) => useLocationStore.getState().setFriendJourney(id, journey),
       onFriendRemoved: (id) => useLocationStore.getState().removeFriend(id),
       onConnectionChange: (state) => useLocationStore.getState().setConnectionState(state),
       onBroadcastInterrupted: (reason) =>

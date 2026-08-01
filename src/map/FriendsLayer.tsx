@@ -1,9 +1,11 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Marker } from '@maplibre/maplibre-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import type { Profile } from '../auth/AuthProvider';
 import { useAuth } from '../auth/AuthProvider';
 import { friendColorFor } from '../friends/friendColor';
+import { useFriendJourneys } from '../friends/friendJourney';
 import { useFriendshipsContext } from '../friends/FriendshipsProvider';
 import { otherParty } from '../friends/useFriendships';
 import { useFriendStatuses, useLocationStore } from '../realtime/locationStore';
@@ -11,6 +13,9 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useInterpolatedPositions } from './useInterpolatedPositions';
 
 const PIN_SIZE = 34;
+/** Deliberately smaller than the friend pin. A destination is context for the
+ * pin, not a second thing of equal weight competing with it. */
+const FLAG_SIZE = 22;
 
 /** Same derivation as the focus stack's thumbnails, so a friend's fallback
  * initials are identical wherever they appear. */
@@ -72,8 +77,37 @@ export function FriendsLayer() {
 
   const positions = useInterpolatedPositions(pins.map((pin) => pin.location));
 
+  const friendJourneys = useFriendJourneys();
+
+  // Where each visible friend is headed. Gated on the same pin list rather
+  // than on the journey map alone, so a destination flag can never outlive the
+  // friend it belongs to -- a stale presence entry with no live pin under it
+  // would otherwise leave an unexplained flag on the map.
+  const destinations = useMemo(
+    () =>
+      pins
+        .map(({ location }) => ({
+          userId: location.userId,
+          journey: friendJourneys[location.userId],
+        }))
+        .filter((entry) => entry.journey !== undefined),
+    [pins, friendJourneys],
+  );
+
   return (
     <>
+      {destinations.map(({ userId, journey }) => (
+        <Marker
+          key={`destination-${userId}`}
+          id={`friend-destination-${userId}`}
+          lngLat={[journey.destination.lon, journey.destination.lat]}
+        >
+          <View style={[styles.flag, { borderColor: friendColorFor(userId), backgroundColor: colors.surface }]}>
+            <Ionicons name="flag" size={11} color={friendColorFor(userId)} />
+          </View>
+        </Marker>
+      ))}
+
       {pins.map(({ location, profile, isStale }) => (
         <Marker
           key={location.userId}
@@ -136,6 +170,16 @@ const styles = StyleSheet.create({
   },
   stale: {
     opacity: 0.45,
+  },
+  flag: {
+    width: FLAG_SIZE,
+    height: FLAG_SIZE,
+    borderRadius: FLAG_SIZE / 2,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // No elevation, unlike the friend pin. The flag sits behind its owner in
+    // the visual hierarchy and a shadow would argue otherwise.
   },
   avatar: {
     width: '100%',

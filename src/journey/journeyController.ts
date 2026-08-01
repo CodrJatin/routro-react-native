@@ -18,6 +18,7 @@ import { getRouteProgress, type RouteProgress } from '../route/routeProgress';
 import { ensureAlertChannel, presentAlert } from './alertNotifications';
 import { journeyAlertFor } from './alerts';
 import { startFriendAlerts, stopFriendAlerts } from './friendAlerts';
+import { isJourneySharingEnabled, useJourneySharingStore } from './journeySharingPrefs';
 import { isAlertKindEnabled, useNotificationPrefsStore } from './notificationPrefs';
 import { useJourneyStore, type JourneySession } from './journeyStore';
 import { buildJourneyNotification } from './notificationContent';
@@ -190,6 +191,11 @@ export async function startJourney(
   locationChannelManager.setBackgroundAllowed(true);
   await locationChannelManager.setExternalFixSource(true);
 
+  // Hydrated before publishing, or the first push would use the default rather
+  // than what the user actually chose.
+  await useJourneySharingStore.getState().hydrate();
+  await publishSharedJourney();
+
   // Scoped to the journey rather than always-on: a friend two stops away
   // matters while you are travelling and is just noise while you are at home.
   await useNotificationPrefsStore.getState().hydrate();
@@ -252,6 +258,8 @@ export async function initJourneyController(): Promise<void> {
   await ensureAlertChannel();
   locationChannelManager.setBackgroundAllowed(true);
   await locationChannelManager.setExternalFixSource(true);
+  await useJourneySharingStore.getState().hydrate();
+  await publishSharedJourney();
   await useNotificationPrefsStore.getState().hydrate();
   startFriendAlerts();
   subscribe();
@@ -267,6 +275,11 @@ async function endJourney(notice: string | null): Promise<void> {
   arrivedAt = null;
   useJourneyStore.getState().setSession(null);
   if (notice) useJourneyStore.getState().setEndedNotice(notice);
+
+  // Reads the session that was just cleared, so this publishes "no journey" --
+  // friends stop seeing a destination the moment the journey ends, rather than
+  // when presence next happens to re-sync.
+  await publishSharedJourney();
 
   // Order matters: hand the GPS back before withdrawing the background
   // permission, so a user who was sharing keeps sharing across the handover
@@ -296,6 +309,11 @@ async function refresh(): Promise<void> {
   const progress = currentProgress();
   const content = buildJourneyNotification(route, progress, clockFor(progress));
 
+  // Not awaited: a presence re-track is a courtesy to friends, and the
+  // notification in front of the user must not wait on the network for it.
+  // A no-op unless something actually changed -- see `publishSharedJourney`.
+  void publishSharedJourney();
+
   // Before the service call, not after: an alert the user acts on is worth
   // more than a notification repaint, and a failed repaint ends the journey.
   await maybeAlert(progress);
@@ -322,6 +340,34 @@ async function refresh(): Promise<void> {
 
 function currentProgress(): RouteProgress | null {
   return getRouteProgress(route, useSelfPositionStore.getState().position);
+}
+
+/**
+ * Pushes the current journey (or nothing) to the realtime layer for friends to
+ * see, honouring the user's sharing preference.
+ *
+ * The single place that decision is made. `locationChannel` deliberately has no
+ * idea what a journey or a preference is -- it takes a record and relays it, in
+ * the same way `setBackgroundAllowed` only tells it that *something* is holding
+ * the process open.
+ *
+ * Idempotent, and called from `refresh` as well as from start/stop, so it
+ * doubles as a re-assertion: a preference toggled mid-journey, or a journey
+ * that outlived a channel teardown, is corrected on the next tick rather than
+ * staying wrong until the journey ends.
+ */
+async function publishSharedJourney(): Promise<void> {
+  const session = useJourneyStore.getState().session;
+  await locationChannelManager.setSharedJourney(
+    session && isJourneySharingEnabled()
+      ? {
+          originId: session.originId,
+          destinationId: session.destinationId,
+          mode: session.mode,
+          startedAt: session.startedAt,
+        }
+      : null,
+  );
 }
 
 /** Fires the alert for where the user is now, unless it has already been

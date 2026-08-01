@@ -18,6 +18,7 @@ import { useAuth } from '../../src/auth/AuthProvider';
 import { Avatar } from '../../src/components/Avatar';
 import { SegmentedToggle } from '../../src/components/SegmentedToggle';
 import { JourneySimulatorPanel } from '../../src/dev/JourneySimulatorPanel';
+import { JourneySharingSettings } from '../../src/journey/JourneySharingSettings';
 import { NotificationSettings } from '../../src/journey/NotificationSettings';
 import { MapSettings } from '../../src/map/MapSettings';
 import { useTheme, type ThemePreference } from '../../src/theme/ThemeProvider';
@@ -213,6 +214,11 @@ export default function SettingsScreen() {
             <Text style={styles.subSectionLabel}>Map</Text>
             <MapSettings />
           </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Sharing</Text>
+          <JourneySharingSettings />
         </View>
 
         <View style={styles.section}>

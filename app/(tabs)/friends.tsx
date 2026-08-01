@@ -24,10 +24,13 @@ import { InviteSheet } from '../../src/friends/InviteSheet';
 import { inferCurrentLine } from '../../src/friends/currentLine';
 import { AnimatedPressable } from '../../src/components/AnimatedPressable';
 import { estimateFriendEta } from '../../src/friends/friendEta';
+import { useFriendJourneys, type FriendJourneyView } from '../../src/friends/friendJourney';
+import { FriendMeetUp } from '../../src/friends/FriendMeetUp';
 import { findNearestStation, type NearestStation } from '../../src/friends/nearestStation';
 import { otherParty } from '../../src/friends/useFriendships';
 import { useSelfPositionStore } from '../../src/location/selfPosition';
 import { useSeedSelfPosition } from '../../src/location/useSeedSelfPosition';
+import { useSelfRoute, type SelfRouteView } from '../../src/route/useSelfRoute';
 import { useFriendStatuses, useLocationStore, type FriendLocation, type FriendStatus } from '../../src/realtime/locationStore';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import { useSharedStyles } from '../../src/theme/sharedStyles';
@@ -102,6 +105,12 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
 
   const friendLocations = useLocationStore((state) => state.friendLocations);
   const statuses = useFriendStatuses();
+
+  // Journeys friends are advertising on presence, and the viewer's own route to
+  // compare them against. Both resolved once here rather than per card, so
+  // every row on this screen is answering against the same journey.
+  const friendJourneys = useFriendJourneys();
+  const selfRoute = useSelfRoute();
 
   const accepted = rows.filter((r) => r.status === 'accepted');
   const incoming = rows.filter((r) => r.status === 'pending' && r.addressee_id === selfUserId);
@@ -300,6 +309,8 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
                 key={profile.id}
                 profile={profile}
                 location={location}
+                journey={friendJourneys[profile.id] ?? null}
+                selfRoute={selfRoute}
                 lines={lines}
                 now={now}
                 styles={styles}
@@ -479,6 +490,8 @@ function FriendMenuButton({
 function ActiveFriendCard({
   profile,
   location,
+  journey,
+  selfRoute,
   lines,
   now,
   styles,
@@ -489,6 +502,9 @@ function ActiveFriendCard({
 }: {
   profile: Profile;
   location: FriendLocation | null;
+  /** The journey they're advertising, when they're on one. */
+  journey: FriendJourneyView | null;
+  selfRoute: SelfRouteView | null;
   lines: RawLines;
   now: number;
   styles: ReturnType<typeof createStyles>;
@@ -522,8 +538,20 @@ function ActiveFriendCard({
     return inferCurrentLine(nearest, movement);
   }, [isNearStation, nearest, location]);
 
-  const line = inferredLineId ? lineFor(inferredLineId, lines) : null;
+  // A shared journey answers outright what the bearing heuristic above can
+  // only guess: the leg they are on names the line, with no interchange coin
+  // flip and no need for them to have moved far enough to take a bearing from.
+  // The inference stays as the fallback for a friend who is sharing a position
+  // but not a journey.
+  const line = lineFor(journey?.currentLineId ?? inferredLineId ?? undefined, lines);
   const accentColor = line?.color ?? colors.outline;
+
+  // The station they're nearest to *on their own route*, which for someone
+  // mid-journey is frequently not the nearest station on the network -- see
+  // `findNearestRouteStation`. Falls back to the network-wide answer.
+  const nearestLabel = journey?.progress
+    ? journey.progress.sequence[journey.progress.nearestIndex].stationName
+    : (nearest?.name ?? null);
 
   const eta = useMemo(() => {
     if (!location || !selfPosition) return null;
@@ -535,10 +563,16 @@ function ActiveFriendCard({
     );
   }, [location, selfPosition]);
 
+  // Paired with `nearestLabel` so the distance always belongs to the station
+  // being named, whichever of the two answers that came from.
+  const nearestDistanceMeters = journey?.progress
+    ? journey.progress.distanceMeters
+    : (nearest?.distanceMeters ?? null);
+
   const subtext = !location
     ? 'Waiting for location…'
-    : nearest
-      ? `${formatDistance(nearest.distanceMeters)} from ${nearest.name} · updated ${formatRelativeTime(location.receivedAt, now)}`
+    : nearestLabel && nearestDistanceMeters !== null
+      ? `${formatDistance(nearestDistanceMeters)} from ${nearestLabel} · updated ${formatRelativeTime(location.receivedAt, now)}`
       : `Updated ${formatRelativeTime(location.receivedAt, now)}`;
 
   return (
@@ -584,7 +618,37 @@ function ActiveFriendCard({
         )}
       </View>
 
+      {/* Where they're headed, which is the thing a live dot could never say.
+          Only present when they're sharing a journey. */}
+      {journey && (
+        <View style={styles.destinationRow}>
+          <Ionicons name="arrow-forward" size={12} color={colors.textSecondary} />
+          <Text style={styles.destinationText} numberOfLines={1}>
+            {journey.destination.name}
+          </Text>
+          {journey.remainingStops !== null && (
+            <Text style={styles.destinationStops}>
+              {journey.remainingStops === 0
+                ? 'ARRIVED'
+                : `${journey.remainingStops} ${journey.remainingStops === 1 ? 'STOP' : 'STOPS'} LEFT`}
+            </Text>
+          )}
+        </View>
+      )}
+
       <Text style={styles.cardSubtext}>{subtext}</Text>
+
+      {journey && (
+        <FriendMeetUp
+          friendJourney={journey}
+          selfRoute={selfRoute}
+          // Falls back to a phrase that reads correctly in every sentence this
+          // gets dropped into ("3 for your friend", "your friend waits 4 min").
+          // The email would be technically more specific and much worse to
+          // read mid-sentence.
+          friendName={profile.display_name?.trim() || 'your friend'}
+        />
+      )}
 
       {/* Only offered once we actually hold a position -- otherwise there is
           nowhere for the map to fly to and the tap would do nothing. */}
@@ -859,6 +923,24 @@ function createStyles(
       ...typography.labelCaps,
       fontSize: 10,
       color: colors.success,
+    },
+    destinationRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+    },
+    destinationText: {
+      ...typography.bodyMd,
+      fontSize: 13,
+      fontWeight: '700',
+      color: colors.textPrimary,
+      flexShrink: 1,
+    },
+    destinationStops: {
+      ...typography.labelCaps,
+      fontSize: 9,
+      color: colors.textSecondary,
+      flexShrink: 0,
     },
     modalBackdrop: {
       flex: 1,

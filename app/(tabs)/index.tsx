@@ -31,6 +31,7 @@ import tracksGeoJSON from '../../assets/data/tracks.json';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { findRoute, getStation } from '../../src/engine/graph';
 import type { CompiledStation, StationId } from '../../src/engine/types';
+import { friendColorFor } from '../../src/friends/friendColor';
 import { useBasemapStore } from '../../src/map/basemapStore';
 import { FriendFocusStack, type ActiveFriend } from '../../src/map/FriendFocusStack';
 import { FriendsLayer } from '../../src/map/FriendsLayer';
@@ -124,6 +125,10 @@ export default function MapScreen() {
   const cameraRef = useRef<CameraRef>(null);
   const [selectedStation, setSelectedStation] = useState<CompiledStation | null>(null);
   const [isPendingBroadcast, setIsPendingBroadcast] = useState(false);
+  /** Whose route to draw. One at a time and only on request: several friends'
+   * routes at once would fight the user's own highlighted journey for the same
+   * tracks and turn the map into a tangle nobody can read. */
+  const [focusedFriendId, setFocusedFriendId] = useState<string | null>(null);
 
   const { isConfigured, session } = useAuth();
   const isBroadcasting = useLocationStore((state) => state.isBroadcasting);
@@ -258,6 +263,23 @@ export default function MapScreen() {
     [routeProgress],
   );
 
+  // Subscribed to `friendJourneys` alone, deliberately never to
+  // `friendLocations`: journeys change once per trip, positions every 5s, and
+  // this screen re-rendering on every friend's every fix is exactly what
+  // FriendsLayer exists as a separate leaf to avoid.
+  const focusedFriendJourney = useLocationStore((state) =>
+    focusedFriendId ? state.friendJourneys[focusedFriendId] : undefined,
+  );
+
+  const focusedFriendRouteGeoJSON = useMemo(() => {
+    if (!focusedFriendJourney) return null;
+    return buildRoutePolylineGeoJSON(
+      focusedFriendJourney.originId,
+      focusedFriendJourney.destinationId,
+      focusedFriendJourney.mode,
+    );
+  }, [focusedFriendJourney]);
+
   // The same clock the itinerary screen runs, so the card can't quote an
   // arrival time the itinerary disagrees with: measured from the user's own
   // position on the route while they're on it, and from "leaving now"
@@ -366,6 +388,10 @@ export default function MapScreen() {
    * propagating. */
   function handleMapPress() {
     setSelectedStation(null);
+    // A tap on empty map is how you dismiss things here, and a friend's route
+    // is one of them -- otherwise the only way to clear it would be to focus a
+    // different friend.
+    setFocusedFriendId(null);
   }
 
   function showLocationDeniedAlert(canAskAgain: boolean) {
@@ -484,6 +510,10 @@ export default function MapScreen() {
   }
 
   function handleFocusFriend(friend: ActiveFriend) {
+    // Tapping the same friend again clears their route rather than re-flying to
+    // where they already are -- the second tap on a thing that is already
+    // focused should undo it, not repeat it.
+    setFocusedFriendId((current) => (current === friend.userId ? null : friend.userId));
     cameraRef.current?.flyTo({
       center: [friend.lon, friend.lat],
       zoom: 15,
@@ -525,6 +555,29 @@ export default function MapScreen() {
             }}
           />
         </GeoJSONSource>
+
+        {/* Before the user's own route, so theirs always draws on top. Painted
+            in the friend's identity colour rather than in line colours: line
+            colours would make it indistinguishable from the user's own
+            highlighted journey, whereas this matches their pin ring and
+            destination flag and reads as "this person's route". Dashed and thin
+            for the same reason -- it is reference, not the subject. */}
+        {focusedFriendRouteGeoJSON && focusedFriendId && (
+          <GeoJSONSource id="focused-friend-route" data={focusedFriendRouteGeoJSON}>
+            <Layer
+              id="focused-friend-route-line"
+              type="line"
+              beforeId="stations-circle"
+              layout={{ 'line-cap': 'butt', 'line-join': 'round' }}
+              paint={{
+                'line-color': friendColorFor(focusedFriendId),
+                'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2, 14, 3, 18, 5],
+                'line-opacity': 0.85,
+                'line-dasharray': [2, 2],
+              }}
+            />
+          </GeoJSONSource>
+        )}
 
         {routeGeoJSON && (
           <GeoJSONSource id="active-route" data={routeGeoJSON}>

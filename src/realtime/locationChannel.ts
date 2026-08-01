@@ -4,6 +4,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { useSelfPositionStore } from '../location/selfPosition';
 import type { ConnectionState, FriendLocation, PresenceStatus } from './locationStore';
+import { parseSharedJourney, type SharedJourney } from './sharedJourney';
 
 const BROADCAST_DISTANCE_METERS = 15;
 const BROADCAST_INTERVAL_MS = 5000;
@@ -80,6 +81,14 @@ function parseLocPayload(payload: unknown): LocPayload | null {
   return { lat, lon, ts };
 }
 
+/** What this device puts on its own presence entry. `status` has always been
+ * here; `journey` is absent whenever there is nothing to share, which is the
+ * normal case. */
+interface PresencePayload {
+  status: PresenceStatus;
+  journey?: SharedJourney;
+}
+
 /** Callbacks the manager reports through instead of writing to app state
  * directly -- it owns Realtime channels and the location watcher, nothing
  * about where that data ends up. The one real caller (LocationProvider)
@@ -93,6 +102,10 @@ export interface LocationManagerHandlers {
    * already held. */
   onFriendLocation(loc: Omit<FriendLocation, 'receivedAt' | 'movedAt' | 'previous'>): void;
   onFriendPresence(userId: string, status: PresenceStatus): void;
+  /** The journey a friend is travelling, or null when they aren't sharing one.
+   * Reported from the same presence sync as `onFriendPresence`, so the two can
+   * never describe different moments. */
+  onFriendJourney(userId: string, journey: SharedJourney | null): void;
   onFriendRemoved(userId: string): void;
   onConnectionChange(state: ConnectionState): void;
   /** Broadcasting stopped on its own -- GPS switched off, provider error --
@@ -111,6 +124,7 @@ const noopHandlers: LocationManagerHandlers = {
   onBroadcastingChange() {},
   onFriendLocation() {},
   onFriendPresence() {},
+  onFriendJourney() {},
   onFriendRemoved() {},
   onConnectionChange() {},
   onBroadcastInterrupted() {},
@@ -150,6 +164,16 @@ class LocationChannelManager {
   /** Set while the journey controller's watcher is the one producing fixes.
    * See `setExternalFixSource`. */
   private usesExternalFixes = false;
+  /**
+   * The journey to advertise on presence, or null for none. Handed in by the
+   * journey controller; see `setSharedJourney`.
+   *
+   * Held on the manager rather than read from a store at track time for the
+   * same reason `isBroadcasting` is: presence is re-tracked from several
+   * places, including the reconnect path, and every one of them has to send
+   * the same answer.
+   */
+  private sharedJourney: SharedJourney | null = null;
   /** Last time `tick()` sent the realtime keepalive. */
   private lastSupabaseHeartbeatAt = 0;
   /** Set while the app is backgrounded. Checked after the location watcher
@@ -192,6 +216,71 @@ class LocationChannelManager {
     this.handlers = handlers;
   }
 
+  /**
+   * The single exit point for presence, the way `sendFix` is for locations.
+   *
+   * Every call site used to pass its own `{ status: ... }` literal, and the
+   * comment on the reconnect path records what that cost: a literal there
+   * silently downgraded a live broadcaster to 'online' on every network blip.
+   * A second field multiplies that hazard -- a journey update written as a
+   * literal would drop `status`, and a status update would drop the journey.
+   * So the payload is built here, once, from manager state.
+   *
+   * @param options.status Overrides the state-derived status, for the one
+   * caller that tracks *before* flipping `isBroadcasting` (see
+   * `setBroadcasting`, which only commits that flag once the watcher is up).
+   * @param options.channel The channel to track on, for the subscribe callback
+   * -- it runs before `this.ownChannel` has been assigned.
+   */
+  private trackPresence(
+    options: { status?: PresenceStatus; channel?: RealtimeChannel } = {},
+  ): Promise<unknown> {
+    const channel = options.channel ?? this.ownChannel;
+    if (!channel) return Promise.resolve();
+
+    const status: PresenceStatus =
+      options.status ?? (this.isBroadcasting ? 'broadcasting' : 'online');
+
+    const payload: PresencePayload = { status };
+    // Deliberately gated on actually broadcasting, not merely on having a
+    // journey. Where you are headed is more revealing than where you are, and
+    // tying the two together makes the rule one sentence the user can hold in
+    // their head: sharing your location during a journey shares the journey.
+    // Stop sharing and the destination goes with the dot.
+    if (status === 'broadcasting' && this.sharedJourney) {
+      payload.journey = this.sharedJourney;
+    }
+
+    return channel.track(payload);
+  }
+
+  /**
+   * Sets (or clears) the journey advertised to friends, and re-tracks presence
+   * so they see the change now rather than at the next reconnect.
+   *
+   * Takes a plain record rather than reading the journey store, so this layer
+   * keeps knowing nothing about journeys -- same arrangement as
+   * `setBackgroundAllowed`. The journey controller owns when to call it, which
+   * is also where the user's sharing preference is applied.
+   */
+  async setSharedJourney(journey: SharedJourney | null): Promise<void> {
+    const isSame =
+      this.sharedJourney === journey ||
+      (this.sharedJourney !== null &&
+        journey !== null &&
+        this.sharedJourney.originId === journey.originId &&
+        this.sharedJourney.destinationId === journey.destinationId &&
+        this.sharedJourney.mode === journey.mode &&
+        this.sharedJourney.startedAt === journey.startedAt);
+    if (isSame) return;
+
+    this.sharedJourney = journey;
+    // Best-effort, exactly like the courtesy untrack in `setBroadcasting`: with
+    // no joined channel there is nothing to say, and the next successful join
+    // re-tracks from this same state anyway.
+    if (this.ownChannel?.state === 'joined') await this.trackPresence();
+  }
+
   async joinOwn(userId: string): Promise<void> {
     if (this.ownChannel && this.ownUserId === userId) return;
     const myGeneration = ++this.generation;
@@ -208,10 +297,12 @@ class LocationChannelManager {
       if (myGeneration !== this.generation) return; // superseded
 
       if (status === 'SUBSCRIBED') {
-        // Re-track the manager's real current status, not a literal --
+        // Re-tracked from the manager's real current state, not a literal --
         // this callback also fires on every reconnect, and a network blip
-        // must not silently downgrade an active broadcaster to 'online'.
-        await channel.track({ status: this.isBroadcasting ? 'broadcasting' : 'online' satisfies PresenceStatus });
+        // must not silently downgrade an active broadcaster to 'online' or
+        // drop the journey they are advertising. Tracked on the local
+        // `channel`, which this callback has before `this.ownChannel` does.
+        await this.trackPresence({ channel });
         this.lastChannelError = null;
         this.handlers.onConnectionChange('connected');
         return;
@@ -275,6 +366,11 @@ class LocationChannelManager {
     // 'backgrounded-late'.
     this.isPausedForBackground = false;
     this.wasBroadcastingBeforeBackground = false;
+    // Same reasoning as the two flags above: a journey retained across a
+    // sign-out would be advertised on behalf of whoever signs in next.
+    // Deliberately not in `cleanupOwnChannel`, which `rejoinOwnChannel` also
+    // runs -- a rejoin mid-journey must not drop what it is rejoining with.
+    this.sharedJourney = null;
     await this.cleanupOwnChannel();
   }
 
@@ -424,7 +520,7 @@ class LocationChannelManager {
       // they find out when presence times out instead, and the important
       // half -- that nothing more is being sent -- is already true.
       if (myBroadcastGeneration === this.broadcastGeneration) {
-        await this.ownChannel?.track({ status: 'online' satisfies PresenceStatus });
+        await this.trackPresence();
       }
       return { ok: true };
     }
@@ -568,7 +664,10 @@ class LocationChannelManager {
           : "Couldn't reach the location service. Check your connection and try again.",
       );
     }
-    await this.ownChannel.track({ status: 'broadcasting' satisfies PresenceStatus });
+    // Explicit status: `isBroadcasting` is only committed at the end of this
+    // method, once the watcher is actually up, so the derived value would
+    // still read 'online' here.
+    await this.trackPresence({ status: 'broadcasting' });
     if (myBroadcastGeneration !== this.broadcastGeneration) return this.superseded('track');
 
     // Belt-and-suspenders: guarantee any previous watcher is gone before
@@ -773,7 +872,7 @@ class LocationChannelManager {
     console.warn(`[broadcast] interrupted: ${reason}`);
     this.stopLocationWatcher();
     this.setIsBroadcasting(false);
-    void this.ownChannel?.track({ status: 'online' satisfies PresenceStatus });
+    void this.trackPresence();
     this.handlers.onBroadcastInterrupted(reason);
   }
 
@@ -928,7 +1027,7 @@ class LocationChannelManager {
       // channel exists to report, and the result was being thrown away.
       if (!result.ok) this.handlers.onBroadcastInterrupted(result.reason);
     } else {
-      await this.ownChannel.track({ status: 'online' satisfies PresenceStatus });
+      await this.trackPresence();
     }
   }
 
@@ -949,9 +1048,14 @@ class LocationChannelManager {
         this.handlers.onFriendLocation({ userId: friendId, ...loc });
       })
       .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState<{ status: PresenceStatus }>();
-        const status = state[friendId]?.[0]?.status ?? 'offline';
-        this.handlers.onFriendPresence(friendId, status);
+        const state = channel.presenceState<Partial<PresencePayload>>();
+        const entry = state[friendId]?.[0];
+        this.handlers.onFriendPresence(friendId, entry?.status ?? 'offline');
+        // Reported from this same sync rather than a channel of its own, so
+        // presence and journey can never describe different moments. Absent
+        // parses to null, which covers all three ways there is nothing to
+        // show: no journey, not sharing, or a build that predates this.
+        this.handlers.onFriendJourney(friendId, parseSharedJourney(entry?.journey));
       })
       .subscribe((status) => {
         // A denied/failed friend-channel join used to sit silently dead --
@@ -959,6 +1063,7 @@ class LocationChannelManager {
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           console.warn(`[location] friend channel for ${friendId} failed to join: ${status}`);
           this.handlers.onFriendPresence(friendId, 'offline');
+          this.handlers.onFriendJourney(friendId, null);
         }
       });
 
