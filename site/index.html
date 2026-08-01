@@ -1,0 +1,1999 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>MetroSync — never ride the metro alone</title>
+    <meta
+      name="description"
+      content="MetroSync shows you which friends are already on the move across the Delhi Metro, NCR Metro and RRTS — so you meet them at the platform instead of texting about it."
+    />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#141313" />
+    <link rel="canonical" href="https://metro-sync.vercel.app/" />
+
+    <meta property="og:title" content="MetroSync — never ride the metro alone" />
+    <meta
+      property="og:description"
+      content="See which friends are on the move across the Delhi Metro, follow a journey live, and know exactly when to get off."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://metro-sync.vercel.app/" />
+
+    <!-- Same geometry as assets/logo/mark.svg, inlined so the tab icon needs no extra request. -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none'%3E%3Cg stroke='%23e5e2e1' stroke-width='6' stroke-linejoin='miter'%3E%3Cpath d='M12 8.76V55.24'/%3E%3Cpath d='M52 8.76V55.24'/%3E%3Cpath d='M12.88 10.88L26 24'/%3E%3Cpath d='M51.12 10.88L38 24'/%3E%3Cpath d='M32 18L44 30L32 42L20 30Z'/%3E%3C/g%3E%3C/svg%3E"
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      /* Mirrors src/theme/tokens.ts, same as ms/index.html: square corners,
+         monochrome chrome, monospace for data and small-caps labels. The metro
+         line colours are the only saturated things on the page. */
+      :root {
+        --bg: #141313;
+        --surface: #1c1b1b;
+        --line: #2b2a2a;
+        --border: #444748;
+        --text: #e5e2e1;
+        --head: #f4f0ef;
+        --muted: #c4c7c7;
+        --dim: #8e9192;
+        --faint: #5f5e5e;
+        --accent: #c8c6c5;
+        --on-accent: #181818;
+        --live: #3dd68c;
+
+        --yellow: #ffdf00;
+        --blue: #4169e1;
+        --red: #ff4040;
+        --green: #00a651;
+        --violet: #92278f;
+        --magenta: #ec0f8a;
+        --pink: #f06292;
+        --orange: #f58220;
+
+        --gutter: clamp(20px, 5vw, 64px);
+        --section: clamp(64px, 8vw, 96px);
+        --nav-h: 69px;
+      }
+
+      * { box-sizing: border-box; }
+
+      html {
+        scroll-behavior: smooth;
+        /* Anchors land below the sticky header rather than under it. */
+        scroll-padding-top: calc(var(--nav-h) + 16px);
+      }
+      /* Lets the FAQ animate to `auto` height instead of snapping open.
+         Ignored where unsupported, which is exactly the old behaviour. */
+      @supports (interpolate-size: allow-keywords) {
+        :root { interpolate-size: allow-keywords; }
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Outfit", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+
+      a { color: var(--text); }
+
+      /* The one piece of motion the app itself has: the live dot, used wherever
+         something is happening in real time. */
+      @keyframes ms-pulse {
+        0%, 100% { opacity: 0.5; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.4); }
+      }
+      .dot {
+        width: 6px;
+        height: 6px;
+        background: var(--live);
+        flex-shrink: 0;
+        animation: ms-pulse 1.4s ease-in-out infinite;
+      }
+      .dot--sm { width: 5px; height: 5px; }
+
+      .mono {
+        font-family: "Space Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      }
+
+      .eyebrow {
+        font-family: "Space Mono", ui-monospace, Menlo, Consolas, monospace;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1.5px;
+        color: var(--dim);
+        margin: 0;
+      }
+
+      .section { padding: var(--section) var(--gutter); }
+
+      .section-head { max-width: 640px; margin-bottom: 48px; }
+      .section-head h2 {
+        margin: 12px 0 0;
+        font-size: clamp(28px, 3.5vw, 42px);
+        font-weight: 700;
+        letter-spacing: -0.8px;
+        line-height: 1.15;
+        color: var(--head);
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--accent);
+        color: var(--on-accent);
+        padding: 16px 26px;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 15px;
+        transition: background 0.18s ease, transform 0.18s ease;
+      }
+      .btn:hover { background: var(--head); color: var(--on-accent); transform: translateY(-2px); }
+      .btn:active { transform: translateY(0); }
+
+      .btn-text {
+        font-family: "Space Mono", ui-monospace, Menlo, Consolas, monospace;
+        font-size: 12px;
+        color: var(--dim);
+        text-decoration: underline;
+        text-underline-offset: 3px;
+        transition: color 0.18s ease;
+      }
+      .btn-text:hover { color: var(--muted); }
+
+      /* ── Nav ────────────────────────────────────────────────── */
+      .nav {
+        position: sticky;
+        top: 0;
+        z-index: 30;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 22px var(--gutter);
+        border-bottom: 1px solid var(--line);
+        background: rgba(20, 19, 19, 0.88);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+      }
+      .brand { display: flex; align-items: center; gap: 10px; }
+      .brand span { font-weight: 700; font-size: 18px; letter-spacing: -0.3px; }
+
+      /* The toggle is a real focusable checkbox, just moved out of sight -- the
+         burger is its <label>, so the menu works with the keyboard and with no
+         script at all. */
+      .nav-toggle {
+        position: absolute;
+        opacity: 0;
+        width: 1px;
+        height: 1px;
+        margin: 0;
+      }
+      .nav-burger { display: none; }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: clamp(16px, 3vw, 32px);
+      }
+      .nav-links a {
+        font-size: 14px;
+        text-decoration: none;
+        color: var(--muted);
+        transition: color 0.18s ease;
+      }
+      .nav-links a:hover { color: var(--head); }
+      .nav-cta {
+        font-family: "Space Mono", ui-monospace, Menlo, Consolas, monospace;
+        font-size: 12px !important;
+        font-weight: 700;
+        letter-spacing: 1px;
+        background: var(--accent);
+        color: var(--on-accent) !important;
+        padding: 11px 18px;
+        transition: background 0.18s ease;
+      }
+      .nav-cta:hover { background: var(--head); }
+
+      @media (max-width: 720px) {
+        :root { --nav-h: 84px; }
+        /* row-gap, not the shorthand: the collapsed menu is still a flex line,
+           and a 16px gap above a zero-height line is 16px of nav for nothing. */
+        .nav { flex-wrap: wrap; row-gap: 0; column-gap: 16px; }
+        .nav-burger {
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          gap: 5px;
+          width: 40px;
+          height: 40px;
+          padding: 0 8px;
+          cursor: pointer;
+          border: 1px solid var(--border);
+        }
+        .nav-burger i {
+          display: block;
+          height: 1.5px;
+          background: var(--text);
+          transition: transform 0.28s ease, opacity 0.2s ease;
+        }
+        /* Three bars fold into a cross. */
+        .nav-toggle:checked ~ .nav-burger i:nth-child(1) { transform: translateY(6.5px) rotate(45deg); }
+        .nav-toggle:checked ~ .nav-burger i:nth-child(2) { opacity: 0; }
+        .nav-toggle:checked ~ .nav-burger i:nth-child(3) { transform: translateY(-6.5px) rotate(-45deg); }
+        .nav-toggle:focus-visible ~ .nav-burger { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+        .nav-links {
+          flex-basis: 100%;
+          flex-direction: column;
+          align-items: stretch;
+          gap: 0;
+          max-height: 0;
+          overflow: hidden;
+          transition: max-height 0.32s cubic-bezier(0.22, 0.61, 0.36, 1);
+        }
+        .nav-toggle:checked ~ .nav-links { max-height: 260px; }
+        .nav-links a {
+          padding: 14px 0;
+          border-top: 1px solid var(--line);
+          font-size: 15px;
+        }
+        .nav-links a:first-child { margin-top: 8px; }
+        .nav-cta { margin: 12px 0 4px; text-align: center; padding: 14px 18px; border-top: 0 !important; }
+      }
+
+      /* ── Hero ───────────────────────────────────────────────── */
+      .hero {
+        display: flex;
+        align-items: center;
+        gap: clamp(24px, 5vw, 64px);
+        flex-wrap: wrap;
+        padding: clamp(48px, 8vw, 96px) var(--gutter) var(--section);
+      }
+      .hero-copy {
+        flex: 1 1 460px;
+        min-width: 300px;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+      .hero-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        align-self: flex-start;
+        border: 1px solid var(--border);
+        padding: 6px 10px;
+      }
+      .hero h1 {
+        margin: 0;
+        font-size: clamp(38px, 5.5vw, 64px);
+        line-height: 1.04;
+        font-weight: 700;
+        letter-spacing: -1.5px;
+        color: var(--head);
+      }
+      .hero p {
+        margin: 0;
+        font-size: clamp(16px, 1.6vw, 19px);
+        line-height: 1.6;
+        color: var(--muted);
+        max-width: 520px;
+      }
+      .hero-actions {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      .hero-device { flex: 0 1 340px; min-width: 260px; display: flex; justify-content: center; }
+
+      /* ── Android device frame ───────────────────────────────── */
+      /* Bezel, status bar and gesture pill traced from the Material 3 frame in
+         the design source, rebuilt as plain markup so the page stays buildless. */
+      .phone {
+        width: 280px;
+        height: 606px;
+        flex-shrink: 0;
+        border-radius: 18px;
+        overflow: hidden;
+        background: #1d1b20;
+        border: 8px solid rgba(116, 119, 117, 0.5);
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
+        display: flex;
+        flex-direction: column;
+      }
+      .phone--sm { width: 260px; height: 562px; }
+      .phone-status {
+        height: 40px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 16px;
+        position: relative;
+        font-family: Roboto, system-ui, sans-serif;
+        font-size: 14px;
+        letter-spacing: 0.25px;
+        color: #fff;
+      }
+      .phone-punch {
+        position: absolute;
+        left: 50%;
+        top: 8px;
+        transform: translateX(-50%);
+        width: 24px;
+        height: 24px;
+        border-radius: 100px;
+        background: #2e2e2e;
+      }
+      .phone-icons { display: flex; align-items: center; gap: 2px; }
+      /* Column, because every screen is content plus the tab bar under it. */
+      .phone-screen {
+        flex: 1;
+        position: relative;
+        overflow: hidden;
+        background: var(--bg);
+        display: flex;
+        flex-direction: column;
+      }
+      .screen-body { position: relative; flex: 1; overflow: hidden; }
+      .phone-nav { height: 24px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+      .phone-nav i { width: 108px; height: 4px; border-radius: 2px; background: #fff; opacity: 0.4; }
+      .device { display: flex; flex-direction: column; align-items: center; gap: 20px; }
+      .device figcaption { font-size: 13px; color: var(--dim); }
+
+      /* ── Bottom tab bar ─────────────────────────────────────── */
+      /* The app's own: a hairline track along the top edge with a thicker car
+         riding it, parked over whichever tab is active. */
+      .tabbar { position: relative; flex-shrink: 0; padding-top: 3px; background: var(--surface); }
+      .tab-track { position: absolute; top: 0; left: 0; right: 0; height: 1px; background: var(--border); }
+      .tab-car { position: absolute; top: -1px; left: 0; width: 34px; height: 3px; background: var(--accent); }
+      .tab-row { display: flex; height: 50px; }
+      .tab {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        color: var(--dim);
+      }
+      .tab span { font-size: 10px; font-weight: 600; line-height: 13px; }
+      .tab.is-active { color: var(--accent); }
+
+      /* ── Hero demo ──────────────────────────────────────────── */
+      /* One looping pass through the app, in the order you'd actually do it:
+         plan a route, read the itinerary, start the journey, watch yourself
+         catch up with a friend waiting on the platform, then pull the shade
+         down for the ongoing notification and the interchange alert.
+
+         Every layer runs off the same 22s master timeline (percentages below
+         are of those 22 seconds), which is what keeps the scenes in step with
+         no script on the page. Copy is lifted from the real screens --
+         src/journey/notificationContent.ts and src/journey/alerts.ts write
+         these exact strings. */
+      .scene { position: absolute; inset: 0; }
+
+      .scene-plan { opacity: 0; animation: hd-plan 22s linear infinite; }
+      .scene-map { opacity: 1; animation: hd-map 22s linear infinite; }
+      @keyframes hd-plan {
+        0%, 43.2% { opacity: 1; }
+        46.4%, 95.5% { opacity: 0; }
+        99%, 100% { opacity: 1; }
+      }
+      @keyframes hd-map {
+        0%, 43.2% { opacity: 0; }
+        46.4%, 95.5% { opacity: 1; }
+        99%, 100% { opacity: 0; }
+      }
+
+      /* The rail joining the two planner fields goes live once both ends are
+         chosen -- same tell the real planner card uses. */
+      @keyframes hd-accent-bg {
+        0%, 9.5% { background: #444748; }
+        11%, 93% { background: #c8c6c5; }
+        95%, 100% { background: #444748; }
+      }
+      @keyframes hd-accent-bd {
+        0%, 9.5% { border-color: #444748; }
+        11%, 93% { border-color: #c8c6c5; }
+        95%, 100% { border-color: #444748; }
+      }
+
+      /* — Planner scene — */
+      /* The whole column scrolls, because it is a ScrollView in the app and the
+         itinerary is taller than the screen. */
+      .plan { padding: 16px 14px 20px; animation: hd-scroll 22s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+      @keyframes hd-scroll {
+        0%, 18.2% { transform: translateY(0); }
+        /* Exactly the overflow: 643px of content in a 473px body. Any less and
+           the destination row never clears the bottom edge. */
+        28.2%, 32.7% { transform: translateY(-170px); }
+        38.2%, 100% { transform: translateY(0); }
+      }
+      .plan h4 { margin: 0 0 12px; font-size: 19px; font-weight: 600; color: var(--text); }
+      .planner-card { display: flex; background: var(--surface); border: 1px solid var(--border); padding-left: 6px; }
+      .planner-fields { flex: 1; min-width: 0; position: relative; }
+      .prail {
+        position: absolute;
+        left: 5px;
+        /* Runs between the two marker centres, so it reads as one journey
+           joining the fields rather than a divider sitting beside them. */
+        top: 31px;
+        bottom: 19px;
+        width: 2px;
+        background: #c8c6c5;
+        animation: hd-accent-bg 22s linear infinite;
+      }
+      .pmark { position: absolute; left: 1px; width: 10px; height: 10px; }
+      .pmark--o {
+        top: 26px;
+        border-radius: 50%;
+        border: 2px solid #c8c6c5;
+        background: var(--surface);
+        animation: hd-accent-bd 22s linear infinite;
+      }
+      .pmark--d { bottom: 14px; background: #c8c6c5; animation: hd-accent-bg 22s linear infinite; }
+      .field { padding: 9px 10px 9px 22px; }
+      .field-label {
+        display: block;
+        font-family: "Space Mono", monospace;
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: var(--dim);
+      }
+      /* Block, not inline: the placeholder and the value are stacked on top of
+         each other here, and an inline box would ignore the height that gives
+         them somewhere to stack. */
+      .field-slot { display: block; position: relative; height: 18px; margin-top: 1px; }
+      .field-slot > span { position: absolute; left: 0; top: 0; font-size: 13px; white-space: nowrap; }
+      .field-ph { color: var(--dim); }
+      .field-val { color: var(--text); font-weight: 600; }
+      .fdiv { height: 1px; margin-left: 22px; background: var(--border); }
+      .swap {
+        width: 40px;
+        align-self: stretch;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-left: 1px solid var(--border);
+        color: var(--dim);
+        font-size: 14px;
+      }
+      .f-o-ph { animation: hd-o-ph 22s linear infinite; }
+      .f-o-val { animation: hd-o-val 22s linear infinite; }
+      .f-d-ph { animation: hd-d-ph 22s linear infinite; }
+      .f-d-val { animation: hd-d-val 22s linear infinite; }
+      @keyframes hd-o-ph { 0%, 4.5% { opacity: 1; } 5.5%, 92% { opacity: 0; } 94%, 100% { opacity: 1; } }
+      @keyframes hd-o-val { 0%, 4.5% { opacity: 0; } 5.5%, 92% { opacity: 1; } 94%, 100% { opacity: 0; } }
+      @keyframes hd-d-ph { 0%, 9% { opacity: 1; } 10%, 92% { opacity: 0; } 94%, 100% { opacity: 1; } }
+      @keyframes hd-d-val { 0%, 9% { opacity: 0; } 10%, 92% { opacity: 1; } 94%, 100% { opacity: 0; } }
+
+      .plan-result { margin-top: 12px; opacity: 0; animation: hd-result 22s linear infinite; }
+      @keyframes hd-result {
+        0%, 11% { opacity: 0; transform: translateY(10px); }
+        14.5%, 92% { opacity: 1; transform: translateY(0); }
+        94%, 100% { opacity: 0; transform: translateY(10px); }
+      }
+      .summary { background: var(--surface); border: 1px solid var(--border); padding: 12px; }
+      .metrics { display: flex; align-items: flex-start; justify-content: space-between; }
+      .metric-label {
+        font-family: "Space Mono", monospace;
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: var(--dim);
+      }
+      .metric-value { font-size: 24px; line-height: 26px; font-weight: 600; color: var(--text); }
+      .metric-value em {
+        font-family: "Space Mono", monospace;
+        font-style: normal;
+        font-size: 10px;
+        color: var(--muted);
+      }
+      .meta-line { font-family: "Space Mono", monospace; font-size: 10px; color: var(--dim); margin-top: 6px; }
+      .action-row { display: flex; align-items: flex-start; gap: 6px; margin-top: 12px; }
+      .btn-start {
+        position: relative;
+        flex: 1;
+        height: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        background: var(--accent);
+        color: var(--on-accent);
+        font-size: 12px;
+        font-weight: 700;
+        animation: hd-press 22s linear infinite;
+      }
+      @keyframes hd-press {
+        0%, 41% { transform: none; filter: none; }
+        41.8% { transform: scale(0.97); filter: brightness(0.82); }
+        43%, 100% { transform: none; filter: none; }
+      }
+      .btn-save {
+        width: 34px;
+        height: 34px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text);
+      }
+
+      /* — Itinerary, as the route screen draws it — */
+      /* Every row owns its piece of the rail so the line runs unbroken from the
+         origin dot to the destination block, changing colour at the interchange. */
+      .itin {
+        margin-top: 10px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        overflow: hidden;
+        padding-left: 11px;
+      }
+      .irow { display: flex; }
+      .irail { width: 22px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; position: relative; }
+      .irail i { width: 3px; flex: 1; }
+      .imark {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text);
+      }
+      .imark--o { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--text); background: var(--surface); }
+      .imark--x { width: 17px; height: 17px; border: 2px solid var(--text); background: var(--surface); }
+      .imark--d { width: 12px; height: 12px; background: var(--text); }
+      .icontent { flex: 1; min-width: 0; padding: 10px 14px 10px 8px; }
+      .istation { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .istation b { font-size: 15px; font-weight: 600; color: var(--text); }
+      .istation .t { font-family: "Space Mono", monospace; font-size: 12px; color: var(--text); }
+      .ichange { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); margin-top: 3px; }
+      .ibadge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        background: var(--line);
+        padding: 3px 7px;
+        font-family: "Space Mono", monospace;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: var(--text);
+      }
+      .imeta { font-family: "Space Mono", monospace; font-size: 10px; color: var(--dim); margin-top: 5px; }
+      .iexpand { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 600; color: var(--dim); margin-top: 5px; }
+
+      /* The tap rings: where a finger lands, drawn inside the control it hits
+         so the two can never drift apart. */
+      .tap {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        border: 2px solid rgba(229, 226, 225, 0.9);
+        background: rgba(229, 226, 225, 0.18);
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.4);
+      }
+      .tap--start { animation: hd-tap-start 22s linear infinite; }
+      .tap--bcast { animation: hd-tap-bcast 22s linear infinite; }
+      @keyframes hd-tap-start {
+        0%, 39% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+        40.5% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        43%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
+      }
+      @keyframes hd-tap-bcast {
+        0%, 47.5% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+        49% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        51%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
+      }
+
+      /* — Map scene — */
+      .journey-bar {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        top: 44px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        overflow: hidden;
+      }
+      .journey-bar--demo { top: 12px; }
+      .journey-bar .row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; }
+      .journey-bar .station { font-size: 15px; font-weight: 600; color: var(--text); margin-top: 1px; }
+      .journey-bar .count { font-size: 20px; font-weight: 600; line-height: 1; }
+      .journey-bar .track { height: 3px; display: flex; }
+      .jcount { position: relative; width: 24px; height: 22px; }
+      .jcount span {
+        position: absolute;
+        inset: 0;
+        text-align: center;
+        font-size: 20px;
+        font-weight: 600;
+        line-height: 22px;
+        color: var(--text);
+      }
+      /* Base state is the last digit of the run, so the reduced-motion still
+         shows one number rather than all three stacked on each other. */
+      .jn5 { opacity: 0; animation: hd-n5 22s linear infinite; }
+      .jn4 { opacity: 0; animation: hd-n4 22s linear infinite; }
+      .jn3 { animation: hd-n3 22s linear infinite; }
+      /* Everything that tracks the journey holds its final value until 99%,
+         then snaps back inside the half-frame where the map scene is already
+         fully faded out. Ramping the reset any earlier plays the journey
+         backwards in front of the viewer. */
+      @keyframes hd-n5 { 0%, 52.5% { opacity: 1; } 53.5%, 98% { opacity: 0; } 99.5%, 100% { opacity: 1; } }
+      @keyframes hd-n4 { 0%, 52.5% { opacity: 0; } 53.5%, 63.6% { opacity: 1; } 64.6%, 100% { opacity: 0; } }
+      @keyframes hd-n3 { 0%, 63.6% { opacity: 0; } 64.6%, 98% { opacity: 1; } 99.5%, 100% { opacity: 0; } }
+
+      /* Two copies of the same leg row, one ghosted and one solid, with the
+         solid one clipped to how far along the journey is. clip-path rather
+         than a width-clipped wrapper so the legs stay put and the boundary
+         sweeps across them -- and so nothing has to know the bar's width. */
+      .jrail { position: relative; height: 3px; }
+      .jrail-ghost, .jrail-solid { position: absolute; inset: 0; display: flex; }
+      .jrail-solid { clip-path: inset(0 53% 0 0); animation: hd-jrail 22s linear infinite; }
+      @keyframes hd-jrail {
+        0%, 46.4% { clip-path: inset(0 92% 0 0); }
+        63.6% { clip-path: inset(0 62% 0 0); }
+        92%, 99% { clip-path: inset(0 53% 0 0); }
+        99.5%, 100% { clip-path: inset(0 92% 0 0); }
+      }
+
+      /* Pins ride the journey geometry itself rather than a separate set of
+         coordinates, so they can't wander off the lines they're meant to be on. */
+      .mpin {
+        position: absolute;
+        left: 0;
+        top: 0;
+        offset-rotate: 0deg;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: "Space Mono", monospace;
+        font-weight: 700;
+      }
+      .mpin--self {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #4169e1;
+        border: 2px solid var(--text);
+        offset-path: path("M232 388 L196 318 L160 245 L132 180 L118 278 L104 368");
+        offset-distance: 44%;
+        animation: hd-self 22s linear infinite;
+      }
+      /* Stops short of Rajiv Chowk on purpose: the bar, the notification and
+         the pin all have to agree that the interchange is still ahead. */
+      @keyframes hd-self {
+        0%, 46.4% { offset-distance: 8%; }
+        63.6% { offset-distance: 38%; }
+        92%, 99% { offset-distance: 47%; }
+        99.5%, 100% { offset-distance: 8%; }
+      }
+      .mpin--friend {
+        width: 20px;
+        height: 20px;
+        font-size: 9px;
+        background: var(--text);
+        color: var(--on-accent);
+        border: 2px solid var(--bg);
+      }
+      /* Rohit is already on the platform one stop short of the interchange and
+         waits there. Same path as the user, and from the moment they meet at
+         63.6% the two keyframe tracks are identical -- so they ride on
+         together instead of drifting apart. The translate offsets the badge so
+         both pins stay readable once they are on the same spot. */
+      .mpin--r {
+        offset-path: path("M232 388 L196 318 L160 245 L132 180 L118 278 L104 368");
+        offset-distance: 44%;
+        transform: translate(16px, -14px);
+        animation: hd-friend-r 22s linear infinite;
+      }
+      @keyframes hd-friend-r {
+        0%, 63.6% { offset-distance: 38%; }
+        92%, 99% { offset-distance: 47%; }
+        99.5%, 100% { offset-distance: 38%; }
+      }
+      /* Priya is coming down the Yellow Line the other way. One direction only:
+         the reset happens while the planner is on screen. */
+      .mpin--p {
+        offset-path: path("M150 16 L140 96 L132 180 L118 278");
+        offset-distance: 60%;
+        animation: hd-friend-p 22s linear infinite;
+      }
+      @keyframes hd-friend-p {
+        0%, 46.4% { offset-distance: 22%; }
+        92%, 99% { offset-distance: 74%; }
+        99.5%, 100% { offset-distance: 22%; }
+      }
+
+      .map-buttons { position: absolute; right: 10px; bottom: 14px; display: flex; flex-direction: column; gap: 8px; }
+      .map-btn {
+        position: relative;
+        width: 38px;
+        height: 38px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text);
+      }
+      .bcast-fill { position: absolute; inset: 0; background: var(--live); opacity: 1; animation: hd-bcast 22s linear infinite; }
+      .bcast-icon { position: relative; display: flex; color: var(--on-accent); animation: hd-bcast-icon 22s linear infinite; }
+      @keyframes hd-bcast { 0%, 49.5% { opacity: 0; } 51%, 98% { opacity: 1; } 99.5%, 100% { opacity: 0; } }
+      @keyframes hd-bcast-icon { 0%, 49.5% { color: #e5e2e1; } 51%, 98% { color: #181818; } 99.5%, 100% { color: #e5e2e1; } }
+      /* Gate and ring are separate elements because they both animate opacity:
+         the gate says *whether* it is transmitting, the ring is the transmission. */
+      .ping-gate { position: absolute; inset: -1px; opacity: 1; animation: hd-bcast 22s linear infinite; }
+      .ping { position: absolute; inset: 0; border: 2px solid var(--live); animation: hd-ping 1.8s ease-out infinite; }
+      @keyframes hd-ping {
+        0% { transform: scale(1); opacity: 0.7; }
+        /* Stops at 1.6 rather than the app's wider ring: any further and the
+           screen's edge clips it into a rectangle. */
+        100% { transform: scale(1.6); opacity: 0; }
+      }
+
+      /* — The tab bar's car follows the scene — */
+      .tab-car--demo { animation: hd-car 22s cubic-bezier(0.65, 0, 0.35, 1) infinite; }
+      @keyframes hd-car {
+        0%, 43.2% { transform: translateX(82px); }
+        46.4%, 95.5% { transform: translateX(16px); }
+        99%, 100% { transform: translateX(82px); }
+      }
+      .tab-map { color: var(--accent); animation: hd-tab-map 22s linear infinite; }
+      .tab-route { color: var(--dim); animation: hd-tab-route 22s linear infinite; }
+      @keyframes hd-tab-map {
+        0%, 43.2% { color: #8e9192; }
+        46.4%, 95.5% { color: #c8c6c5; }
+        99%, 100% { color: #8e9192; }
+      }
+      @keyframes hd-tab-route {
+        0%, 43.2% { color: #c8c6c5; }
+        46.4%, 95.5% { color: #8e9192; }
+        99%, 100% { color: #c8c6c5; }
+      }
+
+      /* — Notification shade — */
+      /* Sits over the tab bar too, because the system shade covers the app. */
+      .swipe {
+        position: absolute;
+        left: 50%;
+        top: 6px;
+        width: 34px;
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(229, 226, 225, 0.75);
+        opacity: 0;
+        z-index: 7;
+        animation: hd-swipe 22s linear infinite;
+      }
+      @keyframes hd-swipe {
+        0%, 68.5% { opacity: 0; transform: translate(-50%, 0); }
+        70% { opacity: 1; transform: translate(-50%, 0); }
+        75% { opacity: 0.9; transform: translate(-50%, 130px); }
+        77%, 100% { opacity: 0; transform: translate(-50%, 150px); }
+      }
+      .scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.78); opacity: 0; z-index: 5; animation: hd-scrim 22s linear infinite; }
+      @keyframes hd-scrim { 0%, 69.5% { opacity: 0; } 74.5%, 92% { opacity: 1; } 95.5%, 100% { opacity: 0; } }
+      .shade {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        z-index: 6;
+        padding: 8px 8px 14px;
+        /* Its own surface, not just floating cards: without it the map shows
+           through the gaps between notifications and the pull-down reads as a
+           rendering fault rather than as system UI over the app. */
+        background: rgba(18, 17, 17, 0.96);
+        transform: translateY(-105%);
+        animation: hd-shade 22s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+      }
+      @keyframes hd-shade {
+        0%, 70% { transform: translateY(-105%); }
+        75.5%, 92% { transform: translateY(0); }
+        95.5%, 100% { transform: translateY(-105%); }
+      }
+      .shade-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 2px 4px 10px;
+        font-family: "Space Mono", monospace;
+        font-size: 9px;
+        color: rgba(229, 226, 225, 0.7);
+      }
+      /* Rounded, unlike everything the app itself draws -- these are system
+         surfaces, and the corner radius is the cheapest way to say so. */
+      .notif { background: #2a2929; border-radius: 8px; padding: 10px; }
+      .notif-head { display: flex; align-items: center; gap: 5px; font-size: 9px; color: var(--dim); margin-bottom: 5px; }
+      .notif-title { font-size: 13px; font-weight: 600; color: var(--head); line-height: 1.25; }
+      .notif-body { font-size: 11px; color: var(--muted); line-height: 1.35; margin-top: 2px; }
+
+      /* The Android tracker: coloured legs, an interchange marker, and a head
+         that keeps creeping while you watch it. */
+      .notif-track { position: relative; height: 4px; margin-top: 10px; }
+      .nt-base, .nt-fill { position: absolute; inset: 0; display: flex; }
+      .nt-base { opacity: 0.28; }
+      .nt-fill { clip-path: inset(0 53% 0 0); animation: hd-nt 22s linear infinite; }
+      .nt-point {
+        position: absolute;
+        top: -2px;
+        left: 55%;
+        width: 8px;
+        height: 8px;
+        margin-left: -4px;
+        background: var(--yellow);
+        transform: rotate(45deg);
+      }
+      .nt-head {
+        position: absolute;
+        top: -3px;
+        left: 47%;
+        width: 3px;
+        height: 10px;
+        margin-left: -1.5px;
+        background: var(--head);
+        animation: hd-nt-head 22s linear infinite;
+      }
+      @keyframes hd-nt { 0%, 70% { clip-path: inset(0 62% 0 0); } 92%, 100% { clip-path: inset(0 53% 0 0); } }
+      @keyframes hd-nt-head { 0%, 70% { left: 38%; } 92%, 100% { left: 47%; } }
+
+      .notif-actions { margin-top: 8px; border-top: 1px solid #3a3939; padding-top: 7px; }
+      .notif-actions span {
+        font-family: "Space Mono", monospace;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: var(--accent);
+      }
+      .notif-alert {
+        overflow: hidden;
+        max-height: 0;
+        opacity: 0;
+        border-left: 3px solid var(--yellow);
+        animation: hd-alert 22s linear infinite;
+      }
+      /* Two seconds after the shade settles, which is the point of the beat:
+         you are looking at the ongoing notification when the interchange
+         alert arrives on top of it. */
+      @keyframes hd-alert {
+        0%, 84.5% { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; margin-bottom: 0; }
+        87%, 92% { max-height: 90px; opacity: 1; padding-top: 10px; padding-bottom: 10px; margin-bottom: 8px; }
+        93.5%, 100% { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; margin-bottom: 0; }
+      }
+
+      /* ── Line coverage strip ────────────────────────────────── */
+      .lines {
+        padding: 28px var(--gutter);
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        gap: clamp(16px, 3vw, 36px);
+        flex-wrap: wrap;
+      }
+      .lines .eyebrow { white-space: nowrap; }
+      .chip { display: flex; align-items: center; gap: 7px; }
+      .chip i { width: 9px; height: 9px; }
+      .chip span { font-size: 13px; color: var(--muted); }
+
+      /* ── Features ───────────────────────────────────────────── */
+      .cards { display: flex; gap: 20px; flex-wrap: wrap; }
+      .card {
+        flex: 1 1 320px;
+        min-width: 280px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+        padding: 28px;
+        transition: border-color 0.25s ease, transform 0.25s ease;
+      }
+      .card:hover { border-color: var(--border); transform: translateY(-3px); }
+      .card h3 { margin: 14px 0 8px; font-size: 19px; font-weight: 600; color: var(--head); }
+      .card > p { margin: 0 0 22px; font-size: 14px; line-height: 1.6; color: var(--muted); }
+      .demo-box { background: var(--bg); border: 1px solid var(--border); }
+      .avatar {
+        border-radius: 50%;
+        background: #353434;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+      .tag { background: var(--line); padding: 3px 7px; font-family: "Space Mono", monospace; font-size: 10px; color: var(--text); }
+
+      /* ── Screens showcase ───────────────────────────────────── */
+      .showcase { display: flex; gap: clamp(24px, 5vw, 56px); flex-wrap: wrap; justify-content: center; }
+      .friends-screen { padding: 18px; height: 100%; }
+      .friend { background: var(--surface); border: 1px solid var(--border); padding: 10px; margin-bottom: 8px; }
+
+      /* ── How it works ───────────────────────────────────────── */
+      .steps { display: flex; flex-wrap: wrap; }
+      .step { flex: 1 1 260px; min-width: 240px; padding: 24px; border-top: 2px solid; }
+      .step .num { font-family: "Space Mono", monospace; font-size: 28px; font-weight: 700; }
+      .step h3 { margin: 14px 0 8px; font-size: 18px; font-weight: 600; color: var(--head); }
+      .step p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--muted); }
+
+      /* ── FAQ ────────────────────────────────────────────────── */
+      /* <details name> gives the one-open-at-a-time accordion with no script;
+         ::details-content is what lets it slide rather than snap, and browsers
+         without it simply fall back to the snap. */
+      .faq { max-width: 760px; }
+      .faq details { border-bottom: 1px solid var(--line); }
+      .faq summary {
+        position: relative;
+        padding: 20px 34px 20px 0;
+        cursor: pointer;
+        list-style: none;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--head);
+        transition: color 0.2s ease;
+      }
+      .faq summary:hover { color: #fff; }
+      .faq summary::-webkit-details-marker { display: none; }
+      /* A plus whose upright bar rotates flat into a minus. */
+      .faq summary::before,
+      .faq summary::after {
+        content: "";
+        position: absolute;
+        right: 4px;
+        top: 50%;
+        width: 13px;
+        height: 1.5px;
+        background: var(--dim);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s ease;
+      }
+      .faq summary::before { transform: translateY(-50%); }
+      .faq summary::after { transform: translateY(-50%) rotate(90deg); }
+      .faq details[open] summary::after { transform: translateY(-50%) rotate(0deg); }
+      .faq details[open] summary::before,
+      .faq details[open] summary::after { background: var(--head); }
+      .faq p { margin: 0 0 20px; font-size: 14px; line-height: 1.65; color: var(--muted); max-width: 640px; }
+      .faq details::details-content {
+        block-size: 0;
+        overflow: hidden;
+        transition: block-size 0.34s cubic-bezier(0.4, 0, 0.2, 1), content-visibility 0.34s allow-discrete;
+      }
+      .faq details[open]::details-content { block-size: auto; }
+
+      /* ── Footer ─────────────────────────────────────────────── */
+      .outro { padding: clamp(56px, 7vw, 80px) var(--gutter) 40px; background: var(--surface); border-top: 1px solid var(--line); }
+      .outro-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 32px;
+        flex-wrap: wrap;
+        padding-bottom: 48px;
+        border-bottom: 1px solid var(--line);
+      }
+      .outro-top h2 {
+        margin: 0 0 12px;
+        font-size: clamp(26px, 3vw, 34px);
+        font-weight: 700;
+        letter-spacing: -0.6px;
+        color: var(--head);
+      }
+      .outro-top p { margin: 0; font-size: 15px; line-height: 1.6; color: var(--muted); }
+      .outro-bottom {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+        padding-top: 28px;
+      }
+      .outro-bottom span { font-size: 13px; color: var(--dim); }
+      .outro-bottom .disclaimer { font-size: 12px; color: var(--faint); }
+
+      /* ── Scroll reveal ──────────────────────────────────────── */
+      /* Scroll-driven, so there is no observer to run and no state to keep.
+         The base state is fully visible: where view() isn't supported the
+         page simply doesn't animate rather than staying blank. */
+      @supports (animation-timeline: view()) {
+        @media (prefers-reduced-motion: no-preference) {
+          .reveal {
+            animation: reveal-in linear both;
+            animation-timeline: view();
+            animation-range: entry 8% cover 24%;
+          }
+          @keyframes reveal-in {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: none; }
+          }
+        }
+      }
+
+      /* The device frames are fixed-size by design; on the narrowest phones
+         scale rather than let them push the page sideways. */
+      @media (max-width: 359px) {
+        /* Scaling leaves the pre-scale height in the layout, so pull the
+           difference back with a negative margin -- otherwise the caption and
+           the next section sit a phone-fifth too low. */
+        .phone { transform: scale(0.8); transform-origin: top center; margin-bottom: -124px; }
+        .phone--sm { margin-bottom: -116px; }
+      }
+
+      /* A walkthrough is motion by definition; with motion turned down the base
+         styles already hold a legible still of the map mid-journey, and the
+         page stops scrolling itself. */
+      @media (prefers-reduced-motion: reduce) {
+        html { scroll-behavior: auto; }
+        .phone, .phone *, .phone *::before, .phone *::after,
+        .dot, .reveal { animation: none !important; }
+        .btn:hover, .card:hover { transform: none; }
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- ── Nav ──────────────────────────────────────────────── -->
+    <header class="nav">
+      <a class="brand" href="#" style="text-decoration: none; color: inherit">
+        <svg width="26" height="26" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+          <g stroke="#e5e2e1" stroke-width="6" stroke-linejoin="miter">
+            <path d="M12 8.76V55.24" />
+            <path d="M52 8.76V55.24" />
+            <path d="M12.88 10.88L26 24" />
+            <path d="M51.12 10.88L38 24" />
+            <path d="M32 18L44 30L32 42L20 30Z" />
+          </g>
+        </svg>
+        <span>MetroSync</span>
+      </a>
+
+      <input class="nav-toggle" type="checkbox" id="nav-toggle" />
+      <label class="nav-burger" for="nav-toggle" aria-label="Toggle menu">
+        <i></i><i></i><i></i>
+      </label>
+
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How it works</a>
+        <a href="#faq">FAQ</a>
+        <a class="nav-cta" href="#download">DOWNLOAD</a>
+      </nav>
+    </header>
+
+    <!-- ── Hero ─────────────────────────────────────────────── -->
+    <section class="hero">
+      <div class="hero-copy">
+        <div class="hero-tag">
+          <i class="dot"></i>
+          <span class="eyebrow">DELHI METRO &amp; NCR</span>
+        </div>
+        <h1>Never ride the metro alone.</h1>
+        <p>
+          MetroSync shows you which friends are already on the move, right now — so instead of
+          texting "which platform?" you just meet them there and go together.
+        </p>
+        <div class="hero-actions">
+          <a class="btn" href="#download" data-install>Download for Android</a>
+          <a class="btn-text" href="https://github.com/CodrJatin/metrosync-react-native/releases"
+            >or browse all releases</a
+          >
+        </div>
+      </div>
+
+      <div class="hero-device">
+        <div class="phone">
+          <div class="phone-status">
+            <span>9:30</span>
+            <div class="phone-punch"></div>
+            <div class="phone-icons">
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M8 13.3L.67 5.97a10.37 10.37 0 0114.66 0L8 13.3z" fill="#fff" />
+              </svg>
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M14.67 14.67V1.33L1.33 14.67h13.34z" fill="#fff" />
+              </svg>
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                <rect x="3.75" y="2" width="8.5" height="13" rx="1.5" fill="#fff" />
+                <rect x="5.5" y="0.9" width="5" height="2" rx="0.5" fill="#fff" />
+              </svg>
+            </div>
+          </div>
+
+          <div class="phone-screen">
+            <div class="screen-body">
+              <!-- 1. Plan the route, read the itinerary ───────── -->
+              <section class="scene scene-plan">
+                <div class="plan">
+                  <h4>Plan Your Route</h4>
+
+                  <div class="planner-card">
+                    <div class="planner-fields">
+                      <span class="prail"></span>
+                      <span class="pmark pmark--o"></span>
+                      <span class="pmark pmark--d"></span>
+                      <div class="field">
+                        <span class="field-label">FROM</span>
+                        <span class="field-slot">
+                          <span class="field-ph f-o-ph">Origin station</span>
+                          <span class="field-val f-o-val">Noida Sector 18</span>
+                        </span>
+                      </div>
+                      <div class="fdiv"></div>
+                      <div class="field">
+                        <span class="field-label">TO</span>
+                        <span class="field-slot">
+                          <span class="field-ph f-d-ph">Destination station</span>
+                          <span class="field-val f-d-val">Hauz Khas</span>
+                        </span>
+                      </div>
+                    </div>
+                    <div class="swap">&#8645;</div>
+                  </div>
+
+                  <div class="plan-result">
+                    <div class="summary">
+                      <div class="metrics">
+                        <div>
+                          <div class="metric-label">TIME</div>
+                          <div class="metric-value">38<em>&nbsp;MIN</em></div>
+                        </div>
+                        <div>
+                          <div class="metric-label">FARE</div>
+                          <div class="metric-value">&#8377;50</div>
+                        </div>
+                        <div style="text-align: right">
+                          <div class="metric-label">INTERCHANGES (1)</div>
+                          <div style="margin-top: 6px">
+                            <span style="display: inline-block; width: 16px; height: 16px; background: var(--yellow)"></span>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="meta-line">26.4 km &middot; 19 stations</div>
+                      <div class="action-row">
+                        <div class="btn-start">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M21 3L3 10.5l7.5 3 3 7.5L21 3z" />
+                          </svg>
+                          <span>Start journey</span>
+                          <span class="tap tap--start"></span>
+                        </div>
+                        <div class="btn-save">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M6 3h12v18l-6-5-6 5V3z" />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- The itinerary the route screen draws: origin, each ride,
+                         the change, and the destination, on one unbroken rail. -->
+                    <div class="itin">
+                      <div class="irow">
+                        <div class="irail">
+                          <i></i>
+                          <i style="background: var(--blue)"></i>
+                          <span class="imark imark--o"></span>
+                        </div>
+                        <div class="icontent">
+                          <div class="istation"><b>Noida Sector 18</b><span class="t">10:04</span></div>
+                        </div>
+                      </div>
+
+                      <div class="irow">
+                        <div class="irail"><i style="background: var(--blue)"></i></div>
+                        <div class="icontent">
+                          <span class="ibadge">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <rect x="6" y="3" width="12" height="14" />
+                              <path d="M6 10h12M9 21l-2 2M15 21l2 2" />
+                            </svg>
+                            BLUE LINE
+                          </span>
+                          <div class="imeta">8 Stops &middot; 18 min</div>
+                          <div class="iexpand">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                              <path d="M6 9l6 6 6-6" />
+                            </svg>
+                            Show 7 in between
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="irow">
+                        <div class="irail">
+                          <i style="background: var(--blue)"></i>
+                          <i style="background: var(--yellow)"></i>
+                          <span class="imark imark--x">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                              <path d="M7 4v16M7 20l-3-3M7 4L4 7M17 20V4M17 4l3 3M17 20l3-3" />
+                            </svg>
+                          </span>
+                        </div>
+                        <div class="icontent">
+                          <div class="istation"><b>Rajiv Chowk</b><span class="t">10:22</span></div>
+                          <div class="ichange">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M7 4v16M7 20l-3-3M17 20V4M17 4l3 3" />
+                            </svg>
+                            Change to Yellow Line &middot; 3 min
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="irow">
+                        <div class="irail"><i style="background: var(--yellow)"></i></div>
+                        <div class="icontent">
+                          <span class="ibadge">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <rect x="6" y="3" width="12" height="14" />
+                              <path d="M6 10h12M9 21l-2 2M15 21l2 2" />
+                            </svg>
+                            YELLOW LINE
+                          </span>
+                          <div class="imeta">5 Stops &middot; 12 min</div>
+                          <div class="iexpand">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                              <path d="M6 9l6 6 6-6" />
+                            </svg>
+                            Show 4 in between
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="irow">
+                        <div class="irail">
+                          <i style="background: var(--yellow)"></i>
+                          <i></i>
+                          <span class="imark imark--d"></span>
+                        </div>
+                        <div class="icontent">
+                          <div class="istation"><b>Hauz Khas</b><span class="t">10:42</span></div>
+                          <div class="ichange">Destination</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- 2. Watch it on the map ────────────────────────── -->
+              <section class="scene scene-map">
+                <svg viewBox="0 0 264 473" style="position: absolute; inset: 0; width: 100%; height: 100%" aria-hidden="true">
+                  <!-- Network in the background, journey on top of it. -->
+                  <g opacity="0.32" fill="none" stroke-width="3">
+                    <path d="M150 16 L140 96 L132 180 L118 278 L104 368 L92 462" stroke="#FFDF00" />
+                    <path d="M258 424 L232 388 L196 318 L160 245 L132 180 L84 142 L16 124" stroke="#4169E1" />
+                    <path d="M8 72 L66 110 L140 96" stroke="#FF4040" />
+                    <path d="M36 452 L86 378 L118 278" stroke="#92278F" stroke-width="2" />
+                  </g>
+                  <path d="M232 388 L196 318 L160 245 L132 180" stroke="#4169E1" stroke-width="4" fill="none" />
+                  <path d="M132 180 L118 278 L104 368" stroke="#FFDF00" stroke-width="4" fill="none" />
+
+                  <circle cx="232" cy="388" r="4" fill="#141313" stroke="#e5e2e1" stroke-width="2" />
+                  <circle cx="196" cy="318" r="3.5" fill="#141313" stroke="#e5e2e1" stroke-width="2" />
+                  <circle cx="160" cy="245" r="4" fill="#141313" stroke="#e5e2e1" stroke-width="2" />
+                  <circle cx="132" cy="180" r="6" fill="#141313" stroke="#e5e2e1" stroke-width="2.5" />
+                  <circle cx="118" cy="278" r="3.5" fill="#141313" stroke="#e5e2e1" stroke-width="2" />
+                  <circle cx="104" cy="368" r="5" fill="#e5e2e1" stroke="#141313" stroke-width="2" />
+
+                  <text x="143" y="176" font-family="Outfit, sans-serif" font-size="9" fill="#c4c7c7">Rajiv Chowk</text>
+                  <text x="114" y="366" font-family="Outfit, sans-serif" font-size="9" fill="#c4c7c7">Hauz Khas</text>
+                </svg>
+
+                <div class="mpin mpin--friend mpin--p">P</div>
+                <div class="mpin mpin--friend mpin--r">R</div>
+                <div class="mpin mpin--self"></div>
+
+                <div class="journey-bar journey-bar--demo">
+                  <div class="row">
+                    <div style="flex: 1; min-width: 0">
+                      <div style="display: flex; align-items: center; gap: 6px">
+                        <i class="dot"></i>
+                        <span class="mono" style="font-size: 8px; font-weight: 700; letter-spacing: 1px; color: var(--muted)"
+                          >FOLLOWING</span
+                        >
+                      </div>
+                      <div class="station">Hauz Khas</div>
+                    </div>
+                    <div style="text-align: center">
+                      <div class="jcount">
+                        <span class="jn5">5</span>
+                        <span class="jn4">4</span>
+                        <span class="jn3">3</span>
+                      </div>
+                      <div class="mono" style="font-size: 7px; font-weight: 700; color: var(--muted)">STOPS</div>
+                    </div>
+                    <div
+                      style="
+                        width: 28px;
+                        height: 28px;
+                        border: 1px solid #ffb4ab;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: #ffb4ab;
+                        font-size: 13px;
+                      "
+                    >
+                      &times;
+                    </div>
+                  </div>
+                  <div class="jrail">
+                    <div class="jrail-ghost">
+                      <div style="flex: 55; background: var(--blue); opacity: 0.3"></div>
+                      <div style="flex: 45; background: var(--yellow); opacity: 0.3"></div>
+                    </div>
+                    <div class="jrail-solid">
+                      <div style="flex: 55; background: var(--blue)"></div>
+                      <div style="flex: 45; background: var(--yellow)"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="map-buttons">
+                  <div class="map-btn">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="4" />
+                      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                    </svg>
+                  </div>
+                  <div class="map-btn">
+                    <span class="ping-gate"><span class="ping"></span></span>
+                    <span class="bcast-fill"></span>
+                    <!-- Same radio glyph the app switches between outline and
+                         filled when sharing turns on. -->
+                    <span class="bcast-icon">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
+                        <path d="M7.8 7.8a6 6 0 000 8.4M16.2 7.8a6 6 0 010 8.4" />
+                        <path d="M4.6 4.6a10.5 10.5 0 000 14.8M19.4 4.6a10.5 10.5 0 010 14.8" opacity="0.55" />
+                      </svg>
+                    </span>
+                    <span class="tap tap--bcast"></span>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <!-- The tab bar is chrome, not a scene: it stays put while the car
+                 slides from Route to Map. -->
+            <div class="tabbar">
+              <div class="tab-track"></div>
+              <div class="tab-car tab-car--demo"></div>
+              <div class="tab-row">
+                <div class="tab tab-map">
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />
+                    <path d="M9 4v14M15 6v14" />
+                  </svg>
+                  <span>Map</span>
+                </div>
+                <div class="tab tab-route">
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M21 3L3 10.5l7.5 3 3 7.5L21 3z" />
+                  </svg>
+                  <span>Route</span>
+                </div>
+                <div class="tab">
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <circle cx="9" cy="8" r="3.2" />
+                    <path d="M3 20a6 6 0 0112 0" />
+                    <path d="M16 5.6a3.2 3.2 0 010 6.2M17.8 20a6.4 6.4 0 00-1.6-4.3" />
+                  </svg>
+                  <span>Friends</span>
+                </div>
+                <div class="tab">
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <circle cx="12" cy="12" r="3.2" />
+                    <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1" />
+                  </svg>
+                  <span>Settings</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. Pull down the shade ────────────────────────── -->
+            <span class="swipe"></span>
+            <div class="scrim"></div>
+            <div class="shade">
+              <div class="shade-head">
+                <span>MON, 1 AUG</span>
+                <span>9:30</span>
+              </div>
+
+              <!-- Lands about two seconds after the shade opens, and sorts
+                   above the silent ongoing one the way Android orders them. -->
+              <div class="notif notif-alert">
+                <div class="notif-head">
+                  <svg width="10" height="10" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+                    <g stroke="#8e9192" stroke-width="8" stroke-linejoin="miter">
+                      <path d="M12 8.76V55.24" />
+                      <path d="M52 8.76V55.24" />
+                      <path d="M32 18L44 30L32 42L20 30Z" />
+                    </g>
+                  </svg>
+                  <span>MetroSync</span><span>&middot;</span><span>now</span>
+                </div>
+                <div class="notif-title">Change at the next stop</div>
+                <div class="notif-body">Change at Rajiv Chowk for the Yellow Line.</div>
+              </div>
+
+              <div class="notif">
+                <div class="notif-head">
+                  <svg width="10" height="10" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+                    <g stroke="#8e9192" stroke-width="8" stroke-linejoin="miter">
+                      <path d="M12 8.76V55.24" />
+                      <path d="M52 8.76V55.24" />
+                      <path d="M32 18L44 30L32 42L20 30Z" />
+                    </g>
+                  </svg>
+                  <span>MetroSync</span><span>&middot;</span><span>Blue Line</span>
+                </div>
+                <div class="notif-title">3 stops to Hauz Khas</div>
+                <div class="notif-body">Next Rajiv Chowk &middot; change for the Yellow Line</div>
+                <div class="notif-track">
+                  <div class="nt-base">
+                    <div style="flex: 55; background: var(--blue)"></div>
+                    <div style="flex: 45; background: var(--yellow)"></div>
+                  </div>
+                  <div class="nt-fill">
+                    <div style="flex: 55; background: var(--blue)"></div>
+                    <div style="flex: 45; background: var(--yellow)"></div>
+                  </div>
+                  <span class="nt-point"></span>
+                  <span class="nt-head"></span>
+                </div>
+                <div class="notif-actions"><span>STOP</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="phone-nav"><i></i></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Line coverage ────────────────────────────────────── -->
+    <section class="lines">
+      <p class="eyebrow">EVERY LINE, ONE APP —</p>
+      <div class="chip"><i style="background: var(--yellow)"></i><span>Yellow</span></div>
+      <div class="chip"><i style="background: var(--blue)"></i><span>Blue</span></div>
+      <div class="chip"><i style="background: var(--red)"></i><span>Red</span></div>
+      <div class="chip"><i style="background: var(--green)"></i><span>Green</span></div>
+      <div class="chip"><i style="background: var(--violet)"></i><span>Violet</span></div>
+      <div class="chip"><i style="background: var(--magenta)"></i><span>Magenta</span></div>
+      <div class="chip"><i style="background: var(--pink)"></i><span>Pink</span></div>
+      <div class="chip"><i style="background: var(--orange)"></i><span>Airport Express</span></div>
+    </section>
+
+    <!-- ── Features ─────────────────────────────────────────── -->
+    <section class="section" id="features">
+      <div class="section-head reveal">
+        <p class="eyebrow">FEATURES</p>
+        <h2>Built for going together, not just getting there.</h2>
+      </div>
+
+      <div class="cards">
+        <article class="card reveal">
+          <span class="eyebrow">01</span>
+          <h3>See friends on the move</h3>
+          <p>
+            The moment a friend starts a journey, they show up on your map — with the line they're on
+            and how many stops away they are.
+          </p>
+
+          <div class="demo-box" style="border-left: 4px solid var(--blue); padding: 12px">
+            <div style="display: flex; align-items: center; gap: 10px">
+              <div class="avatar" style="width: 36px; height: 36px; font-size: 14px">R</div>
+              <span style="flex: 1; font-size: 14px; font-weight: 700">Rohit</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap">
+              <i class="dot"></i>
+              <span class="mono" style="font-size: 10px; color: var(--live)">LIVE</span>
+              <span class="tag">BLUE LINE</span>
+              <span class="tag" style="color: var(--accent)">3 STOPS &middot; 6 MIN</span>
+            </div>
+            <div class="mono" style="font-size: 11px; color: var(--dim); margin-top: 8px">140 m from Rajiv Chowk</div>
+          </div>
+        </article>
+
+        <article class="card reveal">
+          <span class="eyebrow">02</span>
+          <h3>Follow a journey together</h3>
+          <p>
+            Start following a journey and a live bar tracks it on the map — stop count, line colours,
+            and how far along you are.
+          </p>
+
+          <div class="demo-box" style="overflow: hidden">
+            <div style="display: flex; align-items: center; gap: 10px; padding: 10px 12px">
+              <div style="flex: 1">
+                <div style="display: flex; align-items: center; gap: 6px">
+                  <i class="dot"></i>
+                  <span class="mono" style="font-size: 9px; font-weight: 700; color: var(--muted)">FOLLOWING</span>
+                </div>
+                <div style="font-size: 16px; font-weight: 600">Hauz Khas</div>
+              </div>
+              <div style="text-align: center">
+                <div style="font-size: 20px; font-weight: 600; line-height: 1">5</div>
+                <div class="mono" style="font-size: 8px; color: var(--muted)">STOPS</div>
+              </div>
+            </div>
+            <div style="height: 3px; display: flex">
+              <div style="flex: 2; background: var(--yellow)"></div>
+              <div style="flex: 1; background: var(--yellow); opacity: 0.3"></div>
+              <div style="flex: 1; background: var(--red); opacity: 0.3"></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card reveal">
+          <span class="eyebrow">03</span>
+          <h3>Know exactly when to get off</h3>
+          <p>
+            One alert at a time, ordered by urgency — interchange coming up, then alighting, never
+            both buzzing at once.
+          </p>
+
+          <div class="demo-box" style="padding: 14px; display: flex; align-items: center; gap: 12px">
+            <div
+              style="
+                width: 34px;
+                height: 34px;
+                border: 1px solid var(--accent);
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 15px;
+                color: var(--accent);
+              "
+            >
+              &#9650;
+            </div>
+            <div>
+              <div style="font-size: 14px; font-weight: 600">Get off at Rajiv Chowk</div>
+              <div class="mono" style="font-size: 11px; color: var(--dim); margin-top: 2px">
+                Next stop &middot; change to Yellow Line
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ── Screens showcase ─────────────────────────────────── -->
+    <section style="padding: 0 var(--gutter) var(--section)">
+      <div class="section-head reveal">
+        <p class="eyebrow">INSIDE THE APP</p>
+        <h2>A monochrome, square-edged interface — the metro lines do the talking.</h2>
+      </div>
+
+      <div class="showcase">
+        <figure class="device reveal" style="margin: 0">
+          <div class="phone phone--sm">
+            <div class="phone-status">
+              <span>9:30</span>
+              <div class="phone-punch"></div>
+              <div class="phone-icons">
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M8 13.3L.67 5.97a10.37 10.37 0 0114.66 0L8 13.3z" fill="#fff" />
+                </svg>
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                  <rect x="3.75" y="2" width="8.5" height="13" rx="1.5" fill="#fff" />
+                  <rect x="5.5" y="0.9" width="5" height="2" rx="0.5" fill="#fff" />
+                </svg>
+              </div>
+            </div>
+
+            <div class="phone-screen">
+              <div class="screen-body">
+                <div class="friends-screen">
+                  <div style="font-size: 20px; font-weight: 600; margin-bottom: 16px">Friends</div>
+                  <div class="mono" style="font-size: 9px; font-weight: 700; letter-spacing: 1px; color: var(--dim); margin-bottom: 8px">
+                    ACTIVE FRIENDS (2)
+                  </div>
+
+                  <div class="friend" style="border-left: 4px solid var(--blue)">
+                    <div style="display: flex; align-items: center; gap: 8px">
+                      <div class="avatar" style="width: 28px; height: 28px; font-size: 11px">R</div>
+                      <span style="flex: 1; font-size: 12px; font-weight: 700">Rohit</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 5px; margin-top: 6px; flex-wrap: wrap">
+                      <i class="dot dot--sm"></i>
+                      <span class="mono" style="font-size: 8px; color: var(--live)">LIVE</span>
+                      <span class="tag" style="padding: 2px 5px; font-size: 8px">BLUE LINE</span>
+                    </div>
+                    <div class="mono" style="font-size: 9px; color: var(--dim); margin-top: 6px">140 m from Rajiv Chowk</div>
+                  </div>
+
+                  <div class="friend" style="border-left: 4px solid var(--yellow); margin-bottom: 14px">
+                    <div style="display: flex; align-items: center; gap: 8px">
+                      <div class="avatar" style="width: 28px; height: 28px; font-size: 11px">P</div>
+                      <span style="flex: 1; font-size: 12px; font-weight: 700">Priya</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 5px; margin-top: 6px; flex-wrap: wrap">
+                      <i class="dot dot--sm"></i>
+                      <span class="mono" style="font-size: 8px; color: var(--live)">LIVE</span>
+                      <span class="tag" style="padding: 2px 5px; font-size: 8px">YELLOW LINE</span>
+                    </div>
+                    <div class="mono" style="font-size: 9px; color: var(--dim); margin-top: 6px">Updated 12s ago</div>
+                  </div>
+
+                  <div
+                    class="mono"
+                    style="font-size: 9px; font-weight: 700; letter-spacing: 1px; color: var(--dim); opacity: 0.7; margin-bottom: 8px"
+                  >
+                    INACTIVE (1)
+                  </div>
+                  <div style="border: 1px solid var(--border); padding: 9px 10px; opacity: 0.75; display: flex; align-items: center; gap: 8px">
+                    <div class="avatar" style="width: 24px; height: 24px"></div>
+                    <span style="font-size: 11px">Aman</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tabbar">
+                <div class="tab-track"></div>
+                <div class="tab-car" style="transform: translateX(136px)"></div>
+                <div class="tab-row">
+                  <div class="tab">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />
+                      <path d="M9 4v14M15 6v14" />
+                    </svg>
+                    <span>Map</span>
+                  </div>
+                  <div class="tab">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M21 3L3 10.5l7.5 3 3 7.5L21 3z" />
+                    </svg>
+                    <span>Route</span>
+                  </div>
+                  <div class="tab is-active">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <circle cx="9" cy="8" r="3.2" />
+                      <path d="M3 20a6 6 0 0112 0" />
+                      <path d="M16 5.6a3.2 3.2 0 010 6.2M17.8 20a6.4 6.4 0 00-1.6-4.3" />
+                    </svg>
+                    <span>Friends</span>
+                  </div>
+                  <div class="tab">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <circle cx="12" cy="12" r="3.2" />
+                      <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1" />
+                    </svg>
+                    <span>Settings</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="phone-nav"><i></i></div>
+          </div>
+          <figcaption>Friends</figcaption>
+        </figure>
+
+        <figure class="device reveal" style="margin: 0">
+          <div class="phone phone--sm">
+            <div class="phone-status">
+              <span>9:30</span>
+              <div class="phone-punch"></div>
+              <div class="phone-icons">
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M8 13.3L.67 5.97a10.37 10.37 0 0114.66 0L8 13.3z" fill="#fff" />
+                </svg>
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                  <rect x="3.75" y="2" width="8.5" height="13" rx="1.5" fill="#fff" />
+                  <rect x="5.5" y="0.9" width="5" height="2" rx="0.5" fill="#fff" />
+                </svg>
+              </div>
+            </div>
+
+            <div class="phone-screen">
+              <div class="screen-body">
+                <svg viewBox="0 0 244 429" style="position: absolute; inset: 0; width: 100%; height: 100%" aria-hidden="true">
+                  <path d="M9 392 L75 321 L103 250 L94 161 L131 89 L150 27" stroke="#FFDF00" stroke-width="3" fill="none" />
+                  <path d="M225 401 L178 339 L150 268 L131 214 L103 250" stroke="#4169E1" stroke-width="3" fill="none" />
+                  <path d="M28 36 L75 107 L94 161" stroke="#FF4040" stroke-width="3" fill="none" />
+                  <path d="M56 410 L103 250" stroke="#92278F" stroke-width="2" fill="none" opacity="0.7" />
+                  <circle cx="103" cy="250" r="5" fill="#141313" stroke="#e5e2e1" stroke-width="2" />
+                  <circle cx="94" cy="161" r="4" fill="#141313" stroke="#e5e2e1" stroke-width="2" />
+                  <circle cx="131" cy="89" r="4" fill="#141313" stroke="#e5e2e1" stroke-width="2" />
+                  <circle cx="131" cy="214" r="4" fill="#141313" stroke="#e5e2e1" stroke-width="2" />
+                  <circle cx="75" cy="321" r="4" fill="#141313" stroke="#e5e2e1" stroke-width="2" />
+                </svg>
+
+                <div
+                  style="
+                    position: absolute;
+                    left: 121px;
+                    top: 79px;
+                    width: 20px;
+                    height: 20px;
+                    background: var(--text);
+                    color: var(--on-accent);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-family: 'Space Mono', monospace;
+                    font-size: 9px;
+                    font-weight: 700;
+                    border: 2px solid var(--bg);
+                  "
+                >
+                  P
+                </div>
+
+                <div class="journey-bar" style="left: 10px; right: 10px; top: 12px">
+                  <div class="row" style="gap: 8px; padding: 8px 10px">
+                    <div style="flex: 1; min-width: 0">
+                      <div style="display: flex; align-items: center; gap: 5px">
+                        <i class="dot dot--sm"></i>
+                        <span class="mono" style="font-size: 7px; font-weight: 700; color: var(--muted)">FOLLOWING</span>
+                      </div>
+                      <div class="station" style="font-size: 13px">Hauz Khas</div>
+                    </div>
+                    <div style="text-align: center">
+                      <div class="count" style="font-size: 17px">2</div>
+                      <div class="mono" style="font-size: 6px; color: var(--muted)">STOPS</div>
+                    </div>
+                  </div>
+                  <div class="track">
+                    <div style="flex: 3; background: var(--yellow)"></div>
+                    <div style="flex: 1; background: var(--yellow); opacity: 0.3"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tabbar">
+                <div class="tab-track"></div>
+                <div class="tab-car" style="transform: translateX(14px)"></div>
+                <div class="tab-row">
+                  <div class="tab is-active">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />
+                      <path d="M9 4v14M15 6v14" />
+                    </svg>
+                    <span>Map</span>
+                  </div>
+                  <div class="tab">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M21 3L3 10.5l7.5 3 3 7.5L21 3z" />
+                    </svg>
+                    <span>Route</span>
+                  </div>
+                  <div class="tab">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <circle cx="9" cy="8" r="3.2" />
+                      <path d="M3 20a6 6 0 0112 0" />
+                      <path d="M16 5.6a3.2 3.2 0 010 6.2M17.8 20a6.4 6.4 0 00-1.6-4.3" />
+                    </svg>
+                    <span>Friends</span>
+                  </div>
+                  <div class="tab">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <circle cx="12" cy="12" r="3.2" />
+                      <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1" />
+                    </svg>
+                    <span>Settings</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="phone-nav"><i></i></div>
+          </div>
+          <figcaption>Live map</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ── How it works ─────────────────────────────────────── -->
+    <section
+      class="section"
+      id="how-it-works"
+      style="background: var(--surface); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)"
+    >
+      <div class="section-head reveal">
+        <p class="eyebrow">HOW IT WORKS</p>
+        <h2>From "on my way" to "I can see you."</h2>
+      </div>
+
+      <div class="steps">
+        <div class="step reveal" style="border-top-color: var(--blue)">
+          <span class="num" style="color: var(--blue)">01</span>
+          <h3>Add your friends</h3>
+          <p>
+            Share your invite link or add someone by their email. They only ever see your location
+            once you both agree to it.
+          </p>
+        </div>
+        <div class="step reveal" style="border-top-color: var(--yellow)">
+          <span class="num" style="color: var(--yellow)">02</span>
+          <h3>Start following a journey</h3>
+          <p>
+            Pick where you're headed. MetroSync tracks your progress with one always-visible
+            notification, even with your phone in your pocket.
+          </p>
+        </div>
+        <div class="step reveal" style="border-top-color: var(--red)">
+          <span class="num" style="color: var(--red)">03</span>
+          <h3>Meet at the platform</h3>
+          <p>
+            See exactly which station your friends are near and which line they're on, then catch the
+            same train instead of the next one.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── FAQ ──────────────────────────────────────────────── -->
+    <section class="section" id="faq">
+      <div class="section-head reveal" style="margin-bottom: 40px">
+        <p class="eyebrow">FAQ</p>
+        <h2>Questions, answered plainly.</h2>
+      </div>
+
+      <div class="faq">
+        <details name="faq" open>
+          <summary>Can my friends see my location all the time?</summary>
+          <p>
+            No. Sharing is a separate, explicit choice from following a journey — turning one on
+            never turns the other on for you. You can stop broadcasting with one tap, from the app or
+            straight from the notification.
+          </p>
+        </details>
+        <details name="faq">
+          <summary>Does tracking a journey drain my battery?</summary>
+          <p>
+            It uses a single low-priority foreground notification rather than constant background
+            polling, and stops automatically when you arrive, after a few hours, or the moment you
+            swipe the app away.
+          </p>
+        </details>
+        <details name="faq">
+          <summary>What happens if I close the app mid-journey?</summary>
+          <p>
+            Swiping MetroSync out of your recent apps ends the journey on purpose — it's the obvious,
+            discoverable way to stop everything: the notification clears and your friends stop seeing
+            you move.
+          </p>
+        </details>
+        <details name="faq">
+          <summary>Which networks does it cover?</summary>
+          <p>
+            The Delhi Metro (all lines), the Airport Express, NCR Metro in Gurugram and Noida, and the
+            Delhi–Meerut RRTS — one graph, one app, no switching between line-specific apps.
+          </p>
+        </details>
+        <details name="faq">
+          <summary>Is MetroSync available on iPhone?</summary>
+          <p>
+            Not yet — it's Android-only for now. The background tracking that makes live journeys work
+            is being built as an iOS Live Activity next.
+          </p>
+        </details>
+      </div>
+    </section>
+
+    <!-- ── Final CTA / footer ───────────────────────────────── -->
+    <footer class="outro" id="download">
+      <div class="outro-top reveal">
+        <div style="max-width: 480px">
+          <h2>Go together. Not separately.</h2>
+          <p>Free for Delhi Metro, Airport Express, NCR Metro and RRTS. Android only, for now.</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
+          <a class="btn" href="https://github.com/CodrJatin/metrosync-react-native/releases/latest" data-install
+            >Download for Android</a
+          >
+          <a class="btn-text" href="https://github.com/CodrJatin/metrosync-react-native/releases">All releases</a>
+        </div>
+      </div>
+
+      <div class="outro-bottom">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <svg width="20" height="20" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+            <g stroke="#8e9192" stroke-width="6" stroke-linejoin="miter">
+              <path d="M12 8.76V55.24" />
+              <path d="M52 8.76V55.24" />
+              <path d="M12.88 10.88L26 24" />
+              <path d="M51.12 10.88L38 24" />
+              <path d="M32 18L44 30L32 42L20 30Z" />
+            </g>
+          </svg>
+          <span>MetroSync &copy; 2026</span>
+        </div>
+        <span class="disclaimer">Not affiliated with Delhi Metro Rail Corporation.</span>
+      </div>
+    </footer>
+
+    <script>
+      // Download links, resolved exactly the way ms/index.html does it -- kept
+      // in step with that file by hand, since the two are deployed together but
+      // share no bundle.
+      (function () {
+        var REPO = 'CodrJatin/metrosync-react-native';
+        var RELEASES_URL = 'https://github.com/' + REPO + '/releases/latest';
+        var LATEST_API = 'https://api.github.com/repos/' + REPO + '/releases/latest';
+
+        var links = [].slice.call(document.querySelectorAll('[data-install]'));
+
+        // The releases page is the starting value, not a last resort: it is
+        // what shows with JavaScript disabled, on iOS (where an APK is
+        // useless), and if the API call below fails. Anything better is an
+        // upgrade applied on top of a link that already works.
+        links.forEach(function (link) {
+          link.href = RELEASES_URL;
+        });
+
+        // Point straight at the APK on Android rather than dropping the user on
+        // a releases page to hunt for it.
+        //
+        // Resolved through the API instead of GitHub's stable
+        // /releases/latest/download/<name> shortcut, because that shortcut needs
+        // the asset filename to be identical in every release and these are
+        // version-stamped (metrosync-1.1.0.apk).
+        if (!/android/i.test(navigator.userAgent)) return;
+
+        fetch(LATEST_API, { headers: { Accept: 'application/vnd.github+json' } })
+          .then(function (response) {
+            return response.ok ? response.json() : null;
+          })
+          .then(function (release) {
+            if (!release || !release.assets) return;
+
+            var apk = release.assets.filter(function (asset) {
+              return /\.apk$/i.test(asset.name);
+            })[0];
+            if (!apk) return;
+
+            links.forEach(function (link) {
+              link.href = apk.browser_download_url;
+              link.textContent = 'Download the app' + (release.tag_name ? ' (' + release.tag_name + ')' : '');
+            });
+          })
+          .catch(function () {
+            // Rate-limited, offline, or no releases yet -- the href set above
+            // still goes somewhere sensible.
+          });
+      })();
+
+      // Close the mobile menu once a link in it has been followed, so the
+      // anchor's target isn't left sitting behind an open panel.
+      (function () {
+        var toggle = document.getElementById('nav-toggle');
+        document.querySelectorAll('.nav-links a').forEach(function (link) {
+          link.addEventListener('click', function () {
+            toggle.checked = false;
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>
