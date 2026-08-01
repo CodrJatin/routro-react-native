@@ -1,6 +1,8 @@
 import { useEffect, type ReactNode } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '../auth/AuthProvider';
+// MOCK FRIEND -- temporary dev fixture, delete with src/dev/mockFriend.ts
+import { isMockFriendId } from '../dev/mockFriend';
 import { otherParty } from '../friends/useFriendships';
 import { useFriendshipsContext } from '../friends/FriendshipsProvider';
 import { locationChannelManager } from './locationChannel';
@@ -28,7 +30,14 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   const { rows } = useFriendshipsContext();
 
   const acceptedFriendIds = userId
-    ? rows.filter((r) => r.status === 'accepted').map((r) => otherParty(r, userId).id)
+    ? rows
+        .filter((r) => r.status === 'accepted')
+        .map((r) => otherParty(r, userId).id)
+        // MOCK FRIEND -- temporary dev fixture. The fake friend has no real
+        // channel, and subscribing to one would fail RLS and then report them
+        // offline, wiping the very presence and journey the fixture injected.
+        // Delete this filter with src/dev/mockFriend.ts.
+        .filter((id) => !isMockFriendId(id))
     : [];
   // Sorted/joined only to give the effect below a stable dependency -- the
   // effect itself uses `acceptedFriendIds` straight from this render's

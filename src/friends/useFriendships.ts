@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Profile } from '../auth/AuthProvider';
+// MOCK FRIEND -- temporary dev fixture, delete with src/dev/mockFriend.ts
+import { useMockFriendRows } from '../dev/mockFriend';
 import { supabase } from '../lib/supabase';
 
 export type FriendshipStatus = 'pending' | 'accepted';
@@ -248,8 +250,13 @@ export function useFriendships(selfUserId: string | undefined) {
     return { error: deleteError?.message ?? null };
   }
 
+  // MOCK FRIEND -- temporary dev fixture. Returns [] outside __DEV__ and
+  // whenever the panel is off, so this is a no-op in every real build.
+  // Delete this line and the spread below with src/dev/mockFriend.ts.
+  const mockRows = useMockFriendRows(selfUserId);
+
   return {
-    rows,
+    rows: mockRows.length > 0 ? [...mockRows, ...rows] : rows,
     isLoading,
     isRefreshing,
     error,

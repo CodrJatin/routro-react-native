@@ -18,6 +18,8 @@ import { useAuth } from '../../src/auth/AuthProvider';
 import { Avatar } from '../../src/components/Avatar';
 import { SegmentedToggle } from '../../src/components/SegmentedToggle';
 import { JourneySimulatorPanel } from '../../src/dev/JourneySimulatorPanel';
+// MOCK FRIEND -- temporary dev fixture, delete with src/dev/mockFriend.ts
+import { MockFriendPanel } from '../../src/dev/MockFriendPanel';
 import { JourneySharingSettings } from '../../src/journey/JourneySharingSettings';
 import { NotificationSettings } from '../../src/journey/NotificationSettings';
 import { MapSettings } from '../../src/map/MapSettings';
@@ -251,6 +253,15 @@ export default function SettingsScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Journey Simulator</Text>
             <JourneySimulatorPanel />
+          </View>
+        )}
+
+        {/* MOCK FRIEND -- temporary dev fixture, delete with
+            src/dev/mockFriend.ts */}
+        {__DEV__ && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Mock Friend</Text>
+            <MockFriendPanel />
           </View>
         )}
       </ScrollView>
