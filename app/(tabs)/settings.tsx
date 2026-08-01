@@ -31,7 +31,7 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: keyof typeof
   { value: 'system', label: 'System', icon: 'phone-portrait-outline' },
 ];
 
-const GITHUB_URL = 'https://github.com/codrjatin/metrosync-react-native';
+
 
 export default function SettingsScreen() {
   const { isConfigured, profile, signOut, updateProfile } = useAuth();
@@ -261,10 +261,10 @@ export default function SettingsScreen() {
               <Text style={styles.rowText}>Version</Text>
               <Text style={styles.rowValue}>{appVersion}</Text>
             </View>
-            <Pressable style={styles.row} onPress={() => Linking.openURL(GITHUB_URL)}>
+            <Pressable style={styles.row} onPress={() => Linking.openURL('https://metro-sync.vercel.app')}>
               <View style={styles.rowIconLabel}>
-                <Ionicons name="logo-github" size={16} color={colors.textPrimary} />
-                <Text style={styles.rowText}>Source on GitHub</Text>
+                <Ionicons name="globe-outline" size={16} color={colors.textPrimary} />
+                <Text style={styles.rowText}>Visit Website</Text>
               </View>
               <Ionicons name="open-outline" size={16} color={colors.textSecondary} />
             </Pressable>
