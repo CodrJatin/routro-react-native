@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, Keyboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { getCompiledGraph, searchStations } from '../engine/graph';
 import type { CompiledStation } from '../engine/types';
 import { useTheme } from '../theme/ThemeProvider';
@@ -93,6 +93,19 @@ export function StationAutocompleteInput({
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [selectedStation]);
+
+  // Android's back button hides the keyboard without blurring the TextInput
+  // underneath it -- the field stays natively focused, and a tap elsewhere,
+  // which normally works by stealing that focus, has nothing left to steal.
+  // Blurring explicitly here keeps "keyboard gone" and "field focused" from
+  // ever disagreeing, on any platform or dismissal path.
+  useEffect(() => {
+    const subscription = Keyboard.addListener('keyboardDidHide', () => {
+      inputRef.current?.blur();
+      setIsFocused(false);
+    });
+    return () => subscription.remove();
+  }, []);
 
   function handleEditSelection() {
     pendingFocusRef.current = true;

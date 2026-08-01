@@ -104,6 +104,11 @@ export default function RouteScreen() {
     setDestination(origin);
   }
 
+  function handleClearAll() {
+    setOrigin(null);
+    setDestination(null);
+  }
+
   function handleGoToMap() {
     if (!origin || !destination) return;
     // The map already has the route; all this button still owes the user is
@@ -148,7 +153,19 @@ export default function RouteScreen() {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.title}>Plan Your Route</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>Plan Your Route</Text>
+          {(origin || destination) && (
+            <Pressable
+              onPress={handleClearAll}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Clear origin and destination"
+            >
+              <Text style={styles.clearAllText}>Clear</Text>
+            </Pressable>
+          )}
+        </View>
 
         {/* One card, one rail: the two fields are the ends of a journey rather
             than two unrelated text boxes, and the swap button is a square
@@ -303,10 +320,21 @@ function createStyles(colors: ColorTokens, radiusNone: number, typography: Recor
       padding: 20,
       gap: 16,
     },
+    titleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
     title: {
       ...typography.headlineLg,
       fontSize: 26,
       color: colors.textPrimary,
+    },
+    clearAllText: {
+      ...typography.bodyMd,
+      fontSize: 14,
+      fontWeight: '600',
+      color: colors.accent,
     },
     plannerCard: {
       flexDirection: 'row',

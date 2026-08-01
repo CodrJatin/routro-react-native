@@ -127,19 +127,21 @@ export function StartJourneyButton({
       <AnimatedPressable
         style={styles.startButton}
         onPress={handleStart}
-        disabled={isBusy || isTrackingOther}
+        disabled={isBusy}
         accessibilityRole="button"
+        accessibilityLabel={isTrackingOther ? 'Switch to this journey' : 'Start this journey'}
       >
         {isBusy ? (
           <ActivityIndicator size="small" color={colors.onPrimary} />
         ) : (
           <Ionicons name="navigate" size={16} color={colors.onPrimary} />
         )}
-        <Text style={styles.startText}>Start journey</Text>
+        <Text style={styles.startText}>{isTrackingOther ? 'Switch journey' : 'Start journey'}</Text>
       </AnimatedPressable>
       {isTrackingOther && (
         <Text style={styles.hint}>
-          Another journey is already being followed. Stop it first.
+          This will stop the journey you're currently following and start tracking this route
+          instead.
         </Text>
       )}
     </View>
