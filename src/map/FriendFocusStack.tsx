@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
+import { AnimatedPressable } from '../components/AnimatedPressable';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import type { Profile } from '../auth/AuthProvider';
 import { useAuth } from '../auth/AuthProvider';
@@ -78,7 +79,7 @@ export function FriendFocusStack({
           exiting={FadeOut.duration(140)}
           layout={LinearTransition.duration(220)}
         >
-          <Pressable
+          <AnimatedPressable
             // Ringed in the same per-friend colour as their map pin, so the
             // thumbnail and the pin read as the same person.
             style={[styles.avatarButton, { borderColor: friendColorFor(friend.userId) }]}
@@ -87,7 +88,7 @@ export function FriendFocusStack({
             accessibilityLabel={`Focus map on ${friend.profile.display_name ?? friend.profile.email}`}
           >
             <FriendAvatarThumb profile={friend.profile} styles={styles} />
-          </Pressable>
+          </AnimatedPressable>
         </Animated.View>
       ))}
     </View>

@@ -9,6 +9,7 @@ import { Avatar } from '../../src/components/Avatar';
 import { PlaceholderScreen } from '../../src/components/PlaceholderScreen';
 import { savePendingInvite } from '../../src/friends/pendingInvite';
 import { createFriendRequest, lookupUserByHandle, type HandleTarget } from '../../src/friends/useFriendships';
+import { AnimatedPressable } from '../../src/components/AnimatedPressable';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../../src/theme/tokens';
 
@@ -126,14 +127,14 @@ function InviteContent({ publicUid, selfUserId }: { publicUid: string; selfUserI
   return (
     <SafeAreaView style={themedStyles.safeArea} edges={['top', 'bottom']}>
       <View style={themedStyles.header}>
-        <Pressable
+        <AnimatedPressable
           hitSlop={10}
           onPress={handleClose}
           accessibilityRole="button"
           accessibilityLabel="Close invite"
         >
           <Ionicons name="close" size={22} color={colors.textSecondary} />
-        </Pressable>
+        </AnimatedPressable>
       </View>
 
       <View style={themedStyles.content}>
@@ -198,11 +199,8 @@ function InviteContent({ publicUid, selfUserId }: { publicUid: string; selfUserI
 
       <View style={themedStyles.actions}>
         {target && !isSelf && phase !== 'sent' ? (
-          <Pressable
-            style={({ pressed }) => [
-              themedStyles.primaryButton,
-              pressed && themedStyles.primaryButtonPressed,
-            ]}
+          <AnimatedPressable
+            style={themedStyles.primaryButton}
             onPress={handleSend}
             disabled={phase !== 'ready'}
             accessibilityRole="button"
@@ -215,19 +213,16 @@ function InviteContent({ publicUid, selfUserId }: { publicUid: string; selfUserI
                 <Text style={themedStyles.primaryButtonText}>Send friend request</Text>
               </>
             )}
-          </Pressable>
+          </AnimatedPressable>
         ) : (
           phase !== 'resolving' && (
-            <Pressable
-              style={({ pressed }) => [
-                themedStyles.primaryButton,
-                pressed && themedStyles.primaryButtonPressed,
-              ]}
+            <AnimatedPressable
+              style={themedStyles.primaryButton}
               onPress={handleClose}
               accessibilityRole="button"
             >
               <Text style={themedStyles.primaryButtonText}>Done</Text>
-            </Pressable>
+            </AnimatedPressable>
           )
         )}
       </View>

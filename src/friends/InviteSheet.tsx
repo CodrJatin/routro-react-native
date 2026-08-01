@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { Modal, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import { AnimatedPressable } from '../components/AnimatedPressable';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../theme/tokens';
 import { buildInviteMessage, buildInviteUrl } from './inviteLink';
@@ -64,14 +65,14 @@ export function InviteSheet({
           >
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Your invite</Text>
-              <Pressable
+              <AnimatedPressable
                 hitSlop={10}
                 onPress={onClose}
                 accessibilityRole="button"
                 accessibilityLabel="Close invite"
               >
                 <Ionicons name="close" size={20} color={colors.textSecondary} />
-              </Pressable>
+              </AnimatedPressable>
             </View>
 
             <View style={styles.qrPanel}>
@@ -91,22 +92,22 @@ export function InviteSheet({
             </Text>
 
             <View style={styles.buttonRow}>
-              <Pressable
-                style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+              <AnimatedPressable
+                style={styles.secondaryButton}
                 onPress={handleCopy}
                 accessibilityRole="button"
               >
                 <Ionicons name="copy-outline" size={15} color={colors.textPrimary} />
                 <Text style={styles.secondaryButtonText}>Copy link</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.primaryButton, pressed && styles.buttonPressed]}
+              </AnimatedPressable>
+              <AnimatedPressable
+                style={styles.primaryButton}
                 onPress={handleShare}
                 accessibilityRole="button"
               >
                 <Ionicons name="share-outline" size={15} color={colors.onPrimary} />
                 <Text style={styles.primaryButtonText}>Share link</Text>
-              </Pressable>
+              </AnimatedPressable>
             </View>
           </Animated.View>
         </Pressable>

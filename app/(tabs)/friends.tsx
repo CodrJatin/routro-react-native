@@ -22,6 +22,7 @@ import type { RawLines } from '../../src/engine/types';
 import { useFriendshipsContext } from '../../src/friends/FriendshipsProvider';
 import { InviteSheet } from '../../src/friends/InviteSheet';
 import { inferCurrentLine } from '../../src/friends/currentLine';
+import { AnimatedPressable } from '../../src/components/AnimatedPressable';
 import { estimateFriendEta } from '../../src/friends/friendEta';
 import { findNearestStation, type NearestStation } from '../../src/friends/nearestStation';
 import { otherParty } from '../../src/friends/useFriendships';
@@ -200,7 +201,7 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
               onBlur={handleFocus.onBlur}
             />
             {handle.length > 0 && (
-              <Pressable
+              <AnimatedPressable
                 style={styles.clearButton}
                 onPress={clearHandle}
                 hitSlop={8}
@@ -208,16 +209,16 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
                 accessibilityLabel="Clear input"
               >
                 <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
-              </Pressable>
+              </AnimatedPressable>
             )}
           </View>
-          <Pressable style={styles.addButton} onPress={handleSend} disabled={isSending}>
+          <AnimatedPressable style={styles.addButton} onPress={handleSend} disabled={isSending}>
             {isSending ? (
               <ActivityIndicator color={colors.onPrimary} size="small" />
             ) : (
               <Ionicons name="person-add" size={18} color={colors.onPrimary} />
             )}
-          </Pressable>
+          </AnimatedPressable>
         </View>
         {sendError && <Text style={styles.errorText}>{sendError}</Text>}
         {actionError && <Text style={styles.errorText}>{actionError}</Text>}
@@ -228,14 +229,14 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
             profile because the invite is built from its public_uid, which
             arrives a moment after the session does. */}
         {profile && (
-          <Pressable
-            style={({ pressed }) => [styles.inviteButton, pressed && styles.inviteButtonPressed]}
+          <AnimatedPressable
+            style={styles.inviteButton}
             onPress={() => setIsInviteOpen(true)}
             accessibilityRole="button"
           >
             <Ionicons name="qr-code-outline" size={16} color={colors.textPrimary} />
             <Text style={styles.inviteButtonText}>Invite by link or QR</Text>
-          </Pressable>
+          </AnimatedPressable>
         )}
 
         {isEmpty && (
@@ -265,12 +266,12 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
                 colors={colors}
                 actions={
                   <>
-                    <Pressable style={styles.iconButtonAccept} onPress={() => handleAccept(row.id)}>
+                    <AnimatedPressable style={styles.iconButtonAccept} onPress={() => handleAccept(row.id)}>
                       <Ionicons name="checkmark" size={16} color={colors.onSuccess} />
-                    </Pressable>
-                    <Pressable style={styles.iconButtonDecline} onPress={() => handleRemove(row.id)}>
+                    </AnimatedPressable>
+                    <AnimatedPressable style={styles.iconButtonDecline} onPress={() => handleRemove(row.id)}>
                       <Ionicons name="close" size={16} color={colors.textPrimary} />
-                    </Pressable>
+                    </AnimatedPressable>
                   </>
                 }
               />
@@ -283,9 +284,9 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
                 styles={styles}
                 colors={colors}
                 actions={
-                  <Pressable style={styles.iconButtonDecline} onPress={() => handleRemove(row.id)}>
+                  <AnimatedPressable style={styles.iconButtonDecline} onPress={() => handleRemove(row.id)}>
                     <Ionicons name="close" size={16} color={colors.textPrimary} />
-                  </Pressable>
+                  </AnimatedPressable>
                 }
               />
             ))}
@@ -444,7 +445,7 @@ function FriendMenuButton({
   return (
     <>
       <View ref={buttonRef} collapsable={false}>
-        <Pressable
+        <AnimatedPressable
           hitSlop={8}
           style={styles.menuButton}
           onPress={handleOpen}
@@ -452,14 +453,14 @@ function FriendMenuButton({
           accessibilityLabel={accessibilityLabel}
         >
           <Ionicons name="ellipsis-vertical" size={16} color={colors.textSecondary} />
-        </Pressable>
+        </AnimatedPressable>
       </View>
 
       <Modal transparent visible={visible} animationType="fade" onRequestClose={() => setVisible(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setVisible(false)}>
           <View style={[styles.popoverMenu, { top: pos.top, right: pos.right }]}>
-            <Pressable
-              style={({ pressed }) => [styles.popoverItem, pressed && styles.popoverItemPressed]}
+            <AnimatedPressable
+              style={styles.popoverItem}
               onPress={() => {
                 setVisible(false);
                 onRemove();
@@ -467,7 +468,7 @@ function FriendMenuButton({
             >
               <Ionicons name="person-remove-outline" size={16} color={colors.danger} />
               <Text style={styles.popoverItemText}>Remove friend</Text>
-            </Pressable>
+            </AnimatedPressable>
           </View>
         </Pressable>
       </Modal>
@@ -588,15 +589,15 @@ function ActiveFriendCard({
       {/* Only offered once we actually hold a position -- otherwise there is
           nowhere for the map to fly to and the tap would do nothing. */}
       {location && (
-        <Pressable
-          style={({ pressed }) => [styles.showOnMapButton, pressed && styles.showOnMapPressed]}
+        <AnimatedPressable
+          style={styles.showOnMapButton}
           onPress={onShowOnMap}
           accessibilityRole="button"
           accessibilityLabel={`Show ${profile.display_name ?? profile.email} on the map`}
         >
           <Ionicons name="map-outline" size={13} color={colors.accent} />
           <Text style={styles.showOnMapText}>Show on map</Text>
-        </Pressable>
+        </AnimatedPressable>
       )}
     </Animated.View>
   );

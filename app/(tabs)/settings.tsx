@@ -24,6 +24,7 @@ import { useTheme, type ThemePreference } from '../../src/theme/ThemeProvider';
 import { useSharedStyles } from '../../src/theme/sharedStyles';
 import type { ColorTokens } from '../../src/theme/tokens';
 import { AnimatedTextInput, useFocusAnimation } from '../../src/theme/useFocusAnimation';
+import { AnimatedPressable } from '../../src/components/AnimatedPressable';
 
 const THEME_OPTIONS: { value: ThemePreference; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { value: 'light', label: 'Light', icon: 'sunny-outline' },
@@ -113,14 +114,14 @@ export default function SettingsScreen() {
           <Animated.View style={styles.profileCard} layout={LinearTransition.duration(220)}>
             {!isEditing && (
               <Animated.View style={styles.editButton} entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)}>
-                <Pressable
+                <AnimatedPressable
                   hitSlop={8}
                   onPress={startEditing}
                   accessibilityRole="button"
                   accessibilityLabel="Edit profile"
                 >
                   <Ionicons name="pencil-outline" size={18} color={colors.textSecondary} />
-                </Pressable>
+                </AnimatedPressable>
               </Animated.View>
             )}
 
@@ -144,8 +145,8 @@ export default function SettingsScreen() {
               <Text style={styles.profileName}>{profile.display_name ?? profile.email}</Text>
             )}
             <Text style={styles.profileEmail}>{profile.email}</Text>
-            <Pressable
-              style={({ pressed }) => [styles.uidRow, pressed && styles.uidRowPressed]}
+            <AnimatedPressable
+              style={styles.uidRow}
               onPress={handleCopyUserId}
               hitSlop={8}
               accessibilityRole="button"
@@ -153,7 +154,7 @@ export default function SettingsScreen() {
             >
               <Text style={styles.profileUid}>ID: {profile.public_uid}</Text>
               <Ionicons name="copy-outline" size={13} color={colors.textSecondary} />
-            </Pressable>
+            </AnimatedPressable>
 
             {isEditing && (
               <Animated.View
@@ -179,16 +180,16 @@ export default function SettingsScreen() {
                 />
                 {saveError && <Text style={styles.errorText}>{saveError}</Text>}
                 <View style={styles.editButtonRow}>
-                  <Pressable style={styles.cancelButton} onPress={cancelEditing} disabled={isSaving}>
+                  <AnimatedPressable style={styles.cancelButton} onPress={cancelEditing} disabled={isSaving}>
                     <Text style={styles.cancelButtonText}>Cancel</Text>
-                  </Pressable>
-                  <Pressable style={styles.saveButton} onPress={saveEditing} disabled={isSaving}>
+                  </AnimatedPressable>
+                  <AnimatedPressable style={styles.saveButton} onPress={saveEditing} disabled={isSaving}>
                     {isSaving ? (
                       <ActivityIndicator color={colors.onPrimary} size="small" />
                     ) : (
                       <Text style={styles.saveButtonText}>Save</Text>
                     )}
-                  </Pressable>
+                  </AnimatedPressable>
                 </View>
               </Animated.View>
             )}
@@ -202,32 +203,20 @@ export default function SettingsScreen() {
                 entering={FadeIn.duration(180)}
                 exiting={FadeOut.duration(140)}
               >
-                <Pressable
-                  style={({ pressed }) => [styles.signOutButton, pressed && styles.signOutButtonPressed]}
+                <AnimatedPressable
+                  style={styles.signOutButton}
                   onPress={handleSignOut}
                   disabled={isSigningOut}
                 >
-                  {/* Children as a function: the icon and label are tinted
-                   * per-press too, so the outline button inverts as a whole
-                   * rather than just swapping its background out from under a
-                   * red label. */}
-                  {({ pressed }) => (
-                    <>
-                      {isSigningOut ? (
-                        <ActivityIndicator color={colors.danger} size="small" />
-                      ) : (
-                        <Ionicons
-                          name="log-out-outline"
-                          size={18}
-                          color={pressed ? colors.onError : colors.danger}
-                        />
-                      )}
-                      <Text style={[styles.signOutText, pressed && styles.signOutTextPressed]}>
-                        {isSigningOut ? 'Signing Out' : 'Sign Out'}
-                      </Text>
-                    </>
+                  {isSigningOut ? (
+                    <ActivityIndicator color={colors.danger} size="small" />
+                  ) : (
+                    <Ionicons name="log-out-outline" size={18} color={colors.danger} />
                   )}
-                </Pressable>
+                  <Text style={styles.signOutText}>
+                    {isSigningOut ? 'Signing Out' : 'Sign Out'}
+                  </Text>
+                </AnimatedPressable>
               </Animated.View>
             )}
           </Animated.View>
@@ -478,18 +467,10 @@ function createStyles(colors: ColorTokens, radiusNone: number, shared: ReturnTyp
       borderRadius: radiusNone,
       paddingVertical: 12,
     },
-    // Pressing fills the outline in: the same shape language as the rest of
-    // the app, and a destructive action deserves a press state you can't miss.
-    signOutButtonPressed: {
-      backgroundColor: colors.danger,
-    },
     signOutText: {
       color: colors.danger,
       fontSize: 14,
       fontWeight: '700',
-    },
-    signOutTextPressed: {
-      color: colors.onError,
     },
   });
 }

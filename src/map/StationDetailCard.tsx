@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing,
   FadeIn,
@@ -10,6 +10,7 @@ import Animated, {
   type EntryAnimationsValues,
   type ExitAnimationsValues,
 } from 'react-native-reanimated';
+import { AnimatedPressable } from '../components/AnimatedPressable';
 import { getCompiledGraph } from '../engine/graph';
 import type { CompiledStation, RouteResult } from '../engine/types';
 import { formatStationArrival, type RouteClock } from '../route/routeClock';
@@ -127,14 +128,14 @@ export function StationDetailCard({ station, route, clock, progress, onClose }: 
         <Text style={styles.name} numberOfLines={2}>
           {station.name}
         </Text>
-        <Pressable
+        <AnimatedPressable
           onPress={onClose}
           hitSlop={10}
           accessibilityRole="button"
           accessibilityLabel="Close station details"
         >
           <Ionicons name="close" size={20} color={colors.textSecondary} />
-        </Pressable>
+        </AnimatedPressable>
       </View>
 
       {/* One caption line carries both the lines and the fact that this is an

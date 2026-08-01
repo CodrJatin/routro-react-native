@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
+import { AnimatedPressable } from '../components/AnimatedPressable';
 import { isJourneyServiceAvailable } from '../../modules/journey-service';
 import type { RouteMode, StationId } from '../engine/types';
 import { useTheme } from '../theme/ThemeProvider';
@@ -103,8 +104,8 @@ export function StartJourneyButton({
   if (isTrackingThis) {
     return (
       <View style={styles.group}>
-        <Pressable
-          style={({ pressed }) => [styles.stopButton, pressed && styles.pressed]}
+        <AnimatedPressable
+          style={styles.stopButton}
           onPress={handleStop}
           disabled={isBusy}
           accessibilityRole="button"
@@ -116,15 +117,15 @@ export function StartJourneyButton({
             <Ionicons name="stop-circle-outline" size={18} color={colors.textPrimary} />
           )}
           <Text style={styles.stopText}>Stop</Text>
-        </Pressable>
+        </AnimatedPressable>
       </View>
     );
   }
 
   return (
     <View style={styles.group}>
-      <Pressable
-        style={({ pressed }) => [styles.startButton, pressed && styles.pressed]}
+      <AnimatedPressable
+        style={styles.startButton}
         onPress={handleStart}
         disabled={isBusy || isTrackingOther}
         accessibilityRole="button"
@@ -135,7 +136,7 @@ export function StartJourneyButton({
           <Ionicons name="navigate" size={16} color={colors.onPrimary} />
         )}
         <Text style={styles.startText}>Start journey</Text>
-      </Pressable>
+      </AnimatedPressable>
       {isTrackingOther && (
         <Text style={styles.hint}>
           Another journey is already being followed. Stop it first.

@@ -24,6 +24,7 @@ import { useAuth } from '../../src/auth/AuthProvider';
 import { MetroSyncMark } from '../../src/components/MetroSyncMark';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import type { ColorTokens } from '../../src/theme/tokens';
+import { AnimatedPressable } from '../../src/components/AnimatedPressable';
 
 export default function SignInScreen() {
   const { colors, radius, typography } = useTheme();
@@ -67,8 +68,8 @@ export default function SignInScreen() {
             {/* Google is deliberately the only sign-in method: email/password would
              * need a custom SMTP setup to get past Supabase's confirmation-email
              * rate limits. */}
-            <Pressable
-              style={({ pressed }) => [styles.googleButton, pressed && styles.googleButtonPressed]}
+            <AnimatedPressable
+              style={styles.googleButton}
               onPress={handleGoogleSubmit}
               disabled={isSubmitting}
             >
@@ -80,7 +81,7 @@ export default function SignInScreen() {
                   <Text style={styles.googleButtonText}>Continue with Google</Text>
                 </>
               )}
-            </Pressable>
+            </AnimatedPressable>
           </View>
         </View>
       </SafeAreaView>

@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import type { RawLines, RouteResult } from '../engine/types';
+import { AnimatedPressable } from '../components/AnimatedPressable';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../theme/tokens';
 
@@ -66,16 +67,16 @@ export function RouteSummaryCard({
 
       <View style={styles.actionRow}>
         {action ?? (
-          <Pressable
-            style={({ pressed }) => [styles.goToMapButton, pressed && styles.pressed]}
+          <AnimatedPressable
+            style={styles.goToMapButton}
             onPress={onGoToMap}
           >
             <Ionicons name="map" size={16} color={colors.onPrimary} />
             <Text style={styles.goToMapText}>Go to Map</Text>
-          </Pressable>
+          </AnimatedPressable>
         )}
-        <Pressable
-          style={({ pressed }) => [styles.saveButton, isSaved && styles.saveButtonActive, pressed && styles.pressed]}
+        <AnimatedPressable
+          style={[styles.saveButton, isSaved && styles.saveButtonActive]}
           onPress={onToggleSave}
           accessibilityRole="button"
           accessibilityState={{ selected: isSaved }}
@@ -86,7 +87,7 @@ export function RouteSummaryCard({
             size={18}
             color={isSaved ? colors.onPrimary : colors.textPrimary}
           />
-        </Pressable>
+        </AnimatedPressable>
       </View>
     </View>
   );

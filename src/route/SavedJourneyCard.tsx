@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { findRoute } from '../engine/graph';
 import type { RawLines } from '../engine/types';
+import { AnimatedPressable } from '../components/AnimatedPressable';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../theme/tokens';
 import type { SavedJourney } from './savedJourneysStore';
@@ -37,8 +38,8 @@ export function SavedJourneyCard({
   const overflowCount = route ? Math.max(0, route.legs.length - MAX_SWATCHES) : 0;
 
   return (
-    <Pressable
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+    <AnimatedPressable
+      style={styles.card}
       onPress={() => onOpen(journey)}
       accessibilityRole="button"
       accessibilityLabel={`Plan ${journey.originName} to ${journey.destinationName}`}
@@ -60,15 +61,15 @@ export function SavedJourneyCard({
           </View>
         </View>
 
-        <Pressable
-          style={({ pressed }) => [styles.removeButton, pressed && styles.removeButtonPressed]}
+        <AnimatedPressable
+          style={styles.removeButton}
           onPress={() => onRemove(journey.id)}
           hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel={`Remove saved journey ${journey.originName} to ${journey.destinationName}`}
         >
           <Ionicons name="close" size={15} color={colors.textSecondary} />
-        </Pressable>
+        </AnimatedPressable>
       </View>
 
       <View style={styles.metaRow}>
@@ -84,7 +85,7 @@ export function SavedJourneyCard({
           {route ? formatOverview(route.totalTimeSeconds, route.fareRupees, route.legs.length - 1) : 'ROUTE UNAVAILABLE'}
         </Text>
       </View>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
