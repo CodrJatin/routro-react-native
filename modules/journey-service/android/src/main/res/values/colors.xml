@@ -11,13 +11,12 @@
     values-night follows the system's dark mode, which is what the shade
     actually follows.
   -->
+  <!--
+    Both are read twice over: by the shade when it inflates the layout, and by
+    JourneyMeter when it draws the bar. There the primary is the ink the "you
+    are here" pointer is cut from, and the secondary stands in for a leg whose
+    line colour never arrived.
+  -->
   <color name="journey_text_primary">#DE000000</color>
   <color name="journey_text_secondary">#99000000</color>
-
-  <!--
-    The stations still ahead of you. Ink at low opacity rather than a grey, so
-    it sits correctly on whatever background the shade happens to use, and so
-    the bar reads as one material at two strengths rather than as two colours.
-  -->
-  <color name="journey_tick_ahead">#2E000000</color>
 </resources>

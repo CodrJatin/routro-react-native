@@ -5,7 +5,7 @@ import type {
 } from '../../modules/journey-service';
 import { getCompiledGraph } from '../engine/graph';
 import type { RouteResult } from '../engine/types';
-import { formatRouteClock, routeClockMs, type RouteClock } from '../route/routeClock';
+import { formatRouteClock, type RouteClock } from '../route/routeClock';
 import {
   buildRouteStationSequence,
   type RouteProgress,
@@ -25,9 +25,8 @@ import {
  * is read on a lock screen, one-handed, on a moving train, and the only
  * question being asked of it is "what do I do now" -- so that answer gets the
  * biggest line, and the destination, the clock and the line name arrange
- * themselves around it. Everything else is drawn rather than written: the
- * route becomes the coloured tracker, and the arrival becomes a countdown the
- * system ticks down on its own.
+ * themselves around it. What can be drawn rather than written is: the route
+ * becomes the coloured tracker.
  */
 export function buildJourneyNotification(
   route: RouteResult,
@@ -45,9 +44,9 @@ export function buildJourneyNotification(
       title: `Following to ${destinationName}`,
       // Deliberately not a stop count: without a fix we don't know how many
       // are left, and guessing from the origin would claim the user hasn't
-      // started when they may be halfway there. The tracker and the countdown
-      // are withheld for the same reason -- both would draw a confident
-      // picture of a position we do not have.
+      // started when they may be halfway there. The tracker is withheld for
+      // the same reason -- it would draw a confident picture of a position we
+      // do not have.
       body: 'Waiting for your location',
       subText: lineName(route, 0),
       color: lineColor(route, 0),
@@ -57,8 +56,8 @@ export function buildJourneyNotification(
 
   const current = progress.nearestIndex;
   const remaining = lastIndex - current;
-  const segments = trackerSegments(route, sequence, lastIndex);
   const points = trackerPoints(route, sequence);
+  const segments = trackerSegments(route, points, lastIndex);
 
   if (remaining === 0) {
     return {
@@ -88,7 +87,6 @@ export function buildJourneyNotification(
     progress: { current, max: lastIndex },
     segments,
     points,
-    countdownToMs: routeClockMs(clock, sequence[lastIndex].offsetSeconds),
     color: lineColor(route, colorLegIndex),
     showStopAction: true,
   };
@@ -147,29 +145,27 @@ function bodyFor(
 /**
  * The journey's legs as tracker segments, measured in stations.
  *
- * Android derives the bar's maximum by adding these up, so they have to span
- * the whole sequence exactly -- which they do, because a leg owns every station
- * from the one it boards at up to (not including) the next leg's boarding
- * station, and the last leg runs to the destination. Anything that doesn't add
- * up is dropped rather than drawn wrong: a short bar would silently misplace
- * the marker for the entire journey.
+ * Cut at the interchanges themselves, which is why they are what this takes:
+ * a colour boundary and the marker drawn at that change are the same event,
+ * and anything that placed them from two separate counts eventually placed
+ * them a station apart -- which is exactly what happened when the legs were
+ * cut at the station *after* the change instead.
+ *
+ * Android derives the bar's maximum by adding these up, so they also have to
+ * span the whole sequence exactly -- which they do, since the lengths
+ * telescope from the origin to the destination. Anything that doesn't add up
+ * is dropped rather than drawn wrong: a short bar would silently misplace the
+ * marker for the entire journey.
  */
 function trackerSegments(
   route: RouteResult,
-  sequence: RouteStation[],
+  points: JourneyTrackerPoint[],
   lastIndex: number,
 ): JourneyTrackerSegment[] | undefined {
-  const legStarts: number[] = [];
-  let seen = -1;
-  for (const station of sequence) {
-    if (station.legIndex > seen) {
-      seen = station.legIndex;
-      legStarts.push(station.index);
-    }
-  }
+  const starts = [0, ...points.map((point) => point.position)];
 
-  const segments = legStarts.map((start, i) => ({
-    length: (legStarts[i + 1] ?? lastIndex) - start,
+  const segments = starts.map((start, i) => ({
+    length: (starts[i + 1] ?? lastIndex) - start,
     color: lineColor(route, i),
   }));
 

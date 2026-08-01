@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { findRoute, getCompiledGraph, getStation } from '../../engine/graph';
 import type { RouteResult } from '../../engine/types';
-import { routeClockMs, type RouteClock } from '../../route/routeClock';
+import { formatRouteClock, type RouteClock } from '../../route/routeClock';
 import { buildRouteStationSequence, getRouteProgress } from '../../route/routeProgress';
 import { buildJourneyNotification } from '../notificationContent';
 
@@ -54,11 +54,10 @@ describe('buildJourneyNotification', () => {
     expect(content.progress).toBeUndefined();
   });
 
-  it('withholds the tracker and the countdown when there is no fix', () => {
+  it('withholds the tracker when there is no fix', () => {
     const content = buildJourneyNotification(route, null, clock(false));
-    // Both draw a confident picture of a position we do not have.
+    // It would draw a confident picture of a position we do not have.
     expect(content.segments).toBeUndefined();
-    expect(content.countdownToMs).toBeUndefined();
   });
 
   it('counts stops remaining from where the user actually is', () => {
@@ -74,10 +73,10 @@ describe('buildJourneyNotification', () => {
     expect(content.body).toContain(sequence[2].stationName);
   });
 
-  it('counts the arrival down to the destination clock time', () => {
+  it('gives the arrival time in the body rather than as a live countdown', () => {
     const content = buildJourneyNotification(route, progressAt(2), clock(true));
-    expect(content.countdownToMs).toBe(
-      routeClockMs(clock(true), sequence[sequence.length - 1].offsetSeconds),
+    expect(content.body).toContain(
+      formatRouteClock(clock(true), sequence[sequence.length - 1].offsetSeconds),
     );
   });
 
@@ -151,6 +150,22 @@ describe('buildJourneyNotification', () => {
       content.segments!.forEach((segment, index) => {
         expect(segment.color).toBe(graph.lines[route.legs[index].line].color);
       });
+    });
+
+    it('changes colour exactly where it marks the interchange', () => {
+      const content = buildJourneyNotification(route, progressAt(2), clock(true));
+      // The boundary between two legs and the marker for the change between
+      // them are the same event, so they have to land on the same station.
+      // They were once counted separately and drew a station apart, which on
+      // the bar reads as the line changing before the interchange it changes
+      // at.
+      const boundaries: number[] = [];
+      let station = 0;
+      for (const segment of content.segments!.slice(0, -1)) {
+        station += segment.length;
+        boundaries.push(station);
+      }
+      expect(boundaries).toEqual(content.points!.map((point) => point.position));
     });
 
     it('marks each interchange with the line being changed to', () => {

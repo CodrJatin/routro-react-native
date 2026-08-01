@@ -34,10 +34,6 @@ export interface JourneyNotificationContent {
    * still draws the ordinary bar. */
   segments?: JourneyTrackerSegment[];
   points?: JourneyTrackerPoint[];
-  /** Epoch ms of arrival. Turns the notification's timestamp into a live
-   * countdown the system ticks by itself -- the only part of this surface that
-   * keeps moving between our updates, which are minutes apart. */
-  countdownToMs?: number;
   /** `#RRGGBB` or `#AARRGGBB` -- the line colour, so the notification reads as
    * part of the journey rather than as a generic app notice. */
   color?: string;

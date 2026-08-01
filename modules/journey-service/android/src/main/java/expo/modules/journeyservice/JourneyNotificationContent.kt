@@ -59,11 +59,6 @@ class JourneyNotificationContent : Record {
 
   @Field var points: List<JourneyTrackerPoint> = emptyList()
 
-  /** Epoch ms of arrival. Turns the notification's timestamp into a countdown
-   * the system ticks down by itself -- the one part of this that stays live
-   * between our updates rather than because of them. */
-  @Field var countdownToMs: Double? = null
-
   /** `#RRGGBB` or `#AARRGGBB`. Tints the notification -- the metro line's
    * colour, so the notification reads as belonging to the journey. */
   @Field var color: String? = null
@@ -87,7 +82,6 @@ class JourneyNotificationContent : Record {
     // legitimate-looking but undrawable bar, so absence needs its own value.
     intent.putExtra(EXTRA_PROGRESS_CURRENT, progress?.current ?: -1)
     intent.putExtra(EXTRA_PROGRESS_MAX, progress?.max ?: -1)
-    intent.putExtra(EXTRA_COUNTDOWN_TO_MS, countdownToMs ?: 0.0)
     intent.putExtra(EXTRA_SEGMENT_LENGTHS, segments.map { it.length }.toIntArray())
     intent.putExtra(EXTRA_SEGMENT_COLORS, segments.map { it.color ?: "" }.toTypedArray())
     intent.putExtra(EXTRA_POINT_POSITIONS, points.map { it.position }.toIntArray())
@@ -102,7 +96,6 @@ class JourneyNotificationContent : Record {
     private const val EXTRA_SHOW_STOP_ACTION = "showStopAction"
     private const val EXTRA_PROGRESS_CURRENT = "progressCurrent"
     private const val EXTRA_PROGRESS_MAX = "progressMax"
-    private const val EXTRA_COUNTDOWN_TO_MS = "countdownToMs"
     private const val EXTRA_SEGMENT_LENGTHS = "segmentLengths"
     private const val EXTRA_SEGMENT_COLORS = "segmentColors"
     private const val EXTRA_POINT_POSITIONS = "pointPositions"
@@ -124,9 +117,6 @@ class JourneyNotificationContent : Record {
           it.max = max
         }
       }
-
-      val countdown = intent.getDoubleExtra(EXTRA_COUNTDOWN_TO_MS, 0.0)
-      if (countdown > 0.0) content.countdownToMs = countdown
 
       val segmentLengths = intent.getIntArrayExtra(EXTRA_SEGMENT_LENGTHS) ?: IntArray(0)
       val segmentColors = intent.getStringArrayExtra(EXTRA_SEGMENT_COLORS) ?: emptyArray()

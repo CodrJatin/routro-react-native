@@ -4,8 +4,8 @@
 
   Hand-built rather than left to the platform's progress bar, for one reason:
   every shape Android draws there is a rounded capsule, and this app has square
-  corners everywhere. The meter below is the same row of flat ticks the live
-  journey card uses, with the itinerary's diamond marking where you are.
+  corners everywhere. The meter below is the same ghosted-and-filled rail the
+  live journey card draws on the map, with the interchanges marked on it.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -34,15 +34,25 @@
       android:maxLines="1"
       android:ellipsize="end" />
 
-  <!-- Centre-aligned, so the interchange marks and the diamond grow out of the
-       track by the same amount above and below rather than hanging off its
-       top edge. Filled at runtime, one child per station on the journey. -->
-  <LinearLayout
+  <!--
+    The meter, set at runtime as a bitmap drawn to fit this box.
+
+    fitXY rather than a fitted scale type: the bitmap is drawn at the width a
+    notification is *estimated* to be, and the height it is actually given, so
+    the vertical scale is 1 and the horizontal one is a few percent either way.
+    Anything that preserved the aspect ratio would letterbox the bar instead of
+    running it edge to edge, which is the one thing it has to do.
+
+    Null here only so the picture is never announced as an unlabelled image if
+    the runtime description is ever dropped; JourneyNotification replaces it
+    with the position along the journey.
+  -->
+  <ImageView
       android:id="@+id/journey_meter"
       android:layout_width="match_parent"
-      android:layout_height="20dp"
+      android:layout_height="18dp"
       android:layout_marginTop="12dp"
-      android:orientation="horizontal"
-      android:gravity="center_vertical" />
+      android:scaleType="fitXY"
+      android:contentDescription="@null" />
 
 </LinearLayout>
