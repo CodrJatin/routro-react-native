@@ -23,7 +23,6 @@ import { MapSettings } from '../../src/map/MapSettings';
 import { useTheme, type ThemePreference } from '../../src/theme/ThemeProvider';
 import { useSharedStyles } from '../../src/theme/sharedStyles';
 import type { ColorTokens } from '../../src/theme/tokens';
-import { AnimatedTextInput, useFocusAnimation } from '../../src/theme/useFocusAnimation';
 import { AnimatedPressable } from '../../src/components/AnimatedPressable';
 
 const THEME_OPTIONS: { value: ThemePreference; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -39,11 +38,9 @@ export default function SettingsScreen() {
   const { colors, radius, preference, setPreference } = useTheme();
   const shared = useSharedStyles();
   const styles = useMemo(() => createStyles(colors, radius.none, shared), [colors, radius, shared]);
-  const avatarFocus = useFocusAnimation();
 
   const [isEditing, setIsEditing] = useState(false);
   const [nameInput, setNameInput] = useState('');
-  const [avatarUrlInput, setAvatarUrlInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -59,7 +56,6 @@ export default function SettingsScreen() {
 
   function startEditing() {
     setNameInput(profile?.display_name ?? '');
-    setAvatarUrlInput(profile?.avatar_url ?? '');
     setSaveError(null);
     setIsEditing(true);
   }
@@ -74,7 +70,6 @@ export default function SettingsScreen() {
     setSaveError(null);
     const result = await updateProfile({
       display_name: nameInput.trim() || null,
-      avatar_url: avatarUrlInput.trim() || null,
     });
     setIsSaving(false);
     if (result.error) {
@@ -127,7 +122,7 @@ export default function SettingsScreen() {
 
             <Avatar
               label={profile.display_name ?? profile.email}
-              imageUrl={isEditing ? avatarUrlInput.trim() || null : profile.avatar_url}
+              imageUrl={profile.avatar_url}
               size={88}
             />
 
@@ -162,22 +157,6 @@ export default function SettingsScreen() {
                 entering={FadeIn.duration(180)}
                 exiting={FadeOut.duration(140)}
               >
-                <Text style={styles.sectionLabel}>Avatar URL</Text>
-                <AnimatedTextInput
-                  style={[
-                    styles.avatarUrlInput,
-                    { borderColor: avatarFocus.borderColor, borderWidth: avatarFocus.borderWidth },
-                  ]}
-                  value={avatarUrlInput}
-                  onChangeText={setAvatarUrlInput}
-                  placeholder="https://example.com/photo.jpg"
-                  placeholderTextColor={colors.textSecondary}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="url"
-                  onFocus={avatarFocus.onFocus}
-                  onBlur={avatarFocus.onBlur}
-                />
                 {saveError && <Text style={styles.errorText}>{saveError}</Text>}
                 <View style={styles.editButtonRow}>
                   <AnimatedPressable style={styles.cancelButton} onPress={cancelEditing} disabled={isSaving}>
@@ -358,13 +337,6 @@ function createStyles(colors: ColorTokens, radiusNone: number, shared: ReturnTyp
       alignSelf: 'stretch',
       gap: 8,
       marginTop: 8,
-    },
-    avatarUrlInput: {
-      ...shared.textInput,
-      fontSize: 13,
-      height: 40,
-      paddingVertical: 0,
-      textAlignVertical: 'center',
     },
     editButtonRow: {
       flexDirection: 'row',

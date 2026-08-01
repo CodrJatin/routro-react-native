@@ -27,12 +27,13 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // of a UUID, always lowercase -- so a valid ID is exactly 8 hex chars.
 const PUBLIC_UID_PATTERN = /^[0-9a-f]{8}$/;
 
-/** The three fields find_user_by_handle is allowed to expose about a stranger
- * -- enough to send a request and to show who it's going to, nothing more. */
+/** The fields find_user_by_handle is allowed to expose about a stranger --
+ * enough to send a request and to show who it's going to, nothing more. */
 export interface HandleTarget {
   id: string;
   display_name: string | null;
   public_uid: string;
+  avatar_url: string | null;
 }
 
 /** Resolves an email or 8-char public ID to that minimal profile.
@@ -67,6 +68,42 @@ export async function lookupUserByHandle(
   const target = (data as HandleTarget[] | null)?.[0] ?? null;
   if (!target) return { target: null, error: 'No user found with that email or ID.' };
   return { target, error: null };
+}
+
+export interface ExistingFriendship {
+  status: FriendshipStatus;
+  direction: 'incoming' | 'outgoing';
+}
+
+/** Looks up any existing row between the two users, in either direction.
+ *
+ * The invite screen calls this alongside the handle lookup so it can show
+ * "already friends" / "request already sent" instead of a Send button that
+ * would just fail on the DB's unique constraint -- including when the same
+ * invite link is opened again (a real re-tap, or the OS replaying a deep
+ * link on process restore) after the request already went out. */
+export async function getExistingFriendship(
+  selfUserId: string,
+  targetUserId: string,
+): Promise<{ friendship: ExistingFriendship | null; error: string | null }> {
+  const { data, error } = await supabase
+    .from('friendships')
+    .select('status, requester_id')
+    .or(
+      `and(requester_id.eq.${selfUserId},addressee_id.eq.${targetUserId}),and(requester_id.eq.${targetUserId},addressee_id.eq.${selfUserId})`,
+    )
+    .maybeSingle();
+
+  if (error) return { friendship: null, error: error.message };
+  if (!data) return { friendship: null, error: null };
+
+  return {
+    friendship: {
+      status: data.status,
+      direction: data.requester_id === selfUserId ? 'outgoing' : 'incoming',
+    },
+    error: null,
+  };
 }
 
 /** Inserts the pending row. Split from the lookup so the invite screen can name
