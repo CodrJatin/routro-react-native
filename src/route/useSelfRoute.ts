@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { findRoute } from '../engine/graph';
-import type { RouteResult } from '../engine/types';
+import type { RouteResult, StationId } from '../engine/types';
 import { useJourneyStore } from '../journey/journeyStore';
 import { useSelfPositionStore } from '../location/selfPosition';
 import { useActiveRouteStore } from './activeRouteStore';
@@ -29,6 +29,64 @@ export interface SelfRouteView {
  * screens picking different answers is precisely the class of disagreement
  * `useFriendStatuses` and `selfPosition` were each introduced to end.
  */
+/**
+ * Where the user is headed, by the same precedence `readSelfRoute` uses but
+ * without computing the route.
+ *
+ * For background code that only needs the destination and runs often enough
+ * that a Dijkstra pass per call would be silly -- the friend alerts, which ask
+ * this question every time a friend's fix lands near a station. Kept here
+ * rather than inlined at the call site so that "a tracked journey outranks
+ * whatever the planner is showing" stays decided in exactly one place.
+ */
+export function readSelfDestinationId(): StationId | null {
+  const session = useJourneyStore.getState().session;
+  if (session) return session.destinationId;
+  const planner = useActiveRouteStore.getState();
+  return planner.originId && planner.destinationId ? planner.destinationId : null;
+}
+
+/**
+ * The same answer as `useSelfRoute`, read once without a component.
+ *
+ * For the code that has to resolve "your route" with nothing mounted -- the
+ * meet controller quoting an arrival time at the moment a request is sent or
+ * answered. Deliberately shares this file with the hook rather than living
+ * next to its caller: two implementations of "which route is the user's" is
+ * exactly the disagreement this module exists to prevent.
+ *
+ * The clock it returns is pinned to now, which is correct for a one-shot
+ * question. The hook's clock re-pins itself over time; this one is read and
+ * discarded in the same breath.
+ */
+export function readSelfRoute(): SelfRouteView | null {
+  const session = useJourneyStore.getState().session;
+  const planner = useActiveRouteStore.getState();
+
+  const resolved = session
+    ? { route: findRoute(session.originId, session.destinationId, session.mode), source: 'journey' as const }
+    : planner.originId && planner.destinationId
+      ? {
+          route: findRoute(planner.originId, planner.destinationId, planner.mode),
+          source: 'planner' as const,
+        }
+      : null;
+
+  if (!resolved?.route) return null;
+
+  const progress = getRouteProgress(resolved.route, useSelfPositionStore.getState().position);
+  return {
+    route: resolved.route,
+    progress,
+    clock: {
+      anchorMs: Date.now(),
+      anchorOffsetSeconds: progress ? progress.sequence[progress.nearestIndex].offsetSeconds : 0,
+      isLive: progress !== null,
+    },
+    source: resolved.source,
+  };
+}
+
 export function useSelfRoute(): SelfRouteView | null {
   const session = useJourneyStore((state) => state.session);
   const plannerOriginId = useActiveRouteStore((state) => state.originId);

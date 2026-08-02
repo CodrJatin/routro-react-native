@@ -32,6 +32,7 @@ import { useAuth } from '../../src/auth/AuthProvider';
 import { findRoute, getStation } from '../../src/engine/graph';
 import type { CompiledStation, StationId } from '../../src/engine/types';
 import { friendColorFor } from '../../src/friends/friendColor';
+import { MeetRequestStack } from '../../src/friends/MeetRequestCard';
 import { useBasemapStore } from '../../src/map/basemapStore';
 import { FriendFocusStack, type ActiveFriend } from '../../src/map/FriendFocusStack';
 import { FriendsLayer } from '../../src/map/FriendsLayer';
@@ -660,12 +661,14 @@ export default function MapScreen() {
 
       <JourneyBar />
 
-      {/* Without this, a dropped realtime connection is indistinguishable
-          from "nobody is sharing right now" -- the map just quietly empties. */}
-      {isConfigured && session && connectionState === 'error' && (
+      {/* Everything that stacks under the journey bar, in one column so the
+          pieces can't overlap each other. Heights vary (a meet request card is
+          much taller than the connection hairline) and each one used to place
+          itself, which only worked while there was never more than one. */}
+      {isConfigured && session && (
         <View
           style={[
-            styles.connectionBanner,
+            styles.topStack,
             {
               // Below the journey bar when there is one, in the top slot when
               // there isn't -- and clear of the notch either way.
@@ -675,12 +678,25 @@ export default function MapScreen() {
                 (isJourneyActive ? JOURNEY_BAR_HEIGHT + 8 : 0),
             },
           ]}
-          pointerEvents="none"
+          pointerEvents="box-none"
         >
-          <Ionicons name="cloud-offline-outline" size={14} color={colors.onSurfaceVariant} />
-          <Text style={styles.connectionBannerText}>
-            Live connection lost — friend locations may be out of date
-          </Text>
+          {/* Without this, a dropped realtime connection is indistinguishable
+              from "nobody is sharing right now" -- the map just quietly
+              empties. */}
+          {connectionState === 'error' && (
+            <View style={styles.connectionBanner} pointerEvents="none">
+              <Ionicons name="cloud-offline-outline" size={14} color={colors.onSurfaceVariant} />
+              <Text style={styles.connectionBannerText}>
+                Live connection lost — friend locations may be out of date
+              </Text>
+            </View>
+          )}
+
+          {/* A friend asking to meet, with thirty seconds on the clock. Here
+              rather than in a modal on purpose: it must not stop the user
+              doing anything, and it has to be dismissible by simply not
+              answering. */}
+          <MeetRequestStack />
         </View>
       )}
 
@@ -880,12 +896,17 @@ function createStyles(colors: ColorTokens, radius: { none: number; badge: number
     iconWaiting: {
       opacity: 0.5,
     },
-    // Squared off and aligned with the journey bar above it. `top` is set at
-    // the call site, which is where the safe-area inset is known.
-    connectionBanner: {
+    // Aligned with the journey bar above it. `top` is set at the call site,
+    // which is where the safe-area inset is known.
+    topStack: {
       position: 'absolute',
       left: 12,
       right: 12,
+      gap: 8,
+      zIndex: 3,
+    },
+    // Squared off, like everything else that floats over the map.
+    connectionBanner: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
@@ -895,7 +916,6 @@ function createStyles(colors: ColorTokens, radius: { none: number; badge: number
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
-      zIndex: 3,
     },
     connectionBannerText: {
       flex: 1,

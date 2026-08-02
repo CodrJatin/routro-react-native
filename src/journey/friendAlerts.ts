@@ -1,7 +1,10 @@
+import type { StationId } from '../engine/types';
 import { estimateFriendEta } from '../friends/friendEta';
+import { useMeetStore } from '../friends/meetStore';
 import { findNearestStation } from '../friends/nearestStation';
 import { useSelfPositionStore } from '../location/selfPosition';
 import { useLocationStore, type FriendLocation } from '../realtime/locationStore';
+import { readSelfDestinationId } from '../route/useSelfRoute';
 import { presentAlert } from './alertNotifications';
 import { areFriendAlertsEnabled } from './notificationPrefs';
 
@@ -21,7 +24,9 @@ let unsubscribe: (() => void) | null = null;
 
 /**
  * Watches friends' broadcast locations and alerts on the two moments worth
- * interrupting for: a friend getting close, and a friend arriving somewhere.
+ * interrupting for: a friend getting close, and a friend reaching a station
+ * that means something to the user -- see `arrivalReasonFor`, which is what
+ * keeps "arriving somewhere" from meaning every stop on their line.
  *
  * Driven by the location store rather than by a timer, so it works in the
  * background for free -- friend positions arrive over the websocket, which is
@@ -53,19 +58,68 @@ export function stopFriendAlerts(): void {
   firedKeys = new Set();
 }
 
+/**
+ * Why a friend turning up somewhere is worth interrupting for.
+ *
+ * The list is deliberately short. A friend riding a line passes a station
+ * every couple of minutes, and announcing each one buried the alerts that
+ * matter under a stream of ones that don't -- which is how someone ends up
+ * silencing friend alerts altogether. These three are the places where their
+ * arrival changes what the user should do next.
+ */
+type ArrivalReason = 'meeting-point' | 'your-destination' | 'where-you-are';
+
+const ARRIVAL_BODY: Record<ArrivalReason, string> = {
+  'meeting-point': "Where you're meeting them.",
+  'your-destination': "That's your destination.",
+  'where-you-are': "That's where you are.",
+};
+
+/**
+ * Whether this station is one of the few the user cares about, and why.
+ *
+ * Ordered by how much the user has committed to the place: a meeting they
+ * agreed to outranks where they happen to be headed, which outranks where they
+ * are standing. Only the first one is reported, so an arrival never says two
+ * things at once.
+ *
+ * Kept cheap on purpose -- this runs on every fix a friend sends from near a
+ * station. The meet is a hash lookup, the destination is read straight off the
+ * session (see `readSelfDestinationId`, which deliberately does not route),
+ * and only the last one scans the station list.
+ */
+function arrivalReasonFor(userId: string, stationId: StationId): ArrivalReason | null {
+  if (useMeetStore.getState().meets[userId]?.stationId === stationId) return 'meeting-point';
+  if (readSelfDestinationId() === stationId) return 'your-destination';
+
+  const self = useSelfPositionStore.getState().position;
+  if (!self) return null;
+  const here = findNearestStation(self.lat, self.lon);
+  // The same threshold the friend had to clear. Without it, "that's where you
+  // are" would fire while the user is on a moving train that merely happens to
+  // be nearest that station.
+  if (here && here.stationId === stationId && here.distanceMeters <= AT_STATION_METERS) {
+    return 'where-you-are';
+  }
+  return null;
+}
+
 async function considerFriend(userId: string, location: FriendLocation): Promise<void> {
   const name = friendLabel(userId);
 
   const station = findNearestStation(location.lat, location.lon);
   if (station && station.distanceMeters <= AT_STATION_METERS) {
-    // Keyed by station, not by friend: someone riding the line past you would
-    // otherwise announce every station they pass through.
+    const reason = arrivalReasonFor(userId, station.stationId);
+    // Keyed by station as well as friend: the handful of stations that qualify
+    // are genuinely different events -- a friend reaching the meeting point
+    // and later reaching your destination are two things you want to hear --
+    // and the filter above is what stops that becoming one alert per stop.
     const key = `arrived:${userId}:${station.stationId}`;
-    if (!firedKeys.has(key)) {
+    if (reason && !firedKeys.has(key)) {
       firedKeys.add(key);
       await presentAlert({
         title: `${name} is at ${station.name}`,
-        body: 'They just arrived.',
+        body: ARRIVAL_BODY[reason],
       });
       return;
     }

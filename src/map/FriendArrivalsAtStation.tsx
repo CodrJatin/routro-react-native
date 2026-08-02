@@ -4,6 +4,7 @@ import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanim
 import type { StationId } from '../engine/types';
 import { friendColorFor } from '../friends/friendColor';
 import { useFriendJourneys } from '../friends/friendJourney';
+import { MeetButton } from '../friends/MeetButton';
 import { useLocationStore } from '../realtime/locationStore';
 import { formatStationArrival, routeClockMs } from '../route/routeClock';
 import { buildStationMarks, type RouteStationMark } from '../route/routeProgress';
@@ -54,6 +55,10 @@ export function FriendArrivalsAtStation({ stationId }: { stationId: StationId })
       arrival: string | null;
       rank: number;
       arrivalMs: number | null;
+      /** Whether there is still a meeting to propose here. False once they are
+       * through: the station is behind them, and asking them to come back to
+       * it is not what this button means. */
+      canMeet: boolean;
     }[] = [];
 
     for (const [userId, view] of Object.entries(friendJourneys)) {
@@ -64,6 +69,7 @@ export function FriendArrivalsAtStation({ stationId }: { stationId: StationId })
       // already gone through says 'Passed' here exactly as it would there.
       const mark = view.progress ? buildStationMarks(view.progress).get(stationId) : undefined;
       const arrivalMs = view.clock ? routeClockMs(view.clock, onRoute.offsetSeconds) : null;
+      const rank = rankFor(mark, arrivalMs);
 
       result.push({
         userId,
@@ -71,8 +77,12 @@ export function FriendArrivalsAtStation({ stationId }: { stationId: StationId })
         arrival: view.clock
           ? formatStationArrival(view.clock, onRoute.offsetSeconds, mark)
           : null,
-        rank: rankFor(mark, arrivalMs),
+        rank,
         arrivalMs,
+        // Standing here now counts, and so does a friend we can't place on
+        // their route -- they are travelling through here either way, and the
+        // one thing we know is that they haven't been marked past it.
+        canMeet: rank !== RANK_PASSED,
       });
     }
 
@@ -105,13 +115,16 @@ export function FriendArrivalsAtStation({ stationId }: { stationId: StationId })
       layout={LinearTransition.duration(220)}
     >
       <Text style={styles.label}>FRIENDS PASSING THROUGH</Text>
-      {arrivals.map(({ userId, name, arrival }) => (
+      {arrivals.map(({ userId, name, arrival, canMeet }) => (
         <View key={userId} style={styles.row}>
           <View style={[styles.dot, { backgroundColor: friendColorFor(userId) }]} />
           <Text style={styles.name} numberOfLines={1}>
             {name}
           </Text>
           <Text style={styles.arrival}>{arrival ?? '—'}</Text>
+          {/* Right of the time, because the time is what makes it a decision:
+              you are agreeing to be here when they are. */}
+          {canMeet && <MeetButton friendUserId={userId} friendName={name} stationId={stationId} />}
         </View>
       ))}
     </Animated.View>
@@ -136,7 +149,10 @@ function createStyles(colors: ColorTokens) {
     row: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
+      // Tighter than it was: the row now carries a button as well as a name
+      // and a time, and the card it sits in is deliberately narrow (it clears
+      // the locate/broadcast column on the map).
+      gap: 6,
     },
     dot: {
       width: 7,

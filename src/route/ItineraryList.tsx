@@ -14,6 +14,7 @@ import Animated, {
 import type { ItineraryLeg, ItineraryStep, RawLines, RouteResult, StationId } from '../engine/types';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../theme/tokens';
+import { buildLegSegments, type ItineraryMeet } from './legSegments';
 import { formatStationArrival, type RouteClock } from './routeClock';
 import { buildStationMarks, type RouteProgress, type RouteStationMark } from './routeProgress';
 import { legStopOffsets } from './stationOnRoute';
@@ -68,6 +69,7 @@ export function ItineraryList({
   lines,
   clock,
   progress,
+  meets,
 }: {
   route: RouteResult;
   lines: RawLines;
@@ -76,6 +78,8 @@ export function ItineraryList({
   clock: RouteClock;
   /** Where the user is along this journey, when that's known. */
   progress: RouteProgress | null;
+  /** Stations on this journey where a friend is being met. */
+  meets?: ItineraryMeet[];
 }) {
   const { colors, radius, typography } = useTheme();
   const styles = useMemo(() => createStyles(colors, radius, typography), [colors, radius, typography]);
@@ -85,6 +89,11 @@ export function ItineraryList({
   // a station at every interchange, while progress is measured along the
   // flattened journey.
   const marks = useMemo(() => buildStationMarks(progress), [progress]);
+  const meetsByStation = useMemo(() => {
+    const map = new Map<StationId, ItineraryMeet>();
+    for (const meet of meets ?? []) map.set(meet.stationId, meet);
+    return map;
+  }, [meets]);
 
   return (
     <View style={styles.card}>
@@ -95,6 +104,7 @@ export function ItineraryList({
               key={`ride-${index}`}
               row={row}
               marks={marks}
+              meets={meetsByStation}
               clock={clock}
               styles={styles}
               colors={colors}
@@ -107,6 +117,7 @@ export function ItineraryList({
             key={`station-${index}`}
             row={row}
             mark={mark}
+            meet={meetsByStation.get(row.step.stationId)}
             time={formatStationArrival(clock, row.timeOffsetSeconds, mark)}
             styles={styles}
             colors={colors}
@@ -196,12 +207,14 @@ function buildRows(legs: ItineraryLeg[], lines: RawLines): Row[] {
 function StationRow({
   row,
   mark,
+  meet,
   time,
   styles,
   colors,
 }: {
   row: StationRowData;
   mark: RouteStationMark | undefined;
+  meet: ItineraryMeet | undefined;
   time: string;
   styles: ReturnType<typeof createStyles>;
   colors: ColorTokens;
@@ -227,7 +240,13 @@ function StationRow({
           ]}
         />
         <View style={styles.railMarkerOverlay} pointerEvents="none">
-          <StationMarker row={row} mark={mark} styles={styles} colors={colors} />
+          <StationMarker
+            row={row}
+            mark={mark}
+            hasMeet={meet !== undefined}
+            styles={styles}
+            colors={colors}
+          />
         </View>
       </View>
       <View style={[styles.stationContent, mark === 'passed' && styles.passed]}>
@@ -258,19 +277,49 @@ function StationRow({
             {mark === 'current' || mark === 'passed' ? 'Arrived at destination' : 'Destination'}
           </Text>
         )}
+        {meet && <MeetNote label={meet.label} styles={styles} colors={colors} />}
       </View>
     </Animated.View>
+  );
+}
+
+/**
+ * "Wait 11 min for Aditi", under the station it applies to.
+ *
+ * Sits below the row's own text rather than replacing it: the station still
+ * has to say when the train gets there and which line to change to, and the
+ * meeting is a thing to do once you are standing on the platform, not a
+ * different kind of stop.
+ */
+function MeetNote({
+  label,
+  styles,
+  colors,
+}: {
+  label: string;
+  styles: ReturnType<typeof createStyles>;
+  colors: ColorTokens;
+}) {
+  return (
+    <View style={styles.meetNote}>
+      <Ionicons name="hand-left" size={12} color={colors.accent} />
+      <Text style={styles.meetNoteText} numberOfLines={2}>
+        {label}
+      </Text>
+    </View>
   );
 }
 
 function StationMarker({
   row,
   mark,
+  hasMeet,
   styles,
   colors,
 }: {
   row: StationRowData;
   mark: RouteStationMark | undefined;
+  hasMeet: boolean;
   styles: ReturnType<typeof createStyles>;
   colors: ColorTokens;
 }) {
@@ -285,27 +334,41 @@ function StationMarker({
       <View style={styles.originMarker} />
     );
 
-  if (mark !== 'current') return marker;
+  const ringStyle =
+    row.kind === 'origin'
+      ? styles.ringOrigin
+      : row.kind === 'interchange'
+        ? styles.ringInterchange
+        : styles.ringDestination;
 
   // At an origin/interchange/destination the row's own marker is carrying
-  // real information (which way to change, where the trip ends), so "you are
-  // here" wraps it rather than replacing it. The ring follows the marker's
-  // shape -- round on the origin dot, square on the two boxes.
-  return (
-    <View style={styles.markerWrap}>
-      <CurrentPulse
-        color={colors.textPrimary}
-        style={
-          row.kind === 'origin'
-            ? styles.ringOrigin
-            : row.kind === 'interchange'
-              ? styles.ringInterchange
-              : styles.ringDestination
-        }
-      />
-      {marker}
-    </View>
-  );
+  // real information (which way to change, where the trip ends), so neither
+  // "you are here" nor "you are meeting someone here" replaces it -- they wrap
+  // it. The ring follows the marker's shape: round on the origin dot, square
+  // on the two boxes.
+  if (mark === 'current') {
+    return (
+      <View style={styles.markerWrap}>
+        <CurrentPulse color={colors.textPrimary} style={ringStyle} />
+        {marker}
+      </View>
+    );
+  }
+
+  // A still ring rather than a pulsing one: the meeting is a fact about this
+  // station, not something happening right now. Standing here outranks it --
+  // hence the branch above -- because "you are here" is the more urgent of the
+  // two and two rings on one marker is just a blur.
+  if (hasMeet) {
+    return (
+      <View style={styles.markerWrap}>
+        <View style={[ringStyle, styles.meetRing]} pointerEvents="none" />
+        {marker}
+      </View>
+    );
+  }
+
+  return marker;
 }
 
 /** Monochrome "you are here": an outline that expands and fades on a loop.
@@ -345,27 +408,37 @@ function CurrentPulse({
 function RideRow({
   row,
   marks,
+  meets,
   clock,
   styles,
   colors,
 }: {
   row: RideRowData;
   marks: Map<StationId, RouteStationMark>;
+  meets: Map<StationId, ItineraryMeet>;
   clock: RouteClock;
   styles: ReturnType<typeof createStyles>;
   colors: ColorTokens;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  // Which of this leg's collapsed groups are open, by segment index. Per
+  // group rather than per leg: a leg split around where you are standing has a
+  // stretch behind you and a stretch ahead of you, and those are two different
+  // questions.
+  const [openSegments, setOpenSegments] = useState<ReadonlySet<number>>(() => new Set());
   const stopCount = row.leg.intermediateStations.length + 1;
 
-  // Where the user is, when that is one of the stops this leg runs through.
-  // Boarding and alighting stations are their own rows already, so only the
-  // in-between ones can go missing behind a collapsed list -- which is most of
-  // them, and most of a journey.
-  const currentIndex = row.leg.intermediateStations.findIndex(
-    (station) => marks.get(station.stationId) === 'current',
+  const segments = useMemo(
+    () => buildLegSegments(row.leg.intermediateStations, marks, meets),
+    [row.leg.intermediateStations, marks, meets],
   );
-  const currentStation = currentIndex === -1 ? null : row.leg.intermediateStations[currentIndex];
+
+  function toggleSegment(index: number) {
+    setOpenSegments((current) => {
+      const next = new Set(current);
+      if (!next.delete(index)) next.add(index);
+      return next;
+    });
+  }
 
   return (
     <Animated.View layout={LinearTransition.duration(200)}>
@@ -381,87 +454,134 @@ function RideRow({
           <Text style={styles.rideMeta}>
             {formatStops(stopCount)} · {formatMinutes(row.leg.legTimeSeconds)}
           </Text>
-
-          {row.leg.intermediateStations.length > 0 && (
-            <Pressable style={styles.expandRow} onPress={() => setExpanded((e) => !e)}>
-              <Ionicons
-                name={expanded ? 'chevron-up' : 'chevron-down'}
-                size={13}
-                color={colors.textSecondary}
-              />
-              <Text style={styles.expandText}>
-                {expanded ? 'Hide stops' : `Show ${row.leg.intermediateStations.length} in between`}
-              </Text>
-            </Pressable>
-          )}
         </View>
       </View>
 
-      {/* Where you are, kept on screen while the leg is collapsed. Without it
-          the one station the user most needs -- their own -- is the one thing
-          the list hides, since it is an ordinary in-between stop on all but
-          the few hops that start or end a leg. Dropped when expanded, where
-          the full list carries the same marker in its proper place. */}
-      {!expanded && currentStation && (
-        <Animated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)}>
-          <CurrentStopRow
-            station={currentStation}
-            color={row.color}
-            styles={styles}
-            colors={colors}
-          />
-        </Animated.View>
-      )}
+      {/* The leg's stops, in order, with the pinned ones (where you are, where
+          you are meeting someone) always shown and the ordinary ones folded
+          into a group either side of them. Each group carries its own "show N
+          in between", so a pinned stop sits between two of them rather than
+          being pushed to the bottom of the leg where it read as the last stop
+          before the interchange. */}
+      {segments.map((segment, segmentIndex) => {
+        const isOpen = openSegments.has(segmentIndex);
+        const pinnedStation =
+          segment.pinnedIndex === null
+            ? null
+            : row.leg.intermediateStations[segment.pinnedIndex];
 
-      {/* Outside the content column, so each stop gets its own row with the
-          rail running through it -- the dots have to sit *on* the line, and
-          the position marker has to be able to land on any one of them. */}
-      {expanded && (
-        <Animated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)}>
-          {row.leg.intermediateStations.map((station, i) => {
-            const mark = marks.get(station.stationId);
-            return (
-              <IntermediateRow
-                key={station.stationId}
-                station={station}
-                mark={mark}
-                // Nothing for a stop already behind you: the dimmed name and
-                // the filled dot say it, and a column of "Passed" down the
-                // expanded leg would drown the arrivals still to come.
+        return (
+          <View key={`segment-${segmentIndex}`}>
+            {segment.stops.length > 0 && (
+              <>
+                <Pressable
+                  style={styles.segmentToggle}
+                  onPress={() => toggleSegment(segmentIndex)}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    isOpen
+                      ? 'Hide these stops'
+                      : `Show ${segment.stops.length} stops in between`
+                  }
+                >
+                  <View style={styles.intermediateRail}>
+                    <View style={[styles.railBehind, { backgroundColor: row.color }]} />
+                  </View>
+                  <View style={styles.segmentToggleContent}>
+                    <Ionicons
+                      name={isOpen ? 'chevron-up' : 'chevron-down'}
+                      size={13}
+                      color={colors.textSecondary}
+                    />
+                    <Text style={styles.expandText}>
+                      {isOpen ? 'Hide stops' : `Show ${segment.stops.length} in between`}
+                    </Text>
+                  </View>
+                </Pressable>
+
+                {isOpen && (
+                  <Animated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)}>
+                    {segment.stops.map((index) => {
+                      const station = row.leg.intermediateStations[index];
+                      const mark = marks.get(station.stationId);
+                      return (
+                        <IntermediateRow
+                          key={station.stationId}
+                          station={station}
+                          mark={mark}
+                          // Nothing for a stop already behind you: the dimmed
+                          // name and the filled dot say it, and a column of
+                          // "Passed" down the leg would drown the arrivals
+                          // still to come.
+                          time={
+                            mark === 'passed'
+                              ? null
+                              : formatStationArrival(clock, row.stopOffsetSeconds[index], mark)
+                          }
+                          color={row.color}
+                          styles={styles}
+                          colors={colors}
+                        />
+                      );
+                    })}
+                  </Animated.View>
+                )}
+              </>
+            )}
+
+            {pinnedStation && segment.pinnedIndex !== null && (
+              <PinnedStopRow
+                station={pinnedStation}
+                isCurrent={marks.get(pinnedStation.stationId) === 'current'}
+                meet={meets.get(pinnedStation.stationId)}
+                // "Now" for where you are; a real clock time for a meeting
+                // still ahead of you.
                 time={
-                  mark === 'passed'
-                    ? null
-                    : formatStationArrival(clock, row.stopOffsetSeconds[i], mark)
+                  marks.get(pinnedStation.stationId) === 'current'
+                    ? 'Now'
+                    : formatStationArrival(
+                        clock,
+                        row.stopOffsetSeconds[segment.pinnedIndex],
+                        marks.get(pinnedStation.stationId),
+                      )
                 }
                 color={row.color}
                 styles={styles}
                 colors={colors}
               />
-            );
-          })}
-        </Animated.View>
-      )}
+            )}
+          </View>
+        );
+      })}
     </Animated.View>
   );
 }
 
+
 /**
- * "You are here", shown on a collapsed leg.
+ * A stop worth keeping on screen while its leg is collapsed: where you are,
+ * where you are meeting someone, or both.
  *
- * Pitched between the two row weights either side of it: the same pulsing
- * diamond and rail as an expanded in-between stop, but a readable name and a
- * primary-coloured "Now" rather than the dimmed single line those get. It
+ * Pitched between the two row weights either side of it: the same diamond and
+ * rail as an expanded in-between stop, but a readable name and a
+ * primary-coloured time rather than the dimmed single line those get. It
  * deliberately stops short of a full station row -- no line badge, no headline
- * type -- because this is not somewhere the user has to do anything, and
- * dressing it like an interchange would say that it is.
+ * type -- because a meeting point is still just a stop the train runs through,
+ * and dressing it like an interchange would say the user has to change there.
  */
-function CurrentStopRow({
+function PinnedStopRow({
   station,
+  isCurrent,
+  meet,
+  time,
   color,
   styles,
   colors,
 }: {
   station: ItineraryStep;
+  isCurrent: boolean;
+  meet: ItineraryMeet | undefined;
+  time: string;
   color: string;
   styles: ReturnType<typeof createStyles>;
   colors: ColorTokens;
@@ -471,23 +591,46 @@ function CurrentStopRow({
       <View style={styles.intermediateRail}>
         <View style={[styles.railBehind, { backgroundColor: color }]} />
         <View style={styles.markerWrap}>
-          <CurrentPulse color={colors.textPrimary} style={styles.ringIntermediate} rotate="45deg" />
+          {isCurrent ? (
+            <CurrentPulse
+              color={colors.textPrimary}
+              style={styles.ringIntermediate}
+              rotate="45deg"
+            />
+          ) : (
+            <View style={[styles.ringIntermediate, styles.meetRing]} pointerEvents="none" />
+          )}
           <View
             style={[
               styles.currentDiamond,
-              { backgroundColor: colors.textPrimary, borderColor: colors.surfaceContainerLow },
+              {
+                backgroundColor: isCurrent ? colors.textPrimary : colors.accent,
+                borderColor: colors.surfaceContainerLow,
+              },
             ]}
           />
         </View>
       </View>
-      <Text style={styles.currentStopName} numberOfLines={1}>
-        {station.stationName}
-      </Text>
-      <Text style={styles.currentStopTime}>Now</Text>
+      <View style={styles.pinnedContent}>
+        <View style={styles.pinnedHeader}>
+          <Text style={styles.currentStopName} numberOfLines={1}>
+            {station.stationName}
+          </Text>
+          <Text style={styles.currentStopTime}>{time}</Text>
+        </View>
+        {meet && <MeetNote label={meet.label} styles={styles} colors={colors} />}
+      </View>
     </View>
   );
 }
 
+/**
+ * An ordinary stop the train runs through, inside an opened group.
+ *
+ * Deliberately knows nothing about meetings: a station being met at is pinned
+ * out of these groups entirely and drawn by `PinnedStopRow`, so there is no
+ * case where one of these has to carry a note.
+ */
 function IntermediateRow({
   station,
   mark,
@@ -671,11 +814,22 @@ function createStyles(colors: ColorTokens, radius: { none: number; badge: number
       ...typography.dataSm,
       color: colors.textSecondary,
     },
-    expandRow: {
+    /** A group's own "show N in between", on its own rail row so the line runs
+     * through it -- there can be one of these above a pinned stop and another
+     * below it, and neither may break the leg in half. */
+    segmentToggle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      minHeight: 32,
+    },
+    segmentToggleContent: {
+      flex: 1,
+      minWidth: 0,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
-      paddingTop: 2,
+      paddingLeft: RAIL_GAP,
+      paddingRight: CARD_PADDING,
     },
     expandText: {
       ...typography.bodyMd,
@@ -699,14 +853,48 @@ function createStyles(colors: ColorTokens, radius: { none: number; badge: number
       alignItems: 'center',
       minHeight: 40,
     },
+    // The gap lives on the column rather than on the name, so the station and
+    // the meeting note under it share one left edge.
+    pinnedContent: {
+      flex: 1,
+      minWidth: 0,
+      paddingLeft: RAIL_GAP,
+      paddingVertical: 4,
+      gap: 3,
+    },
+    pinnedHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
     currentStopName: {
       ...typography.bodyMd,
       fontSize: 15,
       fontWeight: '600',
       color: colors.textPrimary,
       flex: 1,
-      paddingLeft: RAIL_GAP,
       paddingRight: 8,
+    },
+    /** The meeting itself: the one thing on the itinerary that involves
+     * another person, so it is the one thing in the accent colour. */
+    meetNote: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      alignSelf: 'flex-start',
+      paddingRight: 8,
+    },
+    meetNoteText: {
+      ...typography.labelCaps,
+      fontSize: 10,
+      color: colors.accent,
+      flexShrink: 1,
+    },
+    /** A still halo on a station someone is being met at. Shares its geometry
+     * with the pulse rings so the two never sit at different sizes on the same
+     * marker. */
+    meetRing: {
+      borderColor: colors.accent,
+      opacity: 0.9,
     },
     currentStopTime: {
       ...typography.dataSm,

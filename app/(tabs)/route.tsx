@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { findRoute, getCompiledGraph, getStation } from '../../src/engine/graph';
+import { useMeetMarkers } from '../../src/friends/useMeet';
 import { isJourneyServiceAvailable } from '../../modules/journey-service';
 import { useIsJourneyActive } from '../../src/journey/journeyStore';
 import { LiveJourneySection } from '../../src/journey/LiveJourneySection';
@@ -78,6 +79,12 @@ export default function RouteScreen() {
   // already half done stops quoting the times you'd have hit by starting it
   // over. See useRouteClock for what each mode costs.
   const clock = useRouteClock(route, progress);
+
+  // Friends being met along this route. Measured against the same clock the
+  // itinerary prints, so "wait 11 min" and the arrival time above it are the
+  // same arithmetic -- and cleared here too, once the station is behind the
+  // user.
+  const meetMarkers = useMeetMarkers(route, clock, progress);
 
   const lines = useMemo(() => getCompiledGraph().lines, []);
 
@@ -243,7 +250,13 @@ export default function RouteScreen() {
               isSaved={isCurrentSaved}
               onToggleSave={handleToggleSave}
             />
-            <ItineraryList route={route} lines={lines} clock={clock} progress={progress} />
+            <ItineraryList
+              route={route}
+              lines={lines}
+              clock={clock}
+              progress={progress}
+              meets={meetMarkers}
+            />
           </Animated.View>
         ) : (
           // No route on screen -- the slot below the inputs belongs to the

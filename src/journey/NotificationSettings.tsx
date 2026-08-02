@@ -35,7 +35,13 @@ const ALERT_ROWS: ToggleRow[] = [
     key: 'friends',
     icon: 'people-outline',
     label: 'Friends nearby',
-    hint: 'When a friend who is sharing comes within two stops, or arrives.',
+    hint: 'When a friend who is sharing comes within two stops, or reaches where you are, where you are going, or where you are meeting them.',
+  },
+  {
+    key: 'meets',
+    icon: 'hand-left-outline',
+    label: 'Meet requests',
+    hint: 'When a friend asks to meet you at a station, and when they answer yours.',
   },
 ];
 
@@ -103,8 +109,9 @@ export function NotificationSettings() {
       </View>
 
       <Text style={styles.footnote}>
-        Alerts only fire while you are following a journey. The progress notification is always
-        shown while one is running — it is how you stop it.
+        Journey and friend alerts only fire while you are following a journey. Meet requests can
+        arrive any time — they expire in 30 seconds, so they are not worth holding back. The
+        progress notification is always shown while a journey is running: it is how you stop it.
       </Text>
     </>
   );

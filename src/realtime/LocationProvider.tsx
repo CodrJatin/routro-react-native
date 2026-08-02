@@ -1,11 +1,18 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '../auth/AuthProvider';
 // MOCK FRIEND -- temporary dev fixture, delete with src/dev/mockFriend.ts
 import { isMockFriendId } from '../dev/mockFriend';
+import {
+  clearMeetState,
+  forgetMeetsWith,
+  initMeetController,
+  teardownMeetController,
+} from '../friends/meetController';
 import { otherParty } from '../friends/useFriendships';
 import { useFriendshipsContext } from '../friends/FriendshipsProvider';
 import { locationChannelManager } from './locationChannel';
+import { meetChannelManager } from './meetChannel';
 import { useLocationStore } from './locationStore';
 
 /** Mounted once inside the authenticated (tabs) layout. Joins the user's own
@@ -59,17 +66,49 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Meet requests ride their own per-pair channels rather than the location
+  // ones -- see src/realtime/meetChannel.ts for why. Wired here because this is
+  // where the accepted-friends list and the signed-in user already meet.
+  useEffect(() => {
+    initMeetController();
+    return () => {
+      teardownMeetController();
+    };
+  }, []);
+
   useEffect(() => {
     if (!isConfigured || !userId) return;
     locationChannelManager.joinOwn(userId);
+    meetChannelManager.setSelf(userId);
     return () => {
       locationChannelManager.teardown();
+      meetChannelManager.teardown();
+      // A meet belongs to a pair of accounts, not to a device. Signing out has
+      // to take the agreed meets and the pending requests with it.
+      clearMeetState();
     };
   }, [isConfigured, userId]);
+
+  // Meets with people who are no longer friends. Their channel closes on the
+  // server the moment the friendship goes (the RLS policy tests it), so an
+  // agreed meet with them could otherwise sit on the itinerary with no way
+  // left to cancel or update it.
+  const previousFriendIds = useRef<string[]>([]);
+  useEffect(() => {
+    const current = new Set(acceptedFriendIds);
+    for (const id of previousFriendIds.current) {
+      if (!current.has(id)) forgetMeetsWith(id);
+    }
+    previousFriendIds.current = Array.from(current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [acceptedFriendIdsKey]);
 
   useEffect(() => {
     if (!isConfigured || !userId) return;
     locationChannelManager.syncFriendSubscriptions(acceptedFriendIds);
+    // MOCK FRIEND -- `acceptedFriendIds` is already filtered of the fixture id
+    // above, so no meet channel is ever attempted for it.
+    meetChannelManager.syncFriends(acceptedFriendIds);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConfigured, userId, acceptedFriendIdsKey]);
 

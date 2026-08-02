@@ -18,6 +18,10 @@ export interface NotificationPrefs {
   interchange: boolean;
   /** A friend coming within a couple of stops, or arriving somewhere. */
   friends: boolean;
+  /** Someone asking to meet you at a station, and their answer when you ask.
+   * Unlike everything above it, this one is not tied to a journey -- a request
+   * expires in thirty seconds, so it has to reach you wherever you are. */
+  meets: boolean;
 }
 
 /** Alerts about your own journey default on -- they are the reason to follow
@@ -29,6 +33,10 @@ const DEFAULTS: NotificationPrefs = {
   alighting: true,
   interchange: true,
   friends: false,
+  // On, unlike the passive friend alerts above: this is a person waiting on an
+  // answer with a thirty-second clock running, not the app volunteering an
+  // observation. Missing it silently is the feature failing.
+  meets: true,
 };
 
 interface NotificationPrefsState extends NotificationPrefs {
@@ -53,10 +61,10 @@ export const useNotificationPrefsStore = create<NotificationPrefsState>((set, ge
 
   setPref: (key, value) => {
     set({ [key]: value } as Pick<NotificationPrefs, typeof key>);
-    const { enabled, alighting, interchange, friends } = get();
+    const { enabled, alighting, interchange, friends, meets } = get();
     AsyncStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ enabled, alighting, interchange, friends }),
+      JSON.stringify({ enabled, alighting, interchange, friends, meets }),
     ).catch(() => {
       // Best-effort; the in-memory value is what this session acts on.
     });
@@ -85,6 +93,11 @@ export function areFriendAlertsEnabled(): boolean {
   return prefs.enabled && prefs.friends;
 }
 
+export function areMeetAlertsEnabled(): boolean {
+  const prefs = useNotificationPrefsStore.getState();
+  return prefs.enabled && prefs.meets;
+}
+
 function parseStored(raw: string | null): Partial<NotificationPrefs> {
   if (!raw) return {};
   try {
@@ -94,7 +107,7 @@ function parseStored(raw: string | null): Partial<NotificationPrefs> {
     const prefs: Partial<NotificationPrefs> = {};
     // Field by field, so a stored blob written by an older or newer build
     // can't put a non-boolean into a switch.
-    for (const key of ['enabled', 'alighting', 'interchange', 'friends'] as const) {
+    for (const key of ['enabled', 'alighting', 'interchange', 'friends', 'meets'] as const) {
       if (typeof stored[key] === 'boolean') prefs[key] = stored[key];
     }
     return prefs;

@@ -24,13 +24,14 @@ import { InviteSheet } from '../../src/friends/InviteSheet';
 import { inferCurrentLine } from '../../src/friends/currentLine';
 import { AnimatedPressable } from '../../src/components/AnimatedPressable';
 import { estimateFriendEta } from '../../src/friends/friendEta';
+import { FriendMeetActions } from '../../src/friends/FriendMeetActions';
 import { useFriendJourneys, type FriendJourneyView } from '../../src/friends/friendJourney';
-import { FriendMeetUp } from '../../src/friends/FriendMeetUp';
+import { MeetFriendSection } from '../../src/friends/MeetFriendSection';
+import { useSelfRoute, type SelfRouteView } from '../../src/route/useSelfRoute';
 import { findNearestStation, type NearestStation } from '../../src/friends/nearestStation';
 import { otherParty } from '../../src/friends/useFriendships';
 import { useSelfPositionStore } from '../../src/location/selfPosition';
 import { useSeedSelfPosition } from '../../src/location/useSeedSelfPosition';
-import { useSelfRoute, type SelfRouteView } from '../../src/route/useSelfRoute';
 import { useFriendStatuses, useLocationStore, type FriendLocation, type FriendStatus } from '../../src/realtime/locationStore';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import { useSharedStyles } from '../../src/theme/sharedStyles';
@@ -106,9 +107,11 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
   const friendLocations = useLocationStore((state) => state.friendLocations);
   const statuses = useFriendStatuses();
 
-  // Journeys friends are advertising on presence, and the viewer's own route to
-  // compare them against. Both resolved once here rather than per card, so
-  // every row on this screen is answering against the same journey.
+  // Journeys friends are advertising on presence, and the viewer's own route
+  // to measure them against. Both resolved once here rather than per card, so
+  // every row on this screen is answering against the same journeys -- and so
+  // the route-progress pass behind each one happens once per fix rather than
+  // once per friend per fix.
   const friendJourneys = useFriendJourneys();
   const selfRoute = useSelfRoute();
 
@@ -123,14 +126,14 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
   // to 'broadcasting' before the first GPS fix arrives, so location can
   // briefly be null right after a friend turns broadcasting on -- that's
   // still Active, just shown as "waiting for location").
-  const active: { profile: Profile; location: FriendLocation | null }[] = [];
+  const active: { profile: Profile; location: FriendLocation | null; status: FriendStatus }[] = [];
   const inactive: { profile: Profile; location: FriendLocation | null; status: FriendStatus }[] = [];
   for (const row of accepted) {
     const profile = otherParty(row, selfUserId);
     const location = friendLocations[profile.id] ?? null;
     const status = statuses[profile.id] ?? 'offline';
     if (status === 'live' || status === 'stale') {
-      active.push({ profile, location });
+      active.push({ profile, location, status });
     } else {
       inactive.push({ profile, location, status });
     }
@@ -304,11 +307,12 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
 
         {active.length > 0 && (
           <Section title={`Active Friends (${active.length})`} styles={styles}>
-            {active.map(({ profile, location }) => (
+            {active.map(({ profile, location, status }) => (
               <ActiveFriendCard
                 key={profile.id}
                 profile={profile}
                 location={location}
+                status={status}
                 journey={friendJourneys[profile.id] ?? null}
                 selfRoute={selfRoute}
                 lines={lines}
@@ -331,10 +335,12 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
                 profile={profile}
                 location={location}
                 status={status}
+                selfRoute={selfRoute}
                 now={now}
                 styles={styles}
                 colors={colors}
                 onRemove={() => removeFriend(profile)}
+                onShowOnMap={() => showFriendOnMap(profile.id)}
               />
             ))}
           </Section>
@@ -404,6 +410,49 @@ function PendingRow({
       </View>
       <View style={styles.pendingActions}>{actions}</View>
     </Animated.View>
+  );
+}
+
+/** What each status is called, and what it is worth in the eye. Live is the
+ * only one that gets a colour: everything else is a shade of "not right now". */
+const STATUS_PRESENTATION: Record<FriendStatus, { label: string; filled: boolean }> = {
+  live: { label: 'LIVE', filled: true },
+  stale: { label: 'STALE', filled: true },
+  online: { label: 'ONLINE', filled: false },
+  offline: { label: 'OFFLINE', filled: false },
+};
+
+/**
+ * Whether a friend is reachable, said next to their name.
+ *
+ * On the name rather than off in a meta row: it is the first thing anyone
+ * checks about a person on this screen, and the one that decides whether the
+ * buttons underneath are worth pressing. Reads the same in both sections, so
+ * "Active" and "Inactive" are groupings rather than the only way to tell.
+ */
+function FriendStatusBadge({
+  status,
+  styles,
+  colors,
+}: {
+  status: FriendStatus;
+  styles: ReturnType<typeof createStyles>;
+  colors: ColorTokens;
+}) {
+  const { label, filled } = STATUS_PRESENTATION[status];
+  const tone =
+    status === 'live' ? colors.success : status === 'stale' ? colors.accent : colors.textSecondary;
+
+  return (
+    <View style={styles.statusBadge}>
+      <View
+        style={[
+          styles.statusDot,
+          { borderColor: tone, backgroundColor: filled ? tone : 'transparent' },
+        ]}
+      />
+      <Text style={[styles.statusLabel, { color: tone }]}>{label}</Text>
+    </View>
   );
 }
 
@@ -490,6 +539,7 @@ function FriendMenuButton({
 function ActiveFriendCard({
   profile,
   location,
+  status,
   journey,
   selfRoute,
   lines,
@@ -502,8 +552,11 @@ function ActiveFriendCard({
 }: {
   profile: Profile;
   location: FriendLocation | null;
+  status: FriendStatus;
   /** The journey they're advertising, when they're on one. */
   journey: FriendJourneyView | null;
+  /** The viewer's own route, for working out where the two of them could
+   * meet. */
   selfRoute: SelfRouteView | null;
   lines: RawLines;
   now: number;
@@ -584,9 +637,12 @@ function ActiveFriendCard({
     >
       <View style={styles.activeCardHeader}>
         <Avatar label={profile.display_name ?? profile.email} imageUrl={profile.avatar_url} size={36} />
-        <Text style={[styles.cardName, styles.cardNameInRow]} numberOfLines={2}>
-          {profile.display_name ?? profile.email}
-        </Text>
+        <View style={styles.nameBlock}>
+          <Text style={[styles.cardName, styles.cardNameInRow]} numberOfLines={1}>
+            {profile.display_name ?? profile.email}
+          </Text>
+          <FriendStatusBadge status={status} styles={styles} colors={colors} />
+        </View>
         <FriendMenuButton
           onRemove={onRemove}
           accessibilityLabel={`Options for ${profile.display_name ?? profile.email}`}
@@ -595,9 +651,9 @@ function ActiveFriendCard({
         />
       </View>
 
+      {/* The live dot that used to lead this row has moved up beside the name,
+          where it belongs -- what is left here is what they are doing. */}
       <View style={styles.activeCardMetaRow}>
-        <View style={styles.liveDot} />
-        <Text style={styles.liveLabel}>LIVE</Text>
         {line && (
           <View style={styles.lineBadge}>
             <Ionicons name="train" size={11} color={colors.textPrimary} />
@@ -638,31 +694,19 @@ function ActiveFriendCard({
 
       <Text style={styles.cardSubtext}>{subtext}</Text>
 
-      {journey && (
-        <FriendMeetUp
-          friendJourney={journey}
-          selfRoute={selfRoute}
-          // Falls back to a phrase that reads correctly in every sentence this
-          // gets dropped into ("3 for your friend", "your friend waits 4 min").
-          // The email would be technically more specific and much worse to
-          // read mid-sentence.
-          friendName={profile.display_name?.trim() || 'your friend'}
-        />
-      )}
+      {/* A meet request from them, one this user sent them, or a meet the two
+          have agreed -- whichever is live. Nothing at all in the ordinary
+          case, which is most of the time. */}
+      <MeetFriendSection friendUserId={profile.id} />
 
-      {/* Only offered once we actually hold a position -- otherwise there is
-          nowhere for the map to fly to and the tap would do nothing. */}
-      {location && (
-        <AnimatedPressable
-          style={styles.showOnMapButton}
-          onPress={onShowOnMap}
-          accessibilityRole="button"
-          accessibilityLabel={`Show ${profile.display_name ?? profile.email} on the map`}
-        >
-          <Ionicons name="map-outline" size={13} color={colors.accent} />
-          <Text style={styles.showOnMapText}>Show on map</Text>
-        </AnimatedPressable>
-      )}
+      <FriendMeetActions
+        friendUserId={profile.id}
+        friendName={profile.display_name?.trim() || 'your friend'}
+        journey={journey}
+        selfRoute={selfRoute}
+        onShowOnMap={onShowOnMap}
+        canShowOnMap={location !== null}
+      />
     </Animated.View>
   );
 }
@@ -671,18 +715,22 @@ function InactiveFriendRow({
   profile,
   location,
   status,
+  selfRoute,
   now,
   styles,
   colors,
   onRemove,
+  onShowOnMap,
 }: {
   profile: Profile;
   location: FriendLocation | null;
   status: FriendStatus;
+  selfRoute: SelfRouteView | null;
   now: number;
   styles: ReturnType<typeof createStyles>;
   colors: ColorTokens;
   onRemove: () => void;
+  onShowOnMap: () => void;
 }) {
   const subtext =
     status === 'online'
@@ -700,9 +748,12 @@ function InactiveFriendRow({
     >
       <View style={styles.inactiveRowMain}>
         <Avatar label={profile.display_name ?? profile.email} imageUrl={profile.avatar_url} size={32} />
-        <Text style={[styles.cardName, styles.cardNameInRow]} numberOfLines={1}>
-          {profile.display_name ?? profile.email}
-        </Text>
+        <View style={styles.nameBlock}>
+          <Text style={[styles.cardName, styles.cardNameInRow]} numberOfLines={1}>
+            {profile.display_name ?? profile.email}
+          </Text>
+          <FriendStatusBadge status={status} styles={styles} colors={colors} />
+        </View>
         <FriendMenuButton
           onRemove={onRemove}
           accessibilityLabel={`Options for ${profile.display_name ?? profile.email}`}
@@ -713,6 +764,25 @@ function InactiveFriendRow({
       <Text style={styles.inactiveSubtext} numberOfLines={1}>
         {subtext}
       </Text>
+      {/* Here too: a friend can stop sharing in the seconds between asking and
+          you looking, and their request must not disappear with them. */}
+      <MeetFriendSection friendUserId={profile.id} />
+
+      {/* Online but not sharing is still someone you can arrange to meet --
+          they just aren't on the map, so there is nothing to fly to. Offline
+          gets nothing: the request would expire unseen. */}
+      {status !== 'offline' && (
+        <FriendMeetActions
+          friendUserId={profile.id}
+          friendName={profile.display_name?.trim() || 'your friend'}
+          // Null by definition: presence drops a friend's journey the moment
+          // they stop broadcasting, which is what puts them in this list.
+          journey={null}
+          selfRoute={selfRoute}
+          onShowOnMap={onShowOnMap}
+          canShowOnMap={location !== null}
+        />
+      )}
     </Animated.View>
   );
 }
@@ -892,37 +962,35 @@ function createStyles(
       alignItems: 'center',
       gap: 10,
     },
+    // Name and status read as one thing. minWidth lets the name shrink so a
+    // long one squeezes itself rather than pushing the badge off the card.
+    nameBlock: {
+      flex: 1,
+      minWidth: 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 7,
+    },
+    statusBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      flexShrink: 0,
+    },
+    statusDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+      borderWidth: 1,
+    },
+    statusLabel: {
+      ...typography.labelCaps,
+      fontSize: 9,
+    },
     activeCardMetaRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
-    },
-    liveDot: {
-      width: 6,
-      height: 6,
-      borderRadius: 3,
-      backgroundColor: colors.success,
-    },
-    showOnMapButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      alignSelf: 'flex-start',
-      gap: 5,
-      marginTop: 2,
-      paddingVertical: 4,
-    },
-    showOnMapPressed: {
-      opacity: 0.6,
-    },
-    showOnMapText: {
-      ...typography.labelCaps,
-      fontSize: 10,
-      color: colors.accent,
-    },
-    liveLabel: {
-      ...typography.labelCaps,
-      fontSize: 10,
-      color: colors.success,
     },
     destinationRow: {
       flexDirection: 'row',

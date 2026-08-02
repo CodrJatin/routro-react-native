@@ -98,6 +98,20 @@ export function findMeetingStations(self: MeetingSide, friend: MeetingSide): Mee
 }
 
 /**
+ * Everywhere one person can still get to on their own journey, in travel
+ * order.
+ *
+ * The half of `findMeetingStations` that is useful on its own: when only one
+ * of the two has a route, there is no intersection to take, but that person's
+ * remaining stations are still a perfectly good list of places to meet -- the
+ * other one simply travels there.
+ */
+export function remainingStations(side: MeetingSide): RouteStation[] {
+  const sequence = side.progress?.sequence ?? buildRouteStationSequence(side.route);
+  return Array.from(eligibleStations(sequence, side.progress).values());
+}
+
+/**
  * The stations a person can still get to, keyed by station id.
  *
  * `>=` rather than `>`: the station someone is standing at right now is a

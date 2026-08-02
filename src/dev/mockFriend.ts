@@ -6,6 +6,7 @@ import type { RouteMode, StationId } from '../engine/types';
 import type { FriendshipRow } from '../friends/useFriendships';
 import { useJourneyStore } from '../journey/journeyStore';
 import { useLocationStore } from '../realtime/locationStore';
+import { newMeetRequestId, type MeetRequestMessage } from '../realtime/meetMessage';
 import type { SharedJourney } from '../realtime/sharedJourney';
 import { useActiveRouteStore } from '../route/activeRouteStore';
 import { buildRouteStationSequence, type RouteStation } from '../route/routeProgress';
@@ -22,9 +23,9 @@ import { buildRouteStationSequence, type RouteStation } from '../route/routeProg
  * It fabricates exactly what a real sharing friend puts into the app and
  * nothing else -- a presence status, a position, a shared journey and a
  * friendship row -- so every surface downstream (the friend card, the map pin,
- * the destination flag, the station card, the meet-up list) runs its ordinary
- * code path and has no idea this exists. Nothing here is a mock of the feature;
- * it is a mock of the *friend*.
+ * the destination flag, the station card, the meeting-point picker) runs its
+ * ordinary code path and has no idea this exists. Nothing here is a mock of
+ * the feature; it is a mock of the *friend*.
  *
  * To remove it, delete this file, `MockFriendPanel.tsx`, and the three blocks
  * marked `MOCK FRIEND` in:
@@ -66,7 +67,7 @@ interface MockFriendState {
   stationName: string | null;
   destinationName: string | null;
   /** True when the journey was built by reversing the user's own route, which
-   * is what makes the meet-up list fill up. */
+   * is what gives the two of them stations in common to meet at. */
   isMirroringSelfRoute: boolean;
   enable: () => void;
   disable: () => void;
@@ -176,6 +177,50 @@ export const useMockFriendStore = create<MockFriendState>((set, get) => ({
   },
 }));
 
+/** How far ahead of the fake friend to propose meeting. Far enough that the
+ * wait arithmetic has something to chew on rather than resolving to "they are
+ * already there". */
+const MOCK_MEET_STOPS_AHEAD = 3;
+
+/**
+ * A meet request as the fake friend would send one, plus the station it names.
+ *
+ * Deliberately returns the message rather than delivering it: the delivery
+ * entry point lives in the meet controller, which imports this file to
+ * recognise the fake id, and having this file import it back would make a
+ * cycle out of a fixture. `MockFriendPanel` joins the two ends.
+ */
+export function buildMockMeetRequest(): { message: MeetRequestMessage; stationName: string } | null {
+  const { isActive, stationIndex } = useMockFriendStore.getState();
+  if (!isActive || !journey || sequence.length === 0) return null;
+
+  const here = sequence[Math.min(stationIndex, sequence.length - 1)];
+  const target = sequence[Math.min(stationIndex + MOCK_MEET_STOPS_AHEAD, sequence.length - 1)];
+
+  return {
+    stationName: target.stationName,
+    message: {
+      kind: 'request',
+      id: newMeetRequestId(),
+      stationId: target.stationId,
+      etaSeconds: Math.max(0, target.offsetSeconds - here.offsetSeconds),
+      journey,
+      position: { lat: here.lat, lon: here.lon },
+    },
+  };
+}
+
+/** How long the fake friend would take to reach a station on their own route,
+ * for answering a request the user sent them. Null when it isn't on it. */
+export function mockSecondsToStation(stationId: StationId): number | null {
+  const { isActive, stationIndex } = useMockFriendStore.getState();
+  if (!isActive || sequence.length === 0) return null;
+  const here = sequence[Math.min(stationIndex, sequence.length - 1)];
+  const target = sequence.find((station) => station.stationId === stationId);
+  if (!target) return null;
+  return Math.max(0, target.offsetSeconds - here.offsetSeconds);
+}
+
 /**
  * Puts the fake friend at a station and publishes it the way a real broadcast
  * would.
@@ -203,8 +248,8 @@ function placeAt(index: number): void {
  *
  * Reversed from the user's own route whenever they have one, so the two are
  * travelling toward each other down the same corridor -- which guarantees the
- * meet-up list has something in it, and makes it the interesting case (a real
- * decision about where to converge) rather than a degenerate one.
+ * meeting-point picker has something in it, and makes it the interesting case
+ * (a real decision about where to converge) rather than a degenerate one.
  */
 function pickJourney(): {
   originId: StationId;

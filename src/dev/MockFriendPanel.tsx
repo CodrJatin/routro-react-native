@@ -1,9 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { deliverMockMeetMessage } from '../friends/meetController';
+import { useMeetStore } from '../friends/meetStore';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../theme/tokens';
-import { useMockFriendStore } from './mockFriend';
+import {
+  buildMockMeetRequest,
+  MOCK_FRIEND_ID,
+  mockSecondsToStation,
+  useMockFriendStore,
+} from './mockFriend';
 
 /**
  * ============================================================================
@@ -32,14 +39,35 @@ export function MockFriendPanel() {
   const enable = useMockFriendStore((state) => state.enable);
   const disable = useMockFriendStore((state) => state.disable);
   const moveBy = useMockFriendStore((state) => state.moveBy);
+  const outgoing = useMeetStore((state) => state.outgoing[MOCK_FRIEND_ID] ?? null);
+  const isAwaitingAnswer = outgoing?.outcome === 'pending';
 
   if (!__DEV__) return null;
+
+  /** The fake friend asking to meet, through the same entry point a real
+   * request arrives by -- cooldown guard, notification and all. */
+  function askToMeet() {
+    const request = buildMockMeetRequest();
+    if (!request) return;
+    deliverMockMeetMessage(MOCK_FRIEND_ID, request.message);
+  }
+
+  /** The fake friend answering a request the user sent them. */
+  function answer(kind: 'accept' | 'decline') {
+    if (!outgoing || outgoing.outcome !== 'pending') return;
+    deliverMockMeetMessage(MOCK_FRIEND_ID, {
+      kind,
+      id: outgoing.id,
+      stationId: outgoing.stationId,
+      etaSeconds: kind === 'accept' ? mockSecondsToStation(outgoing.stationId) : null,
+    });
+  }
 
   return (
     <View style={styles.card}>
       <Text style={styles.note}>
         Fakes a friend who is sharing a live journey. They travel your current route in reverse, so
-        your routes cross and the meet-up list fills up — plan a route first, then switch this on.
+        your routes cross and there is somewhere to meet — plan a route first, then switch this on.
       </Text>
 
       {!isActive ? (
@@ -63,7 +91,7 @@ export function MockFriendPanel() {
             {!isMirroringSelfRoute && (
               <Text style={styles.warn}>
                 You had no route planned, so they are on a fallback Blue Line trip. Plan a route and
-                re-add them to see meet-up options.
+                re-add them to see shared stations to meet at.
               </Text>
             )}
           </View>
@@ -86,6 +114,35 @@ export function MockFriendPanel() {
               <Ionicons name="chevron-forward" size={16} color={colors.textPrimary} />
             </Pressable>
           </View>
+
+          {/* Both directions of the meet flow, on one phone. The request goes
+              in through the same handler the pair channel uses, so the
+              once-a-minute guard applies here too -- a second tap inside a
+              minute is ignored, and says so in the log. */}
+          {isAwaitingAnswer ? (
+            <View style={styles.row}>
+              <Pressable
+                style={({ pressed }) => [styles.stepButton, pressed && styles.pressed]}
+                onPress={() => answer('decline')}
+              >
+                <Text style={styles.stepText}>They decline</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.stepButton, pressed && styles.pressed]}
+                onPress={() => answer('accept')}
+              >
+                <Text style={styles.stepText}>They accept</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable
+              style={({ pressed }) => [styles.stepButton, pressed && styles.pressed]}
+              onPress={askToMeet}
+            >
+              <Ionicons name="hand-left-outline" size={16} color={colors.textPrimary} />
+              <Text style={styles.stepText}>They ask to meet</Text>
+            </Pressable>
+          )}
 
           <Pressable
             style={({ pressed }) => [styles.removeButton, pressed && styles.pressed]}
