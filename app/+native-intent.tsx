@@ -8,14 +8,14 @@ import { INVITE_PATH, parseInviteUid } from '../src/friends/inviteLink';
 /**
  * Rewrites incoming deep links that expo-router can't match on its own.
  *
- * Invite links are published as `https://<host>/ms/?u=<public_uid>` (see
+ * Invite links are published as `https://<host>/i/?u=<public_uid>` (see
  * src/friends/inviteLink.ts for why they aren't a custom scheme). That URL is
  * shaped for a static web host, not for the app's route tree -- there is no
- * `/ms` route and the ID is in the query string -- so an Android App Link
+ * `/i` route and the ID is in the query string -- so an Android App Link
  * opening it would otherwise land on the unmatched-route screen.
  *
  * Everything else is returned untouched. This function sees *every* link the
- * OS hands the app, including the `metrosync://auth/callback#access_token=...`
+ * OS hands the app, including the `routro://auth/callback#access_token=...`
  * OAuth redirect, and mangling one of those would break sign-in.
  */
 export function redirectSystemPath({ path }: { path: string; initial: boolean }): string {

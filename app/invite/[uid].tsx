@@ -25,8 +25,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { AnimatedPressable } from '../../src/components/AnimatedPressable';
 import { Avatar } from '../../src/components/Avatar';
-import { MetroSyncMark } from '../../src/components/MetroSyncMark';
 import { PlaceholderScreen } from '../../src/components/PlaceholderScreen';
+import { RoutroMark } from '../../src/components/RoutroMark';
 import { savePendingInvite } from '../../src/friends/pendingInvite';
 import {
   createFriendRequest,
@@ -39,7 +39,7 @@ import { useTheme } from '../../src/theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../../src/theme/tokens';
 
 /**
- * Landing route for `metrosync://invite/<public_uid>` links and the QR that
+ * Landing route for `routro://invite/<public_uid>` links and the QR that
  * encodes one (see src/friends/inviteLink.ts).
  *
  * Opening a link deliberately does NOT create a friendship: it resolves the ID
@@ -215,8 +215,8 @@ function InviteContent({ publicUid, selfUserId }: { publicUid: string; selfUserI
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <View style={styles.header}>
           <View style={styles.brand}>
-            <MetroSyncMark size={18} />
-            <Text style={styles.eyebrow}>METROSYNC · INVITE</Text>
+            <RoutroMark size={22} />
+            <Text style={styles.eyebrow}>ROUTRO · INVITE</Text>
           </View>
           <AnimatedPressable
             hitSlop={12}

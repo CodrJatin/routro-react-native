@@ -1,17 +1,17 @@
 /**
  * Invite links, in the one shape that actually travels.
  *
- * These used to be `metrosync://invite/<uid>` deep links, which failed at both
+ * These used to be `routro://invite/<uid>` deep links, which failed at both
  * jobs: chat apps only turn http(s) into a tappable link, and phone cameras
  * hand an unrecognised scheme to the OS as plain text (Android offers to save
  * it to Notes rather than open it). A custom scheme is also a dead end for the
- * recipients who matter most -- the ones who don't have MetroSync installed
+ * recipients who matter most -- the ones who don't have Routro installed
  * yet, and for whom the link has to be a real web page.
  *
  * So the shared artifact is an https URL pointing at a small static page
  * (see site/ in the repo root). Android App Links let a verified install skip
  * that page and open the app directly; everyone else lands on it and gets an
- * "Open in MetroSync" button plus the raw ID. app/+native-intent.tsx turns the
+ * "Open in Routro" button plus the raw ID. app/+native-intent.tsx turns the
  * https URL back into the /invite/<uid> route once it reaches the app.
  */
 
@@ -26,7 +26,7 @@
  *
  * Trailing slash included so a static host resolves it to index.html.
  */
-export const INVITE_BASE_URL = 'https://metro-sync.vercel.app/ms/';
+export const INVITE_BASE_URL = 'https://routro.vercel.app/i/';
 
 /** Route segment the invite lands on inside the app. Must stay in step with
  * the file at app/invite/[uid].tsx, which is what expo-router matches on. */
@@ -34,9 +34,9 @@ export const INVITE_PATH = 'invite';
 
 /** Query key carrying the public_uid.
  *
- * A query parameter rather than a path segment (`/ms/a944aac2`) because static
+ * A query parameter rather than a path segment (`/i/a944aac2`) because static
  * hosts have no file at that path and would 404 -- GitHub Pages, S3 and
- * Netlify all serve `/ms/?u=...` from the same index.html without any routing
+ * Netlify all serve `/i/?u=...` from the same index.html without any routing
  * config. Android matches App Links on the path only, so the query is invisible
  * to verification either way. */
 export const INVITE_QUERY_KEY = 'u';
@@ -82,7 +82,7 @@ export function parseInviteUid(url: string): string | null {
 export function buildInviteMessage(displayName: string | null, publicUid: string): string {
   const who = displayName?.trim() || 'A friend';
   return [
-    `${who} wants to share their live metro location with you on MetroSync.`,
+    `${who} wants to share their live metro location with you on Routro.`,
     '',
     buildInviteUrl(publicUid),
     '',

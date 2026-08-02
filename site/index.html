@@ -3,27 +3,30 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>MetroSync — never ride the metro alone</title>
+    <title>Routro — never ride the metro alone</title>
     <meta
       name="description"
-      content="MetroSync shows you which friends are already on the move across the Delhi Metro, NCR Metro and RRTS — so you meet them at the platform instead of texting about it."
+      content="Routro shows you which friends are already on the move across the Delhi Metro, NCR Metro and RRTS — so you meet them at the platform instead of texting about it."
     />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#141313" />
-    <link rel="canonical" href="https://metro-sync.vercel.app/" />
+    <link rel="canonical" href="https://routro.vercel.app/" />
 
-    <meta property="og:title" content="MetroSync — never ride the metro alone" />
+    <meta property="og:title" content="Routro — never ride the metro alone" />
     <meta
       property="og:description"
       content="See which friends are on the move across the Delhi Metro, follow a journey live, and know exactly when to get off."
     />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://metro-sync.vercel.app/" />
+    <meta property="og:url" content="https://routro.vercel.app/" />
 
-    <!-- Same geometry as assets/logo/mark.svg, inlined so the tab icon needs no extra request. -->
+    <!-- Same geometry as assets/logo/mark.svg, inlined so the tab icon needs no
+         extra request. Paint order is the whole trick: the bar goes down first
+         and the diamond covers it at both side points. -->
+
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none'%3E%3Cg stroke='%23e5e2e1' stroke-width='6' stroke-linejoin='miter'%3E%3Cpath d='M12 8.76V55.24'/%3E%3Cpath d='M52 8.76V55.24'/%3E%3Cpath d='M12.88 10.88L26 24'/%3E%3Cpath d='M51.12 10.88L38 24'/%3E%3Cpath d='M32 18L44 30L32 42L20 30Z'/%3E%3C/g%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none'%3E%3Cpath d='M2 50H98' stroke='%233dd68c' stroke-width='15'/%3E%3Cpath d='M50 20L80 50L50 80L20 50Z' stroke='%23e5e2e1' stroke-width='8' stroke-linejoin='miter'/%3E%3C/svg%3E"
     />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -34,7 +37,7 @@
     />
 
     <style>
-      /* Mirrors src/theme/tokens.ts, same as ms/index.html: square corners,
+      /* Mirrors src/theme/tokens.ts, same as i/index.html: square corners,
          monochrome chrome, monospace for data and small-caps labels. The metro
          line colours are the only saturated things on the page. */
       :root {
@@ -1086,16 +1089,11 @@
     <!-- ── Nav ──────────────────────────────────────────────── -->
     <header class="nav">
       <a class="brand" href="#" style="text-decoration: none; color: inherit">
-        <svg width="26" height="26" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-          <g stroke="#e5e2e1" stroke-width="6" stroke-linejoin="miter">
-            <path d="M12 8.76V55.24" />
-            <path d="M52 8.76V55.24" />
-            <path d="M12.88 10.88L26 24" />
-            <path d="M51.12 10.88L38 24" />
-            <path d="M32 18L44 30L32 42L20 30Z" />
-          </g>
+        <svg width="30" height="30" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+          <path d="M2 50H98" stroke="#3dd68c" stroke-width="15" />
+          <path d="M50 20L80 50L50 80L20 50Z" stroke="#e5e2e1" stroke-width="8" stroke-linejoin="miter" />
         </svg>
-        <span>MetroSync</span>
+        <span>Routro</span>
       </a>
 
       <input class="nav-toggle" type="checkbox" id="nav-toggle" />
@@ -1121,11 +1119,11 @@
         </div>
         <h1>Never ride the metro alone.</h1>
         <p>
-          MetroSync shows you which friends are already on the move, right now — so instead of
+          Routro shows you which friends are already on the move, right now — so instead of
           texting "which platform?" you just meet them there and go together.
         </p>
         <div class="hero-actions">
-          <a class="btn" href="https://github.com/CodrJatin/metrosync-react-native/releases/latest" data-install>Download for Android</a>
+          <a class="btn" href="https://github.com/CodrJatin/routro-react-native/releases/latest" data-install>Download for Android</a>
         </div>
       </div>
 
@@ -1518,14 +1516,11 @@
                    above the silent ongoing one the way Android orders them. -->
               <div class="notif notif-alert">
                 <div class="notif-head">
-                  <svg width="10" height="10" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-                    <g stroke="#8e9192" stroke-width="8" stroke-linejoin="miter">
-                      <path d="M12 8.76V55.24" />
-                      <path d="M52 8.76V55.24" />
-                      <path d="M32 18L44 30L32 42L20 30Z" />
-                    </g>
+                  <svg width="12" height="12" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+                    <path d="M2 50H98" stroke="#8e9192" stroke-width="18" />
+                    <path d="M50 20L80 50L50 80L20 50Z" stroke="#8e9192" stroke-width="11" stroke-linejoin="miter" />
                   </svg>
-                  <span>MetroSync</span><span>&middot;</span><span>now</span>
+                  <span>Routro</span><span>&middot;</span><span>now</span>
                 </div>
                 <div class="notif-title">Change at the next stop</div>
                 <div class="notif-body">Change at Rajiv Chowk for the Yellow Line.</div>
@@ -1533,14 +1528,11 @@
 
               <div class="notif">
                 <div class="notif-head">
-                  <svg width="10" height="10" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-                    <g stroke="#8e9192" stroke-width="8" stroke-linejoin="miter">
-                      <path d="M12 8.76V55.24" />
-                      <path d="M52 8.76V55.24" />
-                      <path d="M32 18L44 30L32 42L20 30Z" />
-                    </g>
+                  <svg width="12" height="12" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+                    <path d="M2 50H98" stroke="#8e9192" stroke-width="18" />
+                    <path d="M50 20L80 50L50 80L20 50Z" stroke="#8e9192" stroke-width="11" stroke-linejoin="miter" />
                   </svg>
-                  <span>MetroSync</span><span>&middot;</span><span>Blue Line</span>
+                  <span>Routro</span><span>&middot;</span><span>Blue Line</span>
                 </div>
                 <div class="notif-title">3 stops to Hauz Khas</div>
                 <div class="notif-body">Next Rajiv Chowk &middot; change for the Yellow Line</div>
@@ -1926,7 +1918,7 @@
           <span class="num" style="color: var(--yellow)">02</span>
           <h3>Start following a journey</h3>
           <p>
-            Pick where you're headed. MetroSync tracks your progress with one always-visible
+            Pick where you're headed. Routro tracks your progress with one always-visible
             notification, even with your phone in your pocket.
           </p>
         </div>
@@ -1958,7 +1950,7 @@
           </p>
         </details>
         <details name="faq">
-          <summary>What data does MetroSync collect?</summary>
+          <summary>What data does Routro collect?</summary>
           <p>
             Your location history is never saved or stored anywhere. The only information kept on our
             servers is your basic profile — your name and email address from Google sign-in — solely so
@@ -1975,7 +1967,7 @@
         <details name="faq">
           <summary>What happens if I close the app mid-journey?</summary>
           <p>
-            Swiping MetroSync out of your recent apps ends the journey on purpose — it's the obvious,
+            Swiping Routro out of your recent apps ends the journey on purpose — it's the obvious,
             discoverable way to stop everything: the notification clears and your friends stop seeing
             you move.
           </p>
@@ -1988,7 +1980,7 @@
           </p>
         </details>
         <details name="faq">
-          <summary>Is MetroSync available on iPhone?</summary>
+          <summary>Is Routro available on iPhone?</summary>
           <p>
             Not yet — it's Android-only for now. The background tracking that makes live journeys work
             is being built as an iOS Live Activity next.
@@ -2005,7 +1997,7 @@
           <p>Free for Delhi Metro, Airport Express, NCR Metro and RRTS. Android only, for now.</p>
         </div>
         <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
-          <a class="btn" href="https://github.com/CodrJatin/metrosync-react-native/releases/latest" data-install
+          <a class="btn" href="https://github.com/CodrJatin/routro-react-native/releases/latest" data-install
             >Download for Android</a
           >
         </div>
@@ -2013,27 +2005,22 @@
 
       <div class="outro-bottom">
         <div style="display: flex; align-items: center; gap: 10px">
-          <svg width="20" height="20" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-            <g stroke="#8e9192" stroke-width="6" stroke-linejoin="miter">
-              <path d="M12 8.76V55.24" />
-              <path d="M52 8.76V55.24" />
-              <path d="M12.88 10.88L26 24" />
-              <path d="M51.12 10.88L38 24" />
-              <path d="M32 18L44 30L32 42L20 30Z" />
-            </g>
+          <svg width="24" height="24" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+            <path d="M2 50H98" stroke="#8e9192" stroke-width="15" />
+            <path d="M50 20L80 50L50 80L20 50Z" stroke="#8e9192" stroke-width="8" stroke-linejoin="miter" />
           </svg>
-          <span>MetroSync &copy; 2026 &middot; Developer: <a href="https://github.com/codrjatin" target="_blank" rel="noopener noreferrer" style="color: var(--muted); text-decoration: underline; text-underline-offset: 3px">CodrJatin</a></span>
+          <span>Routro &copy; 2026 &middot; Developer: <a href="https://github.com/codrjatin" target="_blank" rel="noopener noreferrer" style="color: var(--muted); text-decoration: underline; text-underline-offset: 3px">CodrJatin</a></span>
         </div>
         <span class="disclaimer">Not affiliated with Delhi Metro Rail Corporation.</span>
       </div>
     </footer>
 
     <script>
-      // Download links, resolved exactly the way ms/index.html does it -- kept
+      // Download links, resolved exactly the way i/index.html does it -- kept
       // in step with that file by hand, since the two are deployed together but
       // share no bundle.
       (function () {
-        var REPO = 'CodrJatin/metrosync-react-native';
+        var REPO = 'CodrJatin/routro-react-native';
         var RELEASES_URL = 'https://github.com/' + REPO + '/releases/latest';
         var LATEST_API = 'https://api.github.com/repos/' + REPO + '/releases/latest';
 

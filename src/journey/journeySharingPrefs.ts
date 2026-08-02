@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
-const STORAGE_KEY = 'metrosync.journeySharing';
+const STORAGE_KEY = 'routro.journeySharing';
 
 /**
  * Whether friends you are already sharing your location with also see where

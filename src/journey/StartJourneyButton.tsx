@@ -77,7 +77,7 @@ export function StartJourneyButton({
     // before it happens rather than discovered from a notification later.
     Alert.alert(
       'Start this journey?',
-      'MetroSync will show a notification with your progress and tell you when to get off — ' +
+      'Routro will show a notification with your progress and tell you when to get off — ' +
         'including while the app is closed and your phone is locked.\n\n' +
         'If you are sharing your location, friends will keep seeing you move for the whole ' +
         'journey — including where you are headed and when you reach each stop. You can turn ' +

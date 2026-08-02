@@ -38,7 +38,7 @@ function getNotifications(): NotificationsModule | null {
  * set at creation -- so getting this wrong once means every user who installed
  * that build keeps the wrong behaviour until they reinstall.
  */
-const ALERT_CHANNEL_ID = 'metrosync.alerts';
+const ALERT_CHANNEL_ID = 'routro.alerts';
 
 let isConfigured = false;
 

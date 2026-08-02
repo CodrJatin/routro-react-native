@@ -1,9 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
-  <g transform="translate(194.56 194.56) scale(9.92)" stroke="#e5e2e1" stroke-width="6" stroke-linejoin="miter" fill="none">
-    <path d="M12 8.76V55.24"/>
-    <path d="M52 8.76V55.24"/>
-    <path d="M12.88 10.88L26 24"/>
-    <path d="M51.12 10.88L38 24"/>
-    <path d="M32 18L44 30L32 42L20 30Z"/>
+  <g transform="translate(218.7 218.7) scale(5.867)" fill="none">
+    <path d="M2 50H98" stroke="#3dd68c" stroke-width="15"/>
+    <path d="M50 20L80 50L50 80L20 50Z" stroke="#e5e2e1" stroke-width="8" stroke-linejoin="miter"/>
   </g>
 </svg>

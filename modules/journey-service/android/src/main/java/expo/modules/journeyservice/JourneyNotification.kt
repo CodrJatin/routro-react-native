@@ -20,7 +20,7 @@ import androidx.core.app.NotificationCompat
  * notification is cheap to construct.
  */
 internal object JourneyNotification {
-  const val CHANNEL_ID = "metrosync.journey"
+  const val CHANNEL_ID = "routro.journey"
   const val NOTIFICATION_ID = 4817
 
   /**
@@ -41,7 +41,7 @@ internal object JourneyNotification {
       "Journey progress",
       NotificationManager.IMPORTANCE_LOW
     ).apply {
-      description = "Shown while MetroSync is following your journey in the background."
+      description = "Shown while Routro is following your journey in the background."
       setShowBadge(false)
       enableVibration(false)
       setSound(null, null)

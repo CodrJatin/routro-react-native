@@ -4,7 +4,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { useTheme } from '../../src/theme/ThemeProvider';
 
-/** Landing route for the `metrosync://auth/callback` OAuth redirect. Android
+/** Landing route for the `routro://auth/callback` OAuth redirect. Android
  * delivers that link as a real intent, so expo-router navigates here while
  * AuthProvider is still installing the session. Wait for the session to appear
  * rather than redirecting on mount -- `/` lives behind the auth guard and does

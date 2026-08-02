@@ -1,4 +1,4 @@
--- MetroSync initial schema: profiles + friendships, with RLS.
+-- Routro initial schema: profiles + friendships, with RLS.
 --
 -- Run this in your Supabase project (SQL Editor, or `supabase db push` if
 -- using the CLI) after creating the project. Live location is deliberately

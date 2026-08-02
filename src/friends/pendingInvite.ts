@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { INVITE_PATH } from './inviteLink';
 
-const STORAGE_KEY = 'metrosync.pendingInvite';
+const STORAGE_KEY = 'routro.pendingInvite';
 
 /** Parks an invite that was opened while signed out.
  *

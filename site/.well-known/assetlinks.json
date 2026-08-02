@@ -3,7 +3,7 @@
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "com.metrosync.app",
+      "package_name": "com.routro.app",
       "sha256_cert_fingerprints": ["4C:57:EB:0C:6E:44:AA:7D:E1:FE:0D:AC:B2:E1:B9:7B:1D:FA:37:E0:30:FC:66:42:1D:E5:B2:69:40:90:FC:34"]
     }
   }

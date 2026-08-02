@@ -5,7 +5,7 @@ import { getStation } from '../engine/graph';
 import type { SharedJourney } from '../realtime/sharedJourney';
 import { MEET_REQUEST_COOLDOWN_MS } from '../realtime/meetMessage';
 
-const STORAGE_KEY = 'metrosync.meets';
+const STORAGE_KEY = 'routro.meets';
 
 /** How long a settled outgoing request stays on screen before it is cleared.
  * "They said no" / "No answer" is the only feedback the asker gets, and

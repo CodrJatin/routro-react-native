@@ -87,7 +87,7 @@ export function InviteSheet({
             <Text style={styles.uid}>ID: {publicUid}</Text>
             <Text style={styles.note}>
               Scan with any camera, or send the link — it works even if they don't have
-              MetroSync yet. Whoever opens it sends you a request, and you choose whether
+              Routro yet. Whoever opens it sends you a request, and you choose whether
               to accept.
             </Text>
 

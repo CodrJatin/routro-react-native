@@ -398,7 +398,7 @@ export default function MapScreen() {
   function showLocationDeniedAlert(canAskAgain: boolean) {
     Alert.alert(
       'Location permission needed',
-      'MetroSync needs location access to show where you are on the map.',
+      'Routro needs location access to show where you are on the map.',
       canAskAgain
         ? [{ text: 'OK' }]
         : [

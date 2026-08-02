@@ -5,7 +5,7 @@ import { colorsFor, radius, spacing, typography, type ColorTokens, type ThemeMod
 
 export type ThemePreference = ThemeMode | 'system';
 
-const STORAGE_KEY = 'metrosync.themePreference';
+const STORAGE_KEY = 'routro.themePreference';
 
 interface ThemeContextValue {
   /** What the user picked in Settings: 'light' | 'dark' | 'system'. */

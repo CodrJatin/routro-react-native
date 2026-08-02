@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "MetroSync",
-    "slug": "metrosync",
-    "scheme": "metrosync",
+    "name": "Routro",
+    "slug": "routro",
+    "scheme": "routro",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,13 +10,13 @@
     "backgroundColor": "#0B0F14",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.metrosync.app",
+      "bundleIdentifier": "com.routro.app",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "MetroSync uses your location to show your position on the metro map and to share it with friends you choose to broadcast to."
+        "NSLocationWhenInUseUsageDescription": "Routro uses your location to show your position on the metro map and to share it with friends you choose to broadcast to."
       }
     },
     "android": {
-      "package": "com.metrosync.app",
+      "package": "com.routro.app",
       "adaptiveIcon": {
         "backgroundColor": "#0B0F14",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -32,8 +32,8 @@
           "data": [
             {
               "scheme": "https",
-              "host": "metro-sync.vercel.app",
-              "pathPrefix": "/ms"
+              "host": "routro.vercel.app",
+              "pathPrefix": "/i"
             }
           ],
           "category": ["BROWSABLE", "DEFAULT"]
@@ -49,7 +49,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "MetroSync uses your location to show your position on the metro map and to share it with friends you choose to broadcast to."
+          "locationWhenInUsePermission": "Routro uses your location to show your position on the metro map and to share it with friends you choose to broadcast to."
         }
       ],
       "expo-font",

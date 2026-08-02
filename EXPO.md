@@ -1,4 +1,4 @@
-# MetroSync — Expo / Build / Deploy Guide
+# Routro — Expo / Build / Deploy Guide
 
 Practical reference for running, building, and shipping this app. Written so
 future-you (or a collaborator) doesn't have to rediscover the gotchas we hit
@@ -8,10 +8,10 @@ while building it.
 
 - Expo SDK 57, Expo Router, dev client (not Expo Go compatible — MapLibre and
   other native modules require a custom dev client / full build).
-- EAS project: `jatinexpos-team/metrosync` (id `c7f6f3a8-a41e-4180-af37-8d477c7afc20`).
+- EAS project: `jatinexpos-team/routro` (id `c7f6f3a8-a41e-4180-af37-8d477c7afc20`).
 - Supabase project ref `wwvczkqtadcwwmmcitgr` — Postgres schema + RLS live in
   `supabase/migrations/`.
-- Android package: `com.metrosync.app`.
+- Android package: `com.routro.app`.
 
 ## First-time setup (new machine / new clone)
 
@@ -79,7 +79,7 @@ re-run.
   limiting — fine for now, would need a throttle before wider release.
 - Google OAuth sign-in needs the Google provider enabled in Supabase's Auth
   settings (Authentication → Providers → Google), plus
-  `metrosync://auth/callback` added to the allowed redirect URLs. The app-side
+  `routro://auth/callback` added to the allowed redirect URLs. The app-side
   code is already wired for it (`src/auth/AuthProvider.tsx`); this is a
   one-time dashboard step only you can do.
 

@@ -1,6 +1,6 @@
 # Background tracking — plan
 
-Goal: the user starts a journey, puts the phone in their pocket, and MetroSync
+Goal: the user starts a journey, puts the phone in their pocket, and Routro
 keeps working — friends still see them move, a live notification tracks their
 progress, and they get told when to get off.
 
@@ -157,7 +157,7 @@ Implementation notes:
   peek. Alerts get their own high-importance channel (M4).
 - `Notification.ProgressStyle` on Android 16+, `NotificationCompat` progress bar
   below, behind an `SDK_INT` check.
-- Content intent launches `MainActivity` (the `metrosync://` scheme is already
+- Content intent launches `MainActivity` (the `routro://` scheme is already
   registered) deep-linked to the map.
 - "Stop" action → `BroadcastReceiver` that emits to JS *and* stops the service
   natively, so it still works if JS is gone.
@@ -266,7 +266,7 @@ owned by the native module.
   already alive in the background once the process is protected.
 - Notification volume needs tuning. Four alert types firing freely on a long
   journey is enough for someone to long-press the notification and switch
-  MetroSync's notifications off in Android settings — after which the alight
+  Routro's notifications off in Android settings — after which the alight
   alert, the one genuinely worth having, never arrives either. Conservative
   defaults, and friend alerts off until asked for.
 

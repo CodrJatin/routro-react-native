@@ -34,8 +34,8 @@ describe('parseInviteUid', () => {
   it('returns null for links that are not invites, so they pass through the native-intent rewrite untouched', () => {
     // The OAuth redirect is the one that must never be rewritten -- mangling it
     // breaks sign-in.
-    expect(parseInviteUid('metrosync://auth/callback#access_token=abc&refresh_token=def')).toBeNull();
-    expect(parseInviteUid('https://example.com/ms/?u=a944aac2')).toBeNull();
+    expect(parseInviteUid('routro://auth/callback#access_token=abc&refresh_token=def')).toBeNull();
+    expect(parseInviteUid('https://example.com/i/?u=a944aac2')).toBeNull();
     expect(parseInviteUid('not a url at all')).toBeNull();
     expect(parseInviteUid('')).toBeNull();
   });

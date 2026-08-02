@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import type { JourneyAlertKind } from './alerts';
 
-const STORAGE_KEY = 'metrosync.notificationPrefs';
+const STORAGE_KEY = 'routro.notificationPrefs';
 
 /** Everything the app can interrupt someone for. The ongoing journey
  * notification is deliberately absent: Android requires a foreground service

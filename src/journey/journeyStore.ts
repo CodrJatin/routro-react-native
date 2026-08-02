@@ -2,9 +2,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import type { RouteMode, StationId } from '../engine/types';
 
-const STORAGE_KEY = 'metrosync.journeySession';
+const STORAGE_KEY = 'routro.journeySession';
 /** Whether the user has been told what starting a journey actually does. */
-const INTRO_KEY = 'metrosync.journeyIntroSeen';
+const INTRO_KEY = 'routro.journeyIntroSeen';
 
 export interface JourneySession {
   originId: StationId;

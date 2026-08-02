@@ -3,12 +3,12 @@
 The static half of the add-a-friend-by-link flow. Nothing here is built or
 bundled with the app — it is deployed on its own and referenced by URL.
 
-**Live at `https://metro-sync.vercel.app`** (Vercel project with Root Directory
+**Live at `https://routro.vercel.app`** (Vercel project with Root Directory
 set to `site`, framework preset "Other", no build command).
 
 | File | Purpose |
 | --- | --- |
-| `ms/index.html` | The page an invite link opens. Reads `?u=<public_uid>` and offers "Open in MetroSync". |
+| `i/index.html` | The page an invite link opens. Reads `?u=<public_uid>` and offers "Open in Routro". |
 | `.well-known/assetlinks.json` | Proves to Android that this domain and the app belong together, so verified links skip the page and open the app directly. |
 
 ## The domain-root constraint
@@ -26,7 +26,7 @@ deployment gets its own hostname, and App Links only verify the exact host
 compiled into the manifest.
 
 **No `vercel.json` is needed.** Vercel serves `.well-known/assetlinks.json` with
-the right content type on its own, `/ms/` resolves to `index.html` by default,
+the right content type on its own, `/i/` resolves to `index.html` by default,
 and the default cache policy for static files already revalidates — pinning a
 `max-age` here would only make a fingerprint update take *longer* to propagate.
 (The Vercel bug you may find in searches is about `apple-app-site-association`,
@@ -35,8 +35,8 @@ that one file will need an explicit `Content-Type` header in `vercel.json`.)
 
 ## Growing this into a landing page
 
-The invite page deliberately lives at `/ms/`, not `/`, and the App Links
-`pathPrefix` in `app.json` is scoped to `/ms` for the same reason. So the root is
+The invite page deliberately lives at `/i/`, not `/`, and the App Links
+`pathPrefix` in `app.json` is scoped to `/i` for the same reason. So the root is
 free: drop a `site/index.html` in and it becomes the marketing page, with no
 change to the app, the intent filters, or any invite link already in the wild.
 
@@ -91,7 +91,7 @@ below is how you find out.
 After a build that includes the intent filters is installed:
 
 ```bash
-adb shell pm get-app-links com.metrosync.app
+adb shell pm get-app-links com.routro.app
 ```
 
 The host should be listed as `verified`. If it says `legacy_failure` or
@@ -99,7 +99,7 @@ The host should be listed as `verified`. If it says `legacy_failure` or
 match the one the installed APK was signed with. Re-check with:
 
 ```bash
-adb shell pm verify-app-links --re-verify com.metrosync.app
+adb shell pm verify-app-links --re-verify com.routro.app
 ```
 
 Note that verification needs network access on first install and can lag by a

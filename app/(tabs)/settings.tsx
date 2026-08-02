@@ -237,7 +237,7 @@ export default function SettingsScreen() {
               <Text style={styles.rowText}>Version</Text>
               <Text style={styles.rowValue}>{appVersion}</Text>
             </View>
-            <Pressable style={styles.row} onPress={() => Linking.openURL('https://metro-sync.vercel.app')}>
+            <Pressable style={styles.row} onPress={() => Linking.openURL('https://routro.vercel.app')}>
               <View style={styles.rowIconLabel}>
                 <Ionicons name="globe-outline" size={16} color={colors.textPrimary} />
                 <Text style={styles.rowText}>Visit Website</Text>

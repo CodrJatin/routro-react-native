@@ -1,9 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <g stroke="currentColor" stroke-width="6" stroke-linejoin="miter">
-    <path d="M12 8.76V55.24"/>
-    <path d="M52 8.76V55.24"/>
-    <path d="M12.88 10.88L26 24"/>
-    <path d="M51.12 10.88L38 24"/>
-    <path d="M32 18L44 30L32 42L20 30Z"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <path d="M2 50H98" stroke="var(--routro-accent, #3dd68c)" stroke-width="15"/>
+  <path d="M50 20L80 50L50 80L20 50Z" stroke="currentColor" stroke-width="8" stroke-linejoin="miter"/>
 </svg>

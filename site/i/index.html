@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>MetroSync invite</title>
-    <meta name="description" content="Someone wants to share their live metro location with you on MetroSync." />
+    <title>Routro invite</title>
+    <meta name="description" content="Someone wants to share their live metro location with you on Routro." />
     <meta name="color-scheme" content="light dark" />
 
     <!-- Link previews in WhatsApp/Telegram, which is where these get pasted. -->
-    <meta property="og:title" content="MetroSync invite" />
+    <meta property="og:title" content="Routro invite" />
     <meta property="og:description" content="Share live metro locations with friends on the Delhi Metro." />
     <meta property="og:type" content="website" />
 
@@ -24,6 +24,7 @@
         --text-secondary: #444748;
         --accent: #000000;
         --on-accent: #ffffff;
+        --live: #1b8e5c;
       }
       @media (prefers-color-scheme: dark) {
         :root {
@@ -34,6 +35,7 @@
           --text-secondary: #c4c7c7;
           --accent: #c8c6c5;
           --on-accent: #313030;
+          --live: #3dd68c;
         }
       }
 
@@ -62,13 +64,17 @@
       }
 
       /* Inlined from assets/logo/mark.svg, which is the same geometry the app
-         icons are rendered from. It strokes with currentColor, so it inverts
-         with the theme without a second copy. */
+         icons are rendered from. The diamond strokes with currentColor so it
+         inverts with the theme without a second copy; the bar reads --routro-accent
+         so it can pick up this page's green rather than the file's fallback. */
       .mark {
-        width: 42px;
-        height: 42px;
+        width: 54px;
+        height: 54px;
         color: var(--text-primary);
-        margin-bottom: 16px;
+        --routro-accent: var(--live);
+        /* The mark is wider than it is tall, so the square viewBox already
+           carries ~7px of empty space below it. */
+        margin-bottom: 9px;
       }
 
       .eyebrow {
@@ -138,28 +144,28 @@
 
   <body>
     <main>
-      <a href="/" aria-label="Go to MetroSync homepage" style="color: inherit; display: inline-block;">
-        <svg class="mark" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-          <g stroke="currentColor" stroke-width="6" stroke-linejoin="miter">
-            <path d="M12 8.76V55.24" />
-            <path d="M52 8.76V55.24" />
-            <path d="M12.88 10.88L26 24" />
-            <path d="M51.12 10.88L38 24" />
-            <path d="M32 18L44 30L32 42L20 30Z" />
-          </g>
+      <a href="/" aria-label="Go to Routro homepage" style="color: inherit; display: inline-block;">
+        <svg class="mark" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+          <path d="M2 50H98" stroke="var(--routro-accent, #3dd68c)" stroke-width="15" />
+          <path
+            d="M50 20L80 50L50 80L20 50Z"
+            stroke="currentColor"
+            stroke-width="8"
+            stroke-linejoin="miter"
+          />
         </svg>
       </a>
 
-      <p class="eyebrow">METROSYNC INVITE</p>
+      <p class="eyebrow">ROUTRO INVITE</p>
 
       <div id="invite" hidden>
-        <h1>Someone wants to add you on MetroSync</h1>
+        <h1>Someone wants to add you on Routro</h1>
         <p>
           Open the invite in the app to send them a friend request. They still have to
           accept it before either of you can see the other on the map.
         </p>
         <span class="uid" id="uid"></span>
-        <a class="button" id="open" href="#">Open in MetroSync</a>
+        <a class="button" id="open" href="#">Open in Routro</a>
         <a class="button secondary" id="install" href="#">Get the app</a>
         <p class="footnote" id="install-note">
           Already signed in on another device? You can add the ID above by hand from the
@@ -177,16 +183,16 @@
       </div>
 
       <p class="footnote" style="margin-top: 32px;">
-        <a href="/" style="color: inherit; text-decoration: underline; font-weight: 600;">Learn more about MetroSync</a>
+        <a href="/" style="color: inherit; text-decoration: underline; font-weight: 600;">Learn more about Routro</a>
       </p>
     </main>
 
     <script>
       // Kept in step by hand with src/friends/inviteLink.ts in the app repo:
-      // INVITE_QUERY_KEY, the metrosync:// scheme, and the /invite/<uid> route.
+      // INVITE_QUERY_KEY, the routro:// scheme, and the /invite/<uid> route.
       var QUERY_KEY = 'u';
-      var APP_SCHEME = 'metrosync://invite/';
-      var REPO = 'CodrJatin/metrosync-react-native';
+      var APP_SCHEME = 'routro://invite/';
+      var REPO = 'CodrJatin/routro-react-native';
       var RELEASES_URL = 'https://github.com/' + REPO + '/releases/latest';
       var LATEST_API = 'https://api.github.com/repos/' + REPO + '/releases/latest';
 
@@ -226,7 +232,7 @@
       // Resolved through the API instead of GitHub's stable
       // /releases/latest/download/<name> shortcut, because that shortcut needs
       // the asset filename to be identical in every release and these are
-      // version-stamped (metrosync-1.1.0.apk). Doing it this way means the
+      // version-stamped (routro-1.1.0.apk). Doing it this way means the
       // release process doesn't have to change, and a renamed asset can't
       // silently turn the button into a 404.
       if (/android/i.test(navigator.userAgent)) {

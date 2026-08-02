@@ -1,11 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
-const STORAGE_KEY = 'metrosync.basemapEnabled';
+const STORAGE_KEY = 'routro.basemapEnabled';
 /** A key of its own rather than a JSON blob under the one above: the basemap
  * setting is already shipped, and re-encoding it would mean writing a migration
  * for a single boolean. */
-const PLACE_LABELS_STORAGE_KEY = 'metrosync.basemapPlaceLabels';
+const PLACE_LABELS_STORAGE_KEY = 'routro.basemapPlaceLabels';
 
 interface BasemapState {
   /** True once the user has opted in to real map tiles in Settings. */
