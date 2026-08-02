@@ -24,7 +24,12 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",
@@ -36,7 +41,10 @@
               "pathPrefix": "/i"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -66,9 +74,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "c7f6f3a8-a41e-4180-af37-8d477c7afc20"
+        "projectId": "e7ccff26-968f-48d3-9001-e17eea50d354"
       }
     },
-    "owner": "jatinexpos-team"
+    "owner": "jatinexpo"
   }
 }

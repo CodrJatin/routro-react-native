@@ -4,7 +4,7 @@
     "target": {
       "namespace": "android_app",
       "package_name": "com.routro.app",
-      "sha256_cert_fingerprints": ["4C:57:EB:0C:6E:44:AA:7D:E1:FE:0D:AC:B2:E1:B9:7B:1D:FA:37:E0:30:FC:66:42:1D:E5:B2:69:40:90:FC:34"]
+      "sha256_cert_fingerprints": ["1C:5C:91:0A:97:58:26:98:D9:80:A8:E0:61:FA:2A:F5:CD:90:8B:FB:DA:49:A7:97:8F:A8:15:F0:8D:32:27:4E"]
     }
   }
 ]
