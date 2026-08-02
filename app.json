@@ -8,6 +8,12 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#0B0F14",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e7ccff26-968f-48d3-9001-e17eea50d354"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.routro.app",
