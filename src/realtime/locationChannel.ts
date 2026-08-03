@@ -282,6 +282,16 @@ class LocationChannelManager {
    * BACKGROUND.md. Zero when nothing is pending. */
   private reconnectDueAt = 0;
   private friendChannels = new Map<string, RealtimeChannel>();
+  /** Pending rejoins for friend channels that failed on their own, keyed by
+   * friend. Per-friend so one refusing channel does not stall everyone else's
+   * recovery. See `scheduleFriendRejoin`. */
+  private friendRetries = new Map<
+    string,
+    { attempt: number; dueAt: number; timer: ReturnType<typeof setTimeout> | null }
+  >();
+  /** The accepted-friends list as last reconciled, so an in-flight rejoin can
+   * check whether the friend it is repairing is still one. */
+  private wantedFriendIds = new Set<string>();
   private locationSubscription: Location.LocationSubscription | null = null;
   private isBroadcasting = false;
   /** Bumped on every joinOwn/teardown call so a stale async call that
@@ -1208,6 +1218,7 @@ class LocationChannelManager {
     // looked at the screen -- during the exact stretch of a journey they are
     // least able to notice and most want to be visible for.
     this.runReconnectIfDue();
+    this.runFriendRejoinsIfDue();
   }
 
   /** Keeps the realtime socket from being dropped by the server. See
@@ -1394,19 +1405,113 @@ class LocationChannelManager {
         this.handlers.onFriendJourney(friendId, parseSharedJourney(entry?.journey));
       })
       .subscribe((status) => {
-        // A denied/failed friend-channel join used to sit silently dead --
-        // at minimum, surface it and stop presenting the friend as visible.
+        if (status === 'SUBSCRIBED') {
+          this.clearFriendRetry(friendId);
+          return;
+        }
+        // A failed friend-channel join used to surface the friend as offline
+        // and then sit silently dead forever. Reporting it was right; leaving
+        // it there was not. This is the *receiving* half of the connection --
+        // it is what puts friends on the map at all, journey or no journey --
+        // so a channel that never comes back means one specific friend is
+        // permanently invisible, with nothing on screen to say why and no way
+        // to recover short of the friends list happening to change.
+        //
+        // A socket-level drop is already handled for free, because realtime-js
+        // rejoins every channel when the socket returns. This is for the case
+        // that one does not cover: a single channel failing on its own, an
+        // authorization check that momentarily said no being the likely one.
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           console.warn(`[location] friend channel for ${friendId} failed to join: ${status}`);
           this.handlers.onFriendPresence(friendId, 'offline');
           this.handlers.onFriendJourney(friendId, null);
+          this.scheduleFriendRejoin(friendId);
         }
       });
 
     this.friendChannels.set(friendId, channel);
   }
 
+  /**
+   * Queues another attempt at one friend's channel.
+   *
+   * Same ramp as the own channel's, and indefinite for the same reason: there
+   * is no failed end-state worth declaring, only a connection that is not back
+   * *yet*. Per-friend rather than shared, so one friend whose channel is
+   * refusing does not hold up everyone else's retries.
+   */
+  private scheduleFriendRejoin(friendId: string): void {
+    const existing = this.friendRetries.get(friendId);
+    // Already queued. realtime-js emits several failures per drop and each
+    // must not advance the ramp on its own.
+    if (existing && (existing.timer !== null || existing.dueAt !== 0)) return;
+
+    const attempt = (existing?.attempt ?? 0) + 1;
+    const delay = RECONNECT_DELAYS_MS[attempt - 1] ?? RECONNECT_INTERVAL_MS;
+    const timer = setTimeout(() => {
+      const entry = this.friendRetries.get(friendId);
+      if (entry) entry.timer = null;
+      void this.rejoinFriend(friendId);
+    }, delay);
+    this.friendRetries.set(friendId, { attempt, dueAt: Date.now() + delay, timer });
+  }
+
+  /** Rebuilds one friend's channel. */
+  private async rejoinFriend(friendId: string): Promise<void> {
+    const entry = this.friendRetries.get(friendId);
+    // Claimed by whichever of the timer and `tick()` got here first.
+    if (!entry || entry.dueAt === 0) return;
+    entry.dueAt = 0;
+    if (entry.timer !== null) {
+      clearTimeout(entry.timer);
+      entry.timer = null;
+    }
+
+    const channel = this.friendChannels.get(friendId);
+    if (!channel) return; // unsubscribed while this was pending
+
+    // Deliberately not `unsubscribeFromFriend`, which also fires
+    // `onFriendRemoved` and wipes the friend's last known position from the
+    // store. This is a repair, not a removal: their last position stays on the
+    // map, ageing towards stale, which is exactly what it should do while we
+    // are trying to hear from them again.
+    this.friendChannels.delete(friendId);
+    try {
+      await supabase.removeChannel(channel);
+    } catch (error) {
+      console.warn(`[location] removeChannel failed rejoining ${friendId}`, error);
+    }
+
+    // Checked after the await, not before: the friendship can end, or the user
+    // can sign out, while this is in flight -- and resubscribing then would
+    // reopen a channel the server is about to refuse anyway.
+    if (!this.wantedFriendIds.has(friendId)) {
+      this.friendRetries.delete(friendId);
+      return;
+    }
+    this.subscribeToFriend(friendId);
+  }
+
+  /** Runs any friend rejoin that has come due, from `tick()` -- the JS timers
+   * above stop dead in the background, same as everywhere else here. */
+  private runFriendRejoinsIfDue(): void {
+    const now = Date.now();
+    for (const [friendId, entry] of Array.from(this.friendRetries)) {
+      if (entry.dueAt !== 0 && now >= entry.dueAt) void this.rejoinFriend(friendId);
+    }
+  }
+
+  private clearFriendRetry(friendId: string): void {
+    const entry = this.friendRetries.get(friendId);
+    if (!entry) return;
+    if (entry.timer !== null) clearTimeout(entry.timer);
+    this.friendRetries.delete(friendId);
+  }
+
   private unsubscribeFromFriend(friendId: string): void {
+    // Cleared first and unconditionally: a pending retry for someone who is no
+    // longer a friend would otherwise fire and reopen their channel.
+    this.clearFriendRetry(friendId);
     const channel = this.friendChannels.get(friendId);
     if (!channel) return;
     supabase.removeChannel(channel);
@@ -1418,6 +1523,9 @@ class LocationChannelManager {
    * accepted-friends list -- call whenever that list changes. */
   syncFriendSubscriptions(friendIds: string[]): void {
     const wanted = new Set(friendIds);
+    // Held on the manager, because a rejoin resolving after this ran has to be
+    // able to ask whether the friend it is repairing is still wanted.
+    this.wantedFriendIds = wanted;
     for (const id of Array.from(this.friendChannels.keys())) {
       if (!wanted.has(id)) this.unsubscribeFromFriend(id);
     }
@@ -1427,6 +1535,16 @@ class LocationChannelManager {
   }
 
   async teardown(): Promise<void> {
+    // Emptied before the loop, and load-bearing. A `rejoinFriend` that is
+    // mid-await has already taken its channel out of `friendChannels`, so the
+    // loop below cannot see it -- and it resubscribes on the strength of this
+    // set alone once its await resolves. Clearing it first is what makes that
+    // attempt find the friend unwanted and stop, instead of reopening a
+    // channel moments after the session it belonged to ended.
+    this.wantedFriendIds = new Set();
+    for (const id of Array.from(this.friendRetries.keys())) {
+      this.clearFriendRetry(id);
+    }
     for (const id of Array.from(this.friendChannels.keys())) {
       this.unsubscribeFromFriend(id);
     }

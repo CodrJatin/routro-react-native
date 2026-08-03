@@ -983,4 +983,87 @@ describe('locationChannelManager', () => {
     expect(received).toHaveLength(1);
     expect(received[0]).toMatchObject({ userId: FRIEND_ID, lat: 28.6, lon: 77.2 });
   });
+
+  /** Friend channels are the *receiving* half of the connection -- what puts
+   * friends on the map at all. One failing on its own used to leave that
+   * person permanently invisible. */
+  function friendChannels() {
+    return channels.filter((c) => c.topic === `user-location:${FRIEND_ID}`);
+  }
+
+  it('rebuilds a friend channel that fails on its own', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    locationChannelManager.syncFriendSubscriptions([FRIEND_ID]);
+    expect(friendChannels()).toHaveLength(1);
+
+    vi.useFakeTimers();
+    await friendChannels().at(-1)!.emit('CHANNEL_ERROR');
+    await vi.advanceTimersByTimeAsync(3000);
+    vi.useRealTimers();
+
+    // Replaced rather than left dead. A socket-level drop is covered by
+    // realtime-js rejoining everything; this is the case that is not.
+    expect(friendChannels()).toHaveLength(2);
+  });
+
+  it('keeps retrying one friend channel without giving up', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    locationChannelManager.syncFriendSubscriptions([FRIEND_ID]);
+
+    vi.useFakeTimers();
+    for (let i = 0; i < 5; i++) {
+      await friendChannels().at(-1)!.emit('CHANNEL_ERROR');
+      await vi.advanceTimersByTimeAsync(15_000);
+    }
+    vi.useRealTimers();
+
+    expect(friendChannels()).toHaveLength(6);
+  });
+
+  it('stops retrying a friend channel once they are no longer a friend', async () => {
+    const removed: string[] = [];
+    locationChannelManager.setHandlers({
+      onBroadcastingChange() {},
+      onFriendLocation() {},
+      onFriendPresence() {},
+      onFriendJourney() {},
+      onFriendRemoved: (id) => removed.push(id),
+      onConnectionChange() {},
+      onBroadcastInterrupted() {},
+      onLocationNotice() {},
+    });
+
+    await locationChannelManager.joinOwn(USER_ID);
+    locationChannelManager.syncFriendSubscriptions([FRIEND_ID]);
+
+    vi.useFakeTimers();
+    await friendChannels().at(-1)!.emit('CHANNEL_ERROR');
+    // The friendship ends while the rejoin is still pending.
+    locationChannelManager.syncFriendSubscriptions([]);
+    await vi.advanceTimersByTimeAsync(30_000);
+    vi.useRealTimers();
+
+    // No channel reopened for someone who is no longer a friend -- the server
+    // would refuse it anyway, and it would resurrect a pin that was just
+    // deliberately removed.
+    expect(friendChannels()).toHaveLength(1);
+    expect(removed).toContain(FRIEND_ID);
+  });
+
+  it('does not stack retries when one friend channel fails repeatedly', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    locationChannelManager.syncFriendSubscriptions([FRIEND_ID]);
+
+    vi.useFakeTimers();
+    // realtime-js emits several failures per drop; each must not advance the
+    // ramp or queue a rejoin of its own.
+    const channel = friendChannels().at(-1)!;
+    await channel.emit('CHANNEL_ERROR');
+    await channel.emit('CHANNEL_ERROR');
+    await channel.emit('TIMED_OUT');
+    await vi.advanceTimersByTimeAsync(3000);
+    vi.useRealTimers();
+
+    expect(friendChannels()).toHaveLength(2);
+  });
 });
