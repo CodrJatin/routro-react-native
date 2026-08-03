@@ -76,12 +76,18 @@ describe('setFriendPresence', () => {
     useLocationStore.setState({ friendLocations: {}, friendPresence: {} });
   });
 
-  it('drops a friend location once they stop broadcasting', () => {
+  it('keeps a friend location when they stop broadcasting', () => {
     const store = useLocationStore.getState();
     store.upsertFriendLocation(fix(28.6, 77.2, 1000));
     store.setFriendPresence(FRIEND, 'online');
 
-    expect(stored()).toBeUndefined();
+    // Deleting it here is what let one dropped presence sync erase a friend
+    // who was still transmitting -- unrecoverably, since the next fix would
+    // arrive with no `previous` to derive their line or glide from. Removal is
+    // `computeFriendStatus`'s job now, on the receiver's own clock. The
+    // retained position is also what "last active" is read from.
+    expect(stored()).toBeDefined();
+    expect(useLocationStore.getState().friendPresence[FRIEND]).toBe('online');
   });
 
   it('keeps the location while they are still broadcasting', () => {

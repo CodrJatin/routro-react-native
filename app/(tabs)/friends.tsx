@@ -780,7 +780,14 @@ function InactiveFriendRow({
           journey={null}
           selfRoute={selfRoute}
           onShowOnMap={onShowOnMap}
-          canShowOnMap={location !== null}
+          // False by definition, matching the note above: nobody in this list
+          // is drawn on the map. It used to be able to rely on `location` being
+          // null here, because presence deleted it on the way into this list.
+          // It no longer does (see `setFriendPresence`) -- the position is kept
+          // so "last active" can be shown -- so this has to say so outright
+          // rather than infer it, or it would offer to fly to a pin that
+          // `FriendsLayer` deliberately isn't drawing.
+          canShowOnMap={false}
         />
       )}
     </Animated.View>

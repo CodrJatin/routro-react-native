@@ -3,7 +3,40 @@ import { create } from 'zustand';
 import type { SharedJourney } from './sharedJourney';
 
 export type PresenceStatus = 'offline' | 'online' | 'broadcasting';
-export type ConnectionState = 'connecting' | 'connected' | 'error';
+/**
+ * `connecting` is the first join. `reconnecting` is a live connection that
+ * dropped and is being retried -- a separate state because the two mean very
+ * different things to someone looking at the map: one is "not there yet", the
+ * other is "you were sharing and we are trying to get it back". See
+ * `RECONNECT_ATTEMPTS` in `locationChannel.ts`. `error` is the terminal state,
+ * reached only once the retries are spent.
+ */
+export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'error';
+
+/** Which retry is in flight, for the banner to count out. The field itself is
+ * null whenever the connection is not being retried at all. */
+export interface ReconnectProgress {
+  attempt: number;
+  /** How many attempts there will be, or null when retrying does not stop --
+   * which is the case during a tracked journey, where a foreground service is
+   * already holding the process open and there is nothing to be gained by
+   * giving up. See `JOURNEY_RECONNECT_INTERVAL_MS` in `locationChannel.ts`. */
+  max: number | null;
+}
+
+/**
+ * A one-off message about location, carrying its own title.
+ *
+ * The title used to be hardcoded at the call site as "Sharing stopped", which
+ * was true of the only thing that raised one. It is not true of all of them --
+ * an approximate-location grant is a warning about a session that is still
+ * running -- and telling someone sharing had stopped when it hadn't would be
+ * worse than saying nothing.
+ */
+export interface LocationNotice {
+  title: string;
+  message: string;
+}
 
 /** The one derived "is this friend live?" model. Previously FriendsLayer,
  * FriendFocusStack and friends.tsx each answered this question their own
@@ -42,10 +75,12 @@ export interface FriendLocation {
 interface LocationState {
   isBroadcasting: boolean;
   connectionState: ConnectionState;
-  /** Set when broadcasting stopped for a reason the user didn't choose, so
-   * the map can tell them. Cleared once shown. */
-  broadcastNotice: string | null;
-  setBroadcastNotice: (notice: string | null) => void;
+  /** Non-null only while `connectionState` is 'reconnecting'. */
+  reconnect: ReconnectProgress | null;
+  /** Something about location the user needs telling, so the map can say it.
+   * Cleared once shown. */
+  broadcastNotice: LocationNotice | null;
+  setBroadcastNotice: (notice: LocationNotice | null) => void;
   friendLocations: Record<string, FriendLocation>;
   friendPresence: Record<string, PresenceStatus>;
   /**
@@ -69,7 +104,9 @@ interface LocationState {
   friendNames: Record<string, string>;
   setBroadcasting: (value: boolean) => void;
   setFriendNames: (names: Record<string, string>) => void;
-  setConnectionState: (state: ConnectionState) => void;
+  /** `reconnect` is cleared unless explicitly passed, so no state other than
+   * 'reconnecting' can ever be left showing a stale attempt count. */
+  setConnectionState: (state: ConnectionState, reconnect?: ReconnectProgress | null) => void;
   upsertFriendLocation: (loc: Omit<FriendLocation, 'receivedAt' | 'movedAt' | 'previous'>) => void;
   setFriendPresence: (userId: string, status: PresenceStatus) => void;
   /** Null clears it -- see `friendJourneys`. */
@@ -84,6 +121,7 @@ interface LocationState {
 export const useLocationStore = create<LocationState>((set) => ({
   isBroadcasting: false,
   connectionState: 'connecting',
+  reconnect: null,
   broadcastNotice: null,
   friendLocations: {},
   friendPresence: {},
@@ -94,7 +132,8 @@ export const useLocationStore = create<LocationState>((set) => ({
 
   setFriendNames: (friendNames) => set({ friendNames }),
 
-  setConnectionState: (state) => set({ connectionState: state }),
+  setConnectionState: (state, reconnect = null) =>
+    set({ connectionState: state, reconnect }),
 
   setBroadcastNotice: (notice) => set({ broadcastNotice: notice }),
 
@@ -134,19 +173,27 @@ export const useLocationStore = create<LocationState>((set) => ({
       };
     }),
 
+  /**
+   * Deliberately touches presence and nothing else.
+   *
+   * This used to delete the friend's last known location whenever presence
+   * left 'broadcasting', to stop a stale pin lingering forever. That was the
+   * right goal reached through the wrong signal. Presence is the weaker and
+   * flakier of the two channels: it re-syncs on every join and leave, it is the
+   * first thing lost when a socket blips, and a friend crossing a tunnel
+   * generates exactly that. So a friend who was still actively transmitting
+   * had their pin erased by a presence event that had already been overtaken
+   * by the positions arriving behind it -- and erased is not recoverable, since
+   * the next fix arrives with no `previous` to derive their line or glide from.
+   *
+   * The lingering pin was never presence's problem to solve anyway:
+   * `computeFriendStatus` ages a location out at `OFFLINE_AFTER_MS` on the
+   * receiver's own clock, and `FriendsLayer` drops any pin whose status reads
+   * 'offline'. That path handles a force-quit, a dead battery and a friend who
+   * simply stopped -- none of which send a presence event either.
+   */
   setFriendPresence: (userId, status) =>
-    set((state) => {
-      const friendPresence = { ...state.friendPresence, [userId]: status };
-      if (status === 'broadcasting') return { friendPresence };
-
-      // A friend who stopped broadcasting shouldn't keep a stale pin on the
-      // map forever -- clear their last known location the moment presence
-      // leaves 'broadcasting'. (A hard TTL in FriendsLayer/useFriendStatuses
-      // still covers the case where presence never flips, e.g. force-quit.)
-      const friendLocations = { ...state.friendLocations };
-      delete friendLocations[userId];
-      return { friendPresence, friendLocations };
-    }),
+    set((state) => ({ friendPresence: { ...state.friendPresence, [userId]: status } })),
 
   setFriendJourney: (userId, journey) =>
     set((state) => {
@@ -197,24 +244,47 @@ const OFFLINE_AFTER_MS = 90_000;
  * ticks. Single interval for the whole app, not one per component. */
 const STATUS_TICK_INTERVAL_MS = 10_000;
 
+/**
+ * The two signals, weighted by how much each is actually worth.
+ *
+ * A position that landed on this device seconds ago is direct proof the friend
+ * is transmitting right now. Presence is a claim made once and then left to
+ * rot until something re-syncs it. So when they disagree, the position wins --
+ * which is the opposite of what this did before, where presence was a gate the
+ * location had to get past. One dropped presence sync (or a sender who hit the
+ * broadcast-teardown bug) marked a friend who was visibly still moving as
+ * 'online', or 'offline', with their pin removed.
+ *
+ * Every freshness test here is against `receivedAt`, this device's own clock at
+ * the moment the message arrived -- never the sender's `ts`, which is a
+ * different device's idea of the time and would make a friend with a skewed
+ * clock permanently live or permanently stale.
+ */
 function computeFriendStatus(
   presence: PresenceStatus | undefined,
   location: FriendLocation | undefined,
   now: number,
 ): FriendStatus {
-  // Past the hard TTL, a friend is offline regardless of what presence last
-  // said -- this is what makes a force-quit/dead-battery friend eventually
-  // disappear even if no presence "left" event ever arrives.
-  if (location && now - location.receivedAt > OFFLINE_AFTER_MS) return 'offline';
+  const age = location ? now - location.receivedAt : Infinity;
 
-  if (presence !== 'broadcasting') return presence === 'online' ? 'online' : 'offline';
+  // Fresh traffic is self-evident: they are sending, therefore they are live,
+  // whatever presence last got round to saying.
+  if (age <= STALE_AFTER_MS) return 'live';
 
-  // Presence flips to 'broadcasting' before the first GPS fix arrives, so a
-  // location can briefly be missing right after a friend turns broadcasting
-  // on -- that's still live, just without a pin to show yet.
-  if (!location) return 'live';
+  if (presence === 'broadcasting') {
+    // Sharing, but nothing has arrived lately -- a tunnel, typically. Worth
+    // drawing dimmed up to the TTL, because a last known position from under a
+    // minute ago is the most useful thing to show someone looking for a
+    // friend. Past it, presence is no longer believable either: a force-quit
+    // or a dead battery leaves this claim standing with nothing behind it.
+    return age <= OFFLINE_AFTER_MS ? 'stale' : 'offline';
+  }
 
-  return now - location.receivedAt <= STALE_AFTER_MS ? 'live' : 'stale';
+  // Presence says they are not sharing, and no recent position contradicts it.
+  // Believed immediately rather than aged out, so a friend who deliberately
+  // switches sharing off disappears when they meant to -- the one case where
+  // presence is both current and the only thing that knows.
+  return presence === 'online' ? 'online' : 'offline';
 }
 
 // --- single shared clock tick, module-scoped so every useFriendStatuses()

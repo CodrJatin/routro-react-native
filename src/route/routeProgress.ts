@@ -50,6 +50,38 @@ export interface RouteProgress {
  * is paid by the stations after it, exactly as the itinerary's clock reads it.
  */
 export function buildRouteStationSequence(route: RouteResult): RouteStation[] {
+  const cached = sequenceCache.get(route);
+  if (cached) return cached;
+  const sequence = computeRouteStationSequence(route);
+  sequenceCache.set(route, sequence);
+  return sequence;
+}
+
+/**
+ * Sequences already built, keyed by the route they describe.
+ *
+ * `getRouteProgress` runs on every GPS fix, and on a tracked journey it runs
+ * from two independent callers on each one -- the journey controller and the
+ * map screen -- neither of which can see the other's work. The sequence is a
+ * pure function of the route and a route does not change for the life of a
+ * journey, so all of that was rebuilding an array of every station on the trip
+ * several times a minute purely to throw it away.
+ *
+ * A WeakMap rather than a bounded cache: the entry dies with the route object
+ * itself, so there is nothing to invalidate, nothing to size, and a route the
+ * app has finished with is not kept alive by having once been measured
+ * against. Route identity is the right key because `findRoute` returns a fresh
+ * object per call and every caller holds one for as long as it needs it.
+ *
+ * Safe only because the array is never mutated after it is built -- callers
+ * read, map and index it, and the sole `push` is in the builder below. Sharing
+ * one array between callers is in fact the point: `progress.sequence` is now
+ * referentially stable across fixes, so memos hanging off it stop invalidating
+ * on every tick.
+ */
+const sequenceCache = new WeakMap<RouteResult, RouteStation[]>();
+
+function computeRouteStationSequence(route: RouteResult): RouteStation[] {
   const sequence: RouteStation[] = [];
 
   const push = (

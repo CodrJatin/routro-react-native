@@ -12,6 +12,7 @@ import {
 import { findRoute } from '../engine/graph';
 import type { RouteMode, RouteResult, StationId } from '../engine/types';
 import { useSelfPositionStore } from '../location/selfPosition';
+import { watchOptions } from '../location/watchOptions';
 import { locationChannelManager } from '../realtime/locationChannel';
 import type { RouteClock } from '../route/routeClock';
 import { getRouteProgress, type RouteProgress } from '../route/routeProgress';
@@ -38,10 +39,14 @@ import { buildJourneyNotification } from './notificationContent';
  */
 const TICK_INTERVAL_MS = 5000;
 
-/** Matches the broadcast watcher's settings in `locationChannel.ts`, so a
- * journey doesn't cost noticeably more battery than sharing already does. */
-const LOCATION_INTERVAL_MS = 5000;
-const LOCATION_DISTANCE_METERS = 15;
+/** How long to wait before rebuilding a watcher the provider dropped, and how
+ * many times to try before the journey is actually ended. Same reasoning as
+ * `RECONNECT_ATTEMPTS` in `locationChannel.ts`: a provider hiccup -- entering a
+ * tunnel, a fused-provider restart, a moment of no satellites -- is a normal
+ * event on a metro, and ending a journey on the first one meant the app gave
+ * up on the ride at exactly the point it was most needed. */
+const WATCHER_RETRY_DELAY_MS = 5000;
+const WATCHER_RETRY_ATTEMPTS = 3;
 
 /** Close enough to the last station to call the journey done. Deliberately
  * much tighter than `MAX_ON_ROUTE_DISTANCE_METERS`, which only decides whether
@@ -68,6 +73,25 @@ let watcher: Location.LocationSubscription | null = null;
 let tickSubscription: { remove: () => void } | null = null;
 let actionSubscription: { remove: () => void } | null = null;
 let arrivedAt: number | null = null;
+/** Consecutive watcher failures, reset by any successful fix. See
+ * `WATCHER_RETRY_ATTEMPTS`. */
+let watcherFailures = 0;
+let watcherRetryTimer: ReturnType<typeof setTimeout> | null = null;
+/** When the pending watcher retry is due, so the service tick can run it if
+ * the JS timer never fires. Zero when none is pending. */
+let watcherRetryDueAt = 0;
+/**
+ * The notification content last handed to the service, so an unchanged repaint
+ * can be skipped.
+ *
+ * `refresh` runs on every fix and every tick, and for most of a journey it
+ * produces byte-identical content -- the same station, the same stop count, the
+ * same minute. Each one was still crossing the native bridge to redraw a
+ * notification that already said exactly that. Removing the filter on the
+ * watcher made fixes arrive more often, which would have multiplied the waste;
+ * comparing first means the change costs less than what it replaced.
+ */
+let lastNotificationKey: string | null = null;
 
 /**
  * Alerts already fired this journey, by `JourneyAlert.key`.
@@ -154,6 +178,11 @@ export async function startJourney(
   arrivedAt = null;
   // A fresh journey has said nothing yet, even if it retraces one that has.
   firedAlertKeys = new Set();
+  // Neither a previous journey's GPS trouble nor its notification text may
+  // carry into this one -- the first would spend this journey's retries before
+  // it started, the second would suppress its opening repaint as a duplicate.
+  watcherFailures = 0;
+  lastNotificationKey = null;
   resetClock();
 
   // Created up front rather than on the first alert: Android only honours a
@@ -273,6 +302,8 @@ async function endJourney(notice: string | null): Promise<void> {
   stopFriendAlerts();
   route = null;
   arrivedAt = null;
+  watcherFailures = 0;
+  lastNotificationKey = null;
   useJourneyStore.getState().setSession(null);
   if (notice) useJourneyStore.getState().setEndedNotice(notice);
 
@@ -318,11 +349,24 @@ async function refresh(): Promise<void> {
   // more than a notification repaint, and a failed repaint ends the journey.
   await maybeAlert(progress);
 
-  if (!(await updateJourneyService(content))) {
-    // The service went away underneath us. Nothing is being tracked, so stop
-    // claiming otherwise instead of repainting a notification that isn't there.
-    await endJourney(null);
-    return;
+  // Repaint only when the user would actually see a difference. See
+  // `lastNotificationKey`. Deliberately keyed on the rendered content rather
+  // than on progress, because that is what decides whether the repaint is
+  // visible -- two different positions inside the same station, arriving in
+  // the same minute, produce identical text and nothing worth crossing the
+  // bridge for.
+  const notificationKey = JSON.stringify(content);
+  if (notificationKey !== lastNotificationKey) {
+    if (!(await updateJourneyService(content))) {
+      // The service went away underneath us. Nothing is being tracked, so stop
+      // claiming otherwise instead of repainting a notification that isn't there.
+      await endJourney(null);
+      return;
+    }
+    // After the call, not before: a failed repaint must not be remembered as
+    // the notification's current state, or the retry would be skipped as a
+    // duplicate of something that never landed.
+    lastNotificationKey = notificationKey;
   }
 
   if (hasArrived(progress)) {
@@ -402,17 +446,18 @@ async function startWatcher(): Promise<void> {
 
   try {
     const subscription = await Location.watchPositionAsync(
-      {
-        accuracy: Location.Accuracy.Balanced,
-        timeInterval: LOCATION_INTERVAL_MS,
-        distanceInterval: LOCATION_DISTANCE_METERS,
-        // Off: `startJourney` has already checked location services and
-        // refused with an explanation if they were off. This also runs from
-        // `initJourneyController` at launch, where expo's default would open
-        // Play's "turn on location?" dialog before the app has drawn a frame.
-        mayShowUserSettingsDialog: false,
-      },
+      // Shared with the map and broadcast watchers -- see `watchOptions.ts`.
+      // `mayShowUserSettingsDialog` is off there by default, which matters
+      // here: this also runs from `initJourneyController` at launch, where
+      // expo's default of true would open Play's "turn on location?" dialog
+      // before the app had drawn a frame.
+      watchOptions(),
       (position) => {
+        // Arriving at all is the proof the provider recovered, so the failure
+        // count goes back to zero here rather than on the watcher being
+        // created -- a watcher that installs cleanly and then delivers nothing
+        // is the failure this is counting.
+        watcherFailures = 0;
         // The journey's watcher is the app's live position while it runs --
         // the map and route planner read the same store, so they can't place
         // the user at a different station than the notification does.
@@ -429,7 +474,7 @@ async function startWatcher(): Promise<void> {
         void refresh();
       },
       (reason) => {
-        void endJourney(`Location stopped: ${reason}`);
+        void handleWatcherFailure(`Location stopped: ${reason}`);
       },
     );
 
@@ -441,15 +486,61 @@ async function startWatcher(): Promise<void> {
     }
     watcher = subscription;
   } catch (error) {
-    await endJourney(
+    await handleWatcherFailure(
       error instanceof Error ? `Couldn't start GPS: ${error.message}` : "Couldn't start GPS.",
     );
   }
 }
 
+/**
+ * The provider stopped or refused to start. Rebuild rather than end the
+ * journey, up to `WATCHER_RETRY_ATTEMPTS`.
+ *
+ * The old behaviour ended it outright on the first failure, which on a metro
+ * meant a tunnel could cancel the ride -- taking the alight alert with it, the
+ * one thing the user actually started this for. The journey service keeps
+ * running throughout, so the notification stays put and the arrival clock keeps
+ * being re-timed off the tick while GPS is missing; only the position goes
+ * quiet, which is a state every consumer already handles.
+ */
+async function handleWatcherFailure(reason: string): Promise<void> {
+  stopWatcher();
+  if (++watcherFailures > WATCHER_RETRY_ATTEMPTS) {
+    await endJourney(reason);
+    return;
+  }
+  console.warn(
+    `[journey] watcher failed (${reason}), retry ${watcherFailures}/${WATCHER_RETRY_ATTEMPTS}`,
+  );
+  const myGeneration = generation;
+  watcherRetryDueAt = Date.now() + WATCHER_RETRY_DELAY_MS;
+  watcherRetryTimer = setTimeout(() => {
+    watcherRetryTimer = null;
+    // Superseded by a stop or a restart while the delay ran.
+    if (myGeneration !== generation) return;
+    void retryWatcherIfDue();
+  }, WATCHER_RETRY_DELAY_MS);
+}
+
+/** Runs the pending retry. Driven by the service tick as well as by the timer
+ * above, because that timer does not fire while the app is backgrounded
+ * (BACKGROUND.md) -- which is where a journey spends most of its life, and so
+ * where a dropped watcher would otherwise never be rebuilt at all. Whichever
+ * gets here first clears the due time; the other finds nothing to do. */
+async function retryWatcherIfDue(): Promise<void> {
+  if (watcherRetryDueAt === 0 || Date.now() < watcherRetryDueAt) return;
+  watcherRetryDueAt = 0;
+  await startWatcher();
+}
+
 function stopWatcher(): void {
   watcher?.remove();
   watcher = null;
+  watcherRetryDueAt = 0;
+  if (watcherRetryTimer !== null) {
+    clearTimeout(watcherRetryTimer);
+    watcherRetryTimer = null;
+  }
 }
 
 function subscribe(): void {
@@ -458,6 +549,7 @@ function subscribe(): void {
     // The service's tick is the app's only working clock while backgrounded,
     // so everything periodic hangs off it -- not just the notification.
     locationChannelManager.tick();
+    void retryWatcherIfDue();
     void refresh();
   });
   actionSubscription = addJourneyServiceActionListener(() => {

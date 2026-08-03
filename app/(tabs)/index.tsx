@@ -134,14 +134,17 @@ export default function MapScreen() {
   const { isConfigured, session } = useAuth();
   const isBroadcasting = useLocationStore((state) => state.isBroadcasting);
   const connectionState = useLocationStore((state) => state.connectionState);
+  const reconnect = useLocationStore((state) => state.reconnect);
   const broadcastNotice = useLocationStore((state) => state.broadcastNotice);
 
-  // Broadcasting stopped without the user asking (GPS switched off, provider
-  // error). Say so -- the failure mode this replaces was a green button over
-  // a dead watcher, sharing nothing.
+  // Something about location the user needs telling -- sharing stopped without
+  // them asking (GPS switched off, provider error), or a grant too coarse to
+  // work with. The failure mode this replaces was a green button over a dead
+  // watcher, sharing nothing. Each notice brings its own title, since not all
+  // of them mean sharing has stopped.
   useEffect(() => {
     if (!broadcastNotice) return;
-    Alert.alert('Sharing stopped', broadcastNotice);
+    Alert.alert(broadcastNotice.title, broadcastNotice.message);
     useLocationStore.getState().setBroadcastNotice(null);
   }, [broadcastNotice]);
 
@@ -683,6 +686,26 @@ export default function MapScreen() {
           {/* Without this, a dropped realtime connection is indistinguishable
               from "nobody is sharing right now" -- the map just quietly
               empties. */}
+          {/* Two different messages, because they call for two different
+              things from the user. A retry in progress is worth waiting out
+              and says so; a spent one is not, and stops implying anything is
+              still being attempted.
+              A bounded retry counts towards its limit, so the user can see it
+              running out. During a journey there is no limit -- it simply keeps
+              going -- and counting attempts at someone would read as failures
+              piling up rather than as the app waiting out a tunnel on their
+              behalf, so it just says it is still trying. */}
+          {connectionState === 'reconnecting' && (
+            <View style={styles.connectionBanner} pointerEvents="none">
+              <ActivityIndicator size="small" color={colors.onSurfaceVariant} />
+              <Text style={styles.connectionBannerText}>
+                {reconnect && reconnect.max !== null
+                  ? `Live connection lost — reconnecting (${reconnect.attempt} of ${reconnect.max})`
+                  : 'Live connection lost — reconnecting…'}
+              </Text>
+            </View>
+          )}
+
           {connectionState === 'error' && (
             <View style={styles.connectionBanner} pointerEvents="none">
               <Ionicons name="cloud-offline-outline" size={14} color={colors.onSurfaceVariant} />

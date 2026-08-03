@@ -3,22 +3,43 @@ import { AppState, Platform } from 'react-native';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { useSelfPositionStore } from '../location/selfPosition';
-import type { ConnectionState, FriendLocation, PresenceStatus } from './locationStore';
+import { haversineMeters } from '../engine/geo';
+import { COARSE_GRANT_MESSAGE, isCoarseAndroidGrant, watchOptions } from '../location/watchOptions';
+import type {
+  ConnectionState,
+  FriendLocation,
+  LocationNotice,
+  PresenceStatus,
+  ReconnectProgress,
+} from './locationStore';
 import { parseSharedJourney, type SharedJourney } from './sharedJourney';
 
+/**
+ * How far the user must move before a fix is put on the wire.
+ *
+ * Applied here in JS, deliberately, rather than as the watcher's
+ * `distanceInterval` -- which is where it used to live and was the wrong
+ * place for it. That option is a hard filter inside the OS: below the
+ * threshold nothing is delivered to the app at all, so filtering there did not
+ * merely rate-limit the network, it blinded the whole device. The user's own
+ * pin, the journey notification and every distance test in the app went dark
+ * together, because all three read the same fixes this one consumer wanted
+ * fewer of. See `LOCATION_DISTANCE_METERS` in `watchOptions.ts`.
+ *
+ * Filtering here instead keeps the saving where the cost actually is -- a
+ * websocket frame and the radio wakeup behind it -- and leaves every local
+ * consumer with the full-rate feed it was always supposed to have. The traffic
+ * a friend receives is unchanged.
+ */
 const BROADCAST_DISTANCE_METERS = 15;
-const BROADCAST_INTERVAL_MS = 5000;
 /** How long a fix may go un-transmitted before the last one is simply sent
  * again.
  *
- * `BROADCAST_DISTANCE_METERS` is a hard filter in the OS, not a hint --
- * Android maps it to `setMinUpdateDistanceMeters` and iOS to
- * `CLLocationManager.distanceFilter`, and neither delivers anything at all
- * until the device has moved that far (`timeInterval` does not override it,
- * and iOS ignores that option entirely). So someone standing still --
- * waiting on a platform, which is precisely when a friend is looking for
- * them -- transmitted nothing, went stale on the receiver at 30s and was
- * dropped off the map entirely at 90s while still actively sharing. */
+ * Someone standing still -- waiting on a platform, which is precisely when a
+ * friend is looking for them -- moves less than `BROADCAST_DISTANCE_METERS`
+ * and so transmits nothing. Without this they went stale on the receiver at
+ * 30s and were dropped off the map entirely at 90s while still actively
+ * sharing. */
 const HEARTBEAT_RESEND_AFTER_MS = 15_000;
 /** How often the heartbeat checks. Deliberately shorter than the resend
  * window above, so the worst-case silence is ~20s and stays comfortably
@@ -48,6 +69,57 @@ const REJOIN_WAIT_MS = 8000;
  * the wait for the app to come back has to be generous -- 5s timed out
  * before someone could realistically flip the toggle and return. */
 const FOREGROUND_WAIT_MS = 90_000;
+
+/**
+ * How many times a dropped connection is retried before sharing is given up on.
+ *
+ * The old behaviour was zero: the first `CLOSED` tore the watcher down and
+ * cleared `isBroadcasting`. `CLOSED` is not an error -- it is the ordinary
+ * lifecycle event for a socket drop, and realtime-js rejoins on its own -- so a
+ * metro ride, which is nothing but tunnels, ended sharing within the first
+ * minute. Worse, it ended it *invisibly*: the rejoin succeeded, `SUBSCRIBED`
+ * fired, and presence was re-tracked from an `isBroadcasting` that had already
+ * been set false, so the user was announced to their friends as merely
+ * 'online' by a device whose GPS watcher was gone. The button went dark with
+ * no explanation and nothing ever turned it back on.
+ *
+ * Now the intent to broadcast outlives the transport carrying it. Fixes
+ * continue to be collected throughout (`sendFix` simply drops them while the
+ * channel is down, which is cheaper and more honest than realtime-js's silent
+ * per-message REST fallback), and only once the retries are spent is the user
+ * told sharing has stopped.
+ */
+export const RECONNECT_ATTEMPTS = 3;
+
+/**
+ * Spacing between those attempts, in order. Backed off rather than fixed: the
+ * first is for a momentary blip between two carriages of signal, the last for
+ * a genuine tunnel. Roughly half a minute in total, which covers the gap
+ * between most Delhi Metro stations without leaving a dead button sitting
+ * there indefinitely if the connection is really gone.
+ */
+const RECONNECT_DELAYS_MS = [3000, 8000, 20_000];
+
+/**
+ * The retry interval used instead of giving up, while a journey is running.
+ *
+ * `RECONNECT_ATTEMPTS` exists because a toggle that stays lit over a dead
+ * connection is a lie, and the app has to stop claiming to share eventually.
+ * That reasoning does not survive a tracked journey. There the process is
+ * already being held open by a foreground service, the user has explicitly
+ * asked to be followed for the length of a trip, and an ongoing notification
+ * is on screen the whole time saying so -- nothing is being hidden from them,
+ * and there is no cost to keep trying. Half an hour underground on the Magenta
+ * Line should not end with sharing switched off; it should end with sharing
+ * resuming the moment there is signal again.
+ *
+ * Flat rather than backed off, because there is no longer a deadline being
+ * worked towards -- backing off would only make the recovery slower the longer
+ * the tunnel, which is precisely backwards. 20s matches the last rung of the
+ * ladder above, so the two agree on what a patient retry looks like, and at
+ * four service ticks apart it costs effectively nothing.
+ */
+const JOURNEY_RECONNECT_INTERVAL_MS = 20_000;
 
 function topicFor(userId: string): string {
   return `user-location:${userId}`;
@@ -107,12 +179,19 @@ export interface LocationManagerHandlers {
    * never describe different moments. */
   onFriendJourney(userId: string, journey: SharedJourney | null): void;
   onFriendRemoved(userId: string): void;
-  onConnectionChange(state: ConnectionState): void;
+  /** `reconnect` is set only alongside 'reconnecting', and counts the attempt
+   * out so the UI can say which retry is in flight rather than just that
+   * something is wrong. */
+  onConnectionChange(state: ConnectionState, reconnect?: ReconnectProgress | null): void;
   /** Broadcasting stopped on its own -- GPS switched off, provider error --
    * rather than because the user toggled it. The UI needs to say so, since
    * the alternative is the button quietly staying lit while nothing is
    * actually being shared. */
   onBroadcastInterrupted(reason: string): void;
+  /** Something the user should know about location that did *not* stop
+   * sharing. Kept apart from `onBroadcastInterrupted` so a warning can never
+   * be announced under a "sharing stopped" heading that isn't true. */
+  onLocationNotice(notice: LocationNotice): void;
 }
 
 /** Why a broadcast toggle didn't take effect, so the UI can say so instead
@@ -128,6 +207,7 @@ const noopHandlers: LocationManagerHandlers = {
   onFriendRemoved() {},
   onConnectionChange() {},
   onBroadcastInterrupted() {},
+  onLocationNotice() {},
 };
 
 /**
@@ -196,6 +276,14 @@ class LocationChannelManager {
    * repeat apart from real movement. */
   private lastSentFix: LocPayload | null = null;
   private lastSentAt = 0;
+  /** Which reconnect attempt has been made, 0 when the connection is healthy
+   * or has been given up on. See `RECONNECT_ATTEMPTS`. */
+  private reconnectAttempt = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** When the pending attempt is due, so `tick()` can run it if the JS timer
+   * above never fires -- which is exactly what happens in the background, per
+   * BACKGROUND.md. Zero when nothing is pending. */
+  private reconnectDueAt = 0;
   private friendChannels = new Map<string, RealtimeChannel>();
   private locationSubscription: Location.LocationSubscription | null = null;
   private isBroadcasting = false;
@@ -281,17 +369,31 @@ class LocationChannelManager {
     if (this.ownChannel?.state === 'joined') await this.trackPresence();
   }
 
-  async joinOwn(userId: string): Promise<void> {
+  /**
+   * @param options.keepBroadcasting Forwarded to the cleanup below. Only the
+   * reconnect path sets it -- see `cleanupOwnChannel`. It has to be threaded
+   * through here rather than handled entirely in `rejoinOwnChannel`, because
+   * this method runs a cleanup of its own: without it, a rejoin cleaned up
+   * carefully, preserved the session, and then had it cleared a line later by
+   * the very call it made to rebuild the channel.
+   */
+  async joinOwn(userId: string, options: { keepBroadcasting?: boolean } = {}): Promise<void> {
     if (this.ownChannel && this.ownUserId === userId) return;
     const myGeneration = ++this.generation;
-    await this.cleanupOwnChannel();
+    await this.cleanupOwnChannel(options);
     if (myGeneration !== this.generation) return; // superseded while awaiting cleanup
 
     this.ownUserId = userId;
     const channel = supabase.channel(topicFor(userId), {
       config: { private: true, presence: { key: userId } },
     });
-    this.handlers.onConnectionChange('connecting');
+    // 'connecting' only for a genuine first join. A rejoin that is itself part
+    // of a retry must keep saying 'reconnecting', or the banner -- which
+    // renders nothing for 'connecting' -- would blink off and back on with
+    // every attempt, and read as the connection recovering each time it was in
+    // fact failing again.
+    if (this.reconnectAttempt > 0) this.reportReconnecting();
+    else this.handlers.onConnectionChange('connecting');
 
     channel.subscribe(async (status, error) => {
       if (myGeneration !== this.generation) return; // superseded
@@ -304,29 +406,33 @@ class LocationChannelManager {
         // `channel`, which this callback has before `this.ownChannel` does.
         await this.trackPresence({ channel });
         this.lastChannelError = null;
+        this.clearReconnect();
         this.handlers.onConnectionChange('connected');
+        // A fix held back while the channel was down is now worth sending, and
+        // waiting up to HEARTBEAT_TICK_MS to notice would leave the user
+        // missing from their friends' maps for no reason.
+        this.resendHeartbeatIfDue();
         return;
       }
 
+      // Everything below is the connection being down. None of these is
+      // treated as fatal on its own any more -- see `RECONNECT_ATTEMPTS` for
+      // why the first one used to be, and what it cost.
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-        // A denied or failed join means nothing is transmitting -- stop the
-        // watcher so `isBroadcasting` (now false) matches reality instead of
-        // a ghost watcher silently resuming sends on reconnect.
-        this.stopLocationWatcher();
-        this.setIsBroadcasting(false);
         this.lastChannelError = error?.message ?? status;
-        this.handlers.onConnectionChange('error');
+        this.handleConnectionLost(
+          this.lastChannelError
+            ? `Lost the connection to the location service: ${this.lastChannelError}`
+            : 'Lost the connection to the location service.',
+        );
         return;
       }
 
       if (status === 'CLOSED') {
-        // NOT an error: CLOSED is a normal lifecycle event (socket drop,
-        // rejoin, leave) and realtime-js reconnects on its own. Treating it
-        // as fatal is what previously left the connection banner stuck on
-        // and every later broadcast attempt refused.
-        this.stopLocationWatcher();
-        this.setIsBroadcasting(false);
-        this.handlers.onConnectionChange('connecting');
+        // CLOSED is a normal lifecycle event (socket drop, rejoin, leave), not
+        // an error, and realtime-js rejoins on its own. It is retried like the
+        // rest so that a rejoin which never lands still eventually surfaces.
+        this.handleConnectionLost('Lost the connection to the location service.');
       }
     });
 
@@ -344,11 +450,136 @@ class LocationChannelManager {
    * which is precisely the stuck case this exists for. Deliberately does not
    * touch `broadcastGeneration`: a `setBroadcasting` call that asked for this
    * rejoin must survive it. */
-  private async rejoinOwnChannel(): Promise<void> {
+  private async rejoinOwnChannel(options: { keepBroadcasting?: boolean } = {}): Promise<void> {
     const userId = this.ownUserId;
     if (!userId) return;
-    await this.cleanupOwnChannel(); // clears ownUserId, hence the capture above
-    await this.joinOwn(userId);
+    await this.cleanupOwnChannel(options); // clears ownUserId, hence the capture above
+    await this.joinOwn(userId, options);
+  }
+
+  /**
+   * The connection went down. Retry it rather than giving sharing up on the
+   * spot -- see `RECONNECT_ATTEMPTS` for what the old behaviour cost.
+   *
+   * The ladder is self-driving: each attempt calls `rejoinOwnChannel`, whose
+   * subscribe callback lands back here on failure with the counter one higher,
+   * or clears the whole thing via `clearReconnect` on success. Nothing else
+   * has to sequence it.
+   *
+   * The GPS watcher is deliberately left running throughout. It is the app's
+   * live position as well as the broadcast source, so tearing it down for a
+   * network problem froze the user's own pin over a fault that had nothing to
+   * do with location. `sendFix` drops what it cannot transmit, so the fixes
+   * arriving meanwhile cost nothing and the first one after a successful
+   * rejoin goes out immediately.
+   */
+  private handleConnectionLost(reason: string): void {
+    // An attempt is already pending -- realtime-js emits several of these per
+    // drop, and each must not push the ladder along a rung on its own.
+    if (this.reconnectTimer !== null || this.reconnectDueAt !== 0) return;
+
+    // A tracked journey never gives up -- see `JOURNEY_RECONNECT_INTERVAL_MS`.
+    // Read from `backgroundAllowed` because that is already this layer's word
+    // for "something is holding the process open", which is exactly the
+    // condition that makes retrying free. It keeps the manager knowing nothing
+    // about journeys, same as everywhere else here.
+    const isPersistent = this.backgroundAllowed;
+
+    if (this.reconnectAttempt >= RECONNECT_ATTEMPTS && !isPersistent) {
+      this.giveUpReconnecting(reason);
+      return;
+    }
+
+    const attempt = ++this.reconnectAttempt;
+    // Past the end of the ladder only a journey can get, and it retries flat
+    // from there rather than inheriting the last (longest) rung forever.
+    const delay =
+      attempt > RECONNECT_DELAYS_MS.length
+        ? JOURNEY_RECONNECT_INTERVAL_MS
+        : RECONNECT_DELAYS_MS[attempt - 1];
+    console.warn(
+      `[location] connection lost, retry ${attempt}${isPersistent ? '' : `/${RECONNECT_ATTEMPTS}`} in ${delay}ms`,
+    );
+
+    this.reconnectDueAt = Date.now() + delay;
+    this.reportReconnecting();
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.runReconnectAttempt();
+    }, delay);
+  }
+
+  /** Announces the retry currently in flight. One place, because the attempt
+   * count and whether there is a limit at all have to agree wherever they are
+   * reported from -- and `joinOwn` reports it too, mid-ladder. Null `max`
+   * means the retries do not stop; see `JOURNEY_RECONNECT_INTERVAL_MS`. */
+  private reportReconnecting(): void {
+    this.handlers.onConnectionChange('reconnecting', {
+      attempt: this.reconnectAttempt,
+      max: this.backgroundAllowed ? null : RECONNECT_ATTEMPTS,
+    });
+  }
+
+  /** Runs the pending attempt. Safe to call from both the JS timer and
+   * `tick()`: the first one through clears `reconnectDueAt`, and the other
+   * finds nothing to do. */
+  private async runReconnectAttempt(): Promise<void> {
+    if (this.reconnectDueAt === 0) return;
+    this.reconnectDueAt = 0;
+    this.clearReconnectTimer();
+    if (!this.ownUserId) return;
+
+    // Recovered on its own while the delay was running -- realtime-js rejoins
+    // by itself and often wins this race. Nothing to rebuild.
+    if (this.ownChannel?.state === 'joined') {
+      this.clearReconnect();
+      this.handlers.onConnectionChange('connected');
+      return;
+    }
+
+    // Broadcasting is preserved across the teardown here, unlike every other
+    // caller: this rejoin is repairing the transport under a session the user
+    // never asked to end.
+    await this.rejoinOwnChannel({ keepBroadcasting: true });
+  }
+
+  /** Called from `tick()`, because the JS timer above does not run while the
+   * app is backgrounded (BACKGROUND.md) -- which is precisely when a phone in
+   * a pocket crosses a tunnel and drops the socket. */
+  private runReconnectIfDue(): void {
+    if (this.reconnectDueAt === 0 || Date.now() < this.reconnectDueAt) return;
+    void this.runReconnectAttempt();
+  }
+
+  /** The retries are spent. Now, and only now, does sharing actually stop. */
+  private giveUpReconnecting(reason: string): void {
+    console.warn(`[location] giving up after ${RECONNECT_ATTEMPTS} reconnect attempts`);
+    this.clearReconnect();
+    this.handlers.onConnectionChange('error');
+    // Reported through the interrupted channel rather than left to the dark
+    // button to imply, and only when there was something to lose: with sharing
+    // already off, a failed connection is the banner's business alone.
+    if (this.isBroadcasting) {
+      this.stopLocationWatcher();
+      this.setIsBroadcasting(false);
+      void this.trackPresence();
+      this.handlers.onBroadcastInterrupted(reason);
+    }
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  /** Back to a healthy connection, or done trying. Resets the counter so the
+   * next drop gets a full ladder of its own rather than inheriting a spent one. */
+  private clearReconnect(): void {
+    this.clearReconnectTimer();
+    this.reconnectDueAt = 0;
+    this.reconnectAttempt = 0;
   }
 
   /** Public exit point -- bumps generation so any in-flight joinOwn call
@@ -371,17 +602,32 @@ class LocationChannelManager {
     // Deliberately not in `cleanupOwnChannel`, which `rejoinOwnChannel` also
     // runs -- a rejoin mid-journey must not drop what it is rejoining with.
     this.sharedJourney = null;
+    // Here for the same reason, and load-bearing for the same reason: a
+    // pending retry that outlived the session would rejoin a channel for a
+    // user who has signed out.
+    this.clearReconnect();
     await this.cleanupOwnChannel();
   }
 
-  private cleanupOwnChannel(): Promise<void> {
+  /**
+   * @param options.keepBroadcasting Leaves the watcher and the broadcasting
+   * flag alone. For the reconnect path only, where the channel underneath a
+   * session is being replaced and the session itself is meant to survive --
+   * every other caller is genuinely ending it. Note what this relies on: the
+   * subscribe callback re-tracks presence from `isBroadcasting`, so preserving
+   * the flag is exactly what makes the rejoined channel re-announce the user
+   * as still sharing.
+   */
+  private cleanupOwnChannel(options: { keepBroadcasting?: boolean } = {}): Promise<void> {
     const run = async () => {
-      this.stopLocationWatcher();
-      // Must clear the flag too, not just the watcher: it is what the
-      // subscribe callback re-tracks presence from, so leaving it set meant
-      // signing out while broadcasting and back in advertised the new
-      // session as 'broadcasting' with no watcher actually running.
-      this.setIsBroadcasting(false);
+      if (!options.keepBroadcasting) {
+        this.stopLocationWatcher();
+        // Must clear the flag too, not just the watcher: it is what the
+        // subscribe callback re-tracks presence from, so leaving it set meant
+        // signing out while broadcasting and back in advertised the new
+        // session as 'broadcasting' with no watcher actually running.
+        this.setIsBroadcasting(false);
+      }
       const channel = this.ownChannel;
       this.ownChannel = null;
       this.lastChannelError = null;
@@ -550,9 +796,10 @@ class LocationChannelManager {
     // permanently after the second refusal, so those unasked-for prompts spend
     // a decision the user never chose to make. Checking silently instead ends
     // sharing with an explanation they can act on when they want to.
-    const { status } = canPrompt
+    const permissions = canPrompt
       ? await Location.requestForegroundPermissionsAsync()
       : await Location.getForegroundPermissionsAsync();
+    const { status } = permissions;
     if (myBroadcastGeneration !== this.broadcastGeneration) {
       return this.superseded('permission');
     }
@@ -563,6 +810,21 @@ class LocationChannelManager {
           ? 'Location permission is needed to share your location.'
           : 'Location access was withdrawn while you were away, so sharing stopped. Turn sharing back on to allow it again.',
       );
+    }
+    // Granted, but only approximately -- which Android 12+ offers right
+    // alongside precise in the same dialog, and which `status` cannot tell
+    // apart. Sharing still proceeds: a friend seeing you within a kilometre
+    // beats seeing nothing, and refusing here would be turning a working (if
+    // blunt) feature off over something the user can fix. But it is said out
+    // loud, because it is otherwise indistinguishable from the app being
+    // broken -- and it is the one cause of a frozen pin that no amount of
+    // accuracy or interval tuning on our side can reach.
+    if (isCoarseAndroidGrant(permissions)) {
+      console.warn('[broadcast] approximate location only -- fixes will be ~1-3km');
+      this.handlers.onLocationNotice({
+        title: 'Approximate location only',
+        message: COARSE_GRANT_MESSAGE,
+      });
     }
     // The permission dialog itself backgrounds the app, so wait for it to
     // hand focus back rather than treating "not active right now" as a
@@ -720,17 +982,18 @@ class LocationChannelManager {
 
   private watchPosition(): Promise<Location.LocationSubscription> {
     return Location.watchPositionAsync(
-      {
-        accuracy: Location.Accuracy.Balanced,
-        distanceInterval: BROADCAST_DISTANCE_METERS,
-        timeInterval: BROADCAST_INTERVAL_MS,
-        // Off: `setBroadcasting` has already checked location services and, if
-        // they were off, offered to switch them on at the moment the user
-        // asked to share. Leaving expo's default on meant this could open a
-        // second "turn on location?" dialog by itself -- including from the
-        // silent resume path, where the user tapped nothing at all.
-        mayShowUserSettingsDialog: false,
-      },
+      // Shared with the map and journey watchers -- see `watchOptions.ts`. In
+      // particular the distance filter is NOT set here any more: it moved into
+      // `shouldSendFix` below, so that thinning the network traffic stops
+      // blinding every local consumer of the same fixes.
+      //
+      // `mayShowUserSettingsDialog` stays off (the shared default):
+      // `setBroadcasting` has already checked location services and, if they
+      // were off, offered to switch them on at the moment the user asked to
+      // share. Expo's default of true meant this could open a second "turn on
+      // location?" dialog by itself -- including from the silent resume path,
+      // where the user tapped nothing at all.
+      watchOptions(),
       (position) => {
         // This watcher is the app's live position while it's the one running,
         // exactly as the journey controller's is while a journey is tracked.
@@ -740,7 +1003,7 @@ class LocationChannelManager {
         useSelfPositionStore
           .getState()
           .setLive(position.coords.latitude, position.coords.longitude);
-        this.sendFix({
+        this.offerFix({
           lat: position.coords.latitude,
           lon: position.coords.longitude,
           ts: position.timestamp,
@@ -751,6 +1014,41 @@ class LocationChannelManager {
       // nowhere, so sharing looked healthy while no fix would ever arrive.
       (reason) => this.interruptBroadcast(reason),
     );
+  }
+
+  /**
+   * Whether this fix is worth the radio, given what was last transmitted.
+   *
+   * This is the OS `distanceInterval` that used to sit on the watcher, moved
+   * into JS and applied to the one consumer that actually wanted it. Same
+   * threshold, same resulting traffic -- but the fixes it declines to send are
+   * still delivered to the app, so the user's pin, the journey notification
+   * and every station test keep running at full rate. That split is the whole
+   * point; see `BROADCAST_DISTANCE_METERS`.
+   *
+   * The time clause is not a duplicate of the heartbeat. The heartbeat repeats
+   * the last fix verbatim to prove the sender is alive; this one lets a *new*
+   * position through once it has been a while, so slow drift below the
+   * distance threshold still eventually reaches friends as movement rather
+   * than as a repeat of somewhere the user no longer is.
+   */
+  private shouldSendFix(payload: LocPayload): boolean {
+    const last = this.lastSentFix;
+    if (!last) return true;
+    if (Date.now() - this.lastSentAt >= HEARTBEAT_RESEND_AFTER_MS) return true;
+    return haversineMeters(last.lat, last.lon, payload.lat, payload.lon) >= BROADCAST_DISTANCE_METERS;
+  }
+
+  /**
+   * A fix from whichever watcher is running, offered for transmission.
+   *
+   * The single place `shouldSendFix` is applied, so the own watcher and the
+   * journey's (via `submitFix`) thin their traffic identically -- the
+   * arrangement `sendFix` already has with the heartbeat, one layer up.
+   */
+  private offerFix(payload: LocPayload): void {
+    if (!this.shouldSendFix(payload)) return;
+    this.sendFix(payload);
   }
 
   /** The single exit point for outbound fixes, shared by the GPS watcher and
@@ -905,6 +1203,12 @@ class LocationChannelManager {
     this.resendHeartbeatIfDue();
     void this.checkServicesStillOn();
     this.sendSupabaseHeartbeatIfDue();
+    // Last, and the reason this matters: a socket that drops while the phone
+    // is in a pocket has no working JS timer to schedule its own recovery, so
+    // without this the retry ladder would simply stall until the user next
+    // looked at the screen -- during the exact stretch of a journey they are
+    // least able to notice and most want to be visible for.
+    this.runReconnectIfDue();
   }
 
   /** Keeps the realtime socket from being dropped by the server. See
@@ -962,10 +1266,11 @@ class LocationChannelManager {
     }
   }
 
-  /** A fix from the journey controller's watcher, when it owns the GPS. */
+  /** A fix from the journey controller's watcher, when it owns the GPS.
+   * Thinned by the same rule as our own watcher's -- see `offerFix`. */
   submitFix(lat: number, lon: number, ts: number): void {
     if (!this.usesExternalFixes || !this.isBroadcasting) return;
-    this.sendFix({ lat, lon, ts });
+    this.offerFix({ lat, lon, ts });
   }
 
   /** App backgrounded: go fully invisible to friends (untrack presence) and
@@ -1000,6 +1305,38 @@ class LocationChannelManager {
     this.setIsBroadcasting(false);
     await this.ownChannel?.untrack();
     return this.wasBroadcastingBeforeBackground;
+  }
+
+  /**
+   * Confirms the realtime socket and the own channel are actually up, and
+   * rebuilds them if not. Called when the app returns to the foreground.
+   *
+   * The state this exists for is a silent one. Backgrounding without a journey
+   * stops every JS timer, including supabase-js's socket keepalive; the server
+   * drops the connection; and realtime-js's own reconnect backoff is a JS timer
+   * too, so nothing is left to bring it back. Everything then *looks* fine --
+   * `ownChannel` is non-null, no error was ever raised, the banner is clear --
+   * while presence goes nowhere and no friend location arrives. Checking the
+   * socket directly is the only way to tell that apart from a quiet channel.
+   *
+   * Cheap and idempotent on the normal path, where the socket survived and
+   * both checks pass immediately.
+   */
+  async ensureConnected(): Promise<void> {
+    if (!this.ownUserId) return;
+
+    if (!supabase.realtime.isConnected()) {
+      console.warn('[location] realtime socket down on foreground, reconnecting');
+      supabase.realtime.connect();
+    }
+
+    // A channel left sitting in a non-joined state after the socket went away.
+    // Rejoining preserves broadcasting for the same reason the retry ladder
+    // does: the user never asked for it to stop.
+    if (this.ownChannel && this.ownChannel.state !== 'joined') {
+      this.clearReconnect();
+      await this.rejoinOwnChannel({ keepBroadcasting: true });
+    }
   }
 
   /** Takes no argument by design. The caller used to hold "was broadcasting

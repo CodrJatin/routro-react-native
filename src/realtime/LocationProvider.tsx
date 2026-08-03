@@ -60,9 +60,11 @@ export function LocationProvider({ children }: { children: ReactNode }) {
       onFriendPresence: (id, status) => useLocationStore.getState().setFriendPresence(id, status),
       onFriendJourney: (id, journey) => useLocationStore.getState().setFriendJourney(id, journey),
       onFriendRemoved: (id) => useLocationStore.getState().removeFriend(id),
-      onConnectionChange: (state) => useLocationStore.getState().setConnectionState(state),
+      onConnectionChange: (state, reconnect) =>
+        useLocationStore.getState().setConnectionState(state, reconnect),
       onBroadcastInterrupted: (reason) =>
-        useLocationStore.getState().setBroadcastNotice(reason),
+        useLocationStore.getState().setBroadcastNotice({ title: 'Sharing stopped', message: reason }),
+      onLocationNotice: (notice) => useLocationStore.getState().setBroadcastNotice(notice),
     });
   }, []);
 
@@ -143,6 +145,15 @@ export function LocationProvider({ children }: { children: ReactNode }) {
       if (next === 'background') {
         await locationChannelManager.pauseForBackground();
       } else if (next === 'active') {
+        // Before resuming anything: with no journey running, JS timers stop
+        // the moment the app is backgrounded (BACKGROUND.md), which takes
+        // supabase-js's realtime keepalive down with them. The server then
+        // drops the socket after its own timeout, and realtime-js's reconnect
+        // backoff is itself a JS timer -- so the connection can be dead on
+        // return with nothing left running that would ever notice. Presence
+        // would be re-tracked onto a socket that isn't there, and the user
+        // would sit there looking "online" to nobody.
+        await locationChannelManager.ensureConnected();
         await locationChannelManager.resumeForForeground();
       }
     });

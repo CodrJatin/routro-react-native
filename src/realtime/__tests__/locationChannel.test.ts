@@ -99,7 +99,7 @@ let permissionRequestHook: (() => void) | null = null;
 let permissionRequests = 0;
 
 vi.mock('expo-location', () => ({
-  Accuracy: { Balanced: 3 },
+  Accuracy: { Balanced: 3, High: 4 },
   requestForegroundPermissionsAsync: async () => {
     permissionRequests += 1;
     permissionRequestHook?.();
@@ -164,7 +164,7 @@ vi.mock('react-native', () => ({
   },
 }));
 
-const { locationChannelManager } = await import('../locationChannel');
+const { locationChannelManager, RECONNECT_ATTEMPTS } = await import('../locationChannel');
 
 const USER_ID = 'self-user';
 const FRIEND_ID = 'friend-user';
@@ -207,6 +207,7 @@ describe('locationChannelManager', () => {
       onFriendRemoved() {},
       onConnectionChange() {},
       onBroadcastInterrupted() {},
+      onLocationNotice() {},
     });
   });
 
@@ -291,6 +292,7 @@ describe('locationChannelManager', () => {
       onFriendRemoved() {},
       onConnectionChange() {},
       onBroadcastInterrupted: (reason) => interruptions.push(reason),
+      onLocationNotice() {},
     });
 
     await locationChannelManager.joinOwn(USER_ID);
@@ -323,6 +325,7 @@ describe('locationChannelManager', () => {
       onFriendRemoved() {},
       onConnectionChange() {},
       onBroadcastInterrupted: (reason) => interruptions.push(reason),
+      onLocationNotice() {},
     });
 
     await locationChannelManager.joinOwn(USER_ID);
@@ -438,6 +441,28 @@ describe('locationChannelManager', () => {
     expect(channel.sent).toHaveLength(1);
   });
 
+  it('thins fixes by distance in JS rather than at the watcher', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    const channel = ownChannel();
+    await channel.emit('SUBSCRIBED');
+    await locationChannelManager.setBroadcasting(true);
+
+    const watcher = watchers.find((w) => !w.removed)!;
+
+    watcher.fire(position(28.6, 77.2));
+    expect(channel.sent).toHaveLength(1);
+
+    // ~2m away. The watcher now delivers this (the OS filter is off, so the
+    // pin and the journey notification both see it) but it is not worth a
+    // radio wakeup, so it must not reach the wire.
+    watcher.fire(position(28.60002, 77.2));
+    expect(channel.sent).toHaveLength(1);
+
+    // ~200m away: real movement, and friends need it.
+    watcher.fire(position(28.6018, 77.2));
+    expect(channel.sent).toHaveLength(2);
+  });
+
   it('keeps sending while stationary, so a still friend is not dropped', async () => {
     // Fake timers go up FIRST: the heartbeat's interval has to be created
     // under them, or advancing the clock never fires it.
@@ -451,10 +476,11 @@ describe('locationChannelManager', () => {
       watchers.find((w) => !w.removed)!.fire(position(28.6, 77.2));
       expect(channel.sent).toHaveLength(1);
 
-      // Standing on a platform: distanceInterval is a hard OS-level filter,
-      // so the watcher legitimately delivers nothing more. Without a
-      // heartbeat the receiver sees silence, fades the pin at 30s and drops
-      // it at 90s while the user believes they are still sharing.
+      // Standing on a platform. Fixes keep arriving now that the OS filter is
+      // off, but the JS distance filter above declines to transmit them --
+      // so on the wire this is still silence, and without a heartbeat the
+      // receiver fades the pin at 30s and drops it at 90s while the user
+      // believes they are still sharing.
       await vi.advanceTimersByTimeAsync(50_000);
 
       expect(channel.sent.length).toBeGreaterThan(1);
@@ -498,6 +524,7 @@ describe('locationChannelManager', () => {
       onFriendRemoved() {},
       onConnectionChange() {},
       onBroadcastInterrupted() {},
+      onLocationNotice() {},
     });
 
     await locationChannelManager.joinOwn(USER_ID);
@@ -537,6 +564,7 @@ describe('locationChannelManager', () => {
       onFriendRemoved() {},
       onConnectionChange() {},
       onBroadcastInterrupted() {},
+      onLocationNotice() {},
     });
 
     await locationChannelManager.joinOwn(USER_ID);
@@ -555,16 +583,18 @@ describe('locationChannelManager', () => {
     expect(watchers.every((w) => w.removed)).toBe(true);
   });
 
-  it('stops broadcasting when the channel reports an error', async () => {
+  it('keeps broadcasting through a channel error and retries instead', async () => {
     const broadcastingChanges: boolean[] = [];
+    const states: string[] = [];
     locationChannelManager.setHandlers({
       onBroadcastingChange: (enabled) => broadcastingChanges.push(enabled),
       onFriendLocation() {},
       onFriendPresence() {},
       onFriendJourney() {},
       onFriendRemoved() {},
-      onConnectionChange() {},
+      onConnectionChange: (state) => states.push(state),
       onBroadcastInterrupted() {},
+      onLocationNotice() {},
     });
 
     await locationChannelManager.joinOwn(USER_ID);
@@ -574,9 +604,51 @@ describe('locationChannelManager', () => {
 
     await channel.emit('CHANNEL_ERROR');
 
-    // The button must not stay lit green while nothing is transmitting.
+    // The whole point of the retry ladder: one error is a blip, not the end of
+    // the session. Tearing the watcher down here is what made a single tunnel
+    // stop sharing for the rest of the ride -- and it did it silently, because
+    // the rejoin then re-announced the user as merely 'online'.
+    expect(states.at(-1)).toBe('reconnecting');
+    expect(broadcastingChanges.at(-1)).toBe(true);
+    expect(watchers.filter((w) => !w.removed)).toHaveLength(1);
+  });
+
+  it('stops broadcasting once the reconnect attempts are spent', async () => {
+    const broadcastingChanges: boolean[] = [];
+    const interruptions: string[] = [];
+    const states: string[] = [];
+    locationChannelManager.setHandlers({
+      onBroadcastingChange: (enabled) => broadcastingChanges.push(enabled),
+      onFriendLocation() {},
+      onFriendPresence() {},
+      onFriendJourney() {},
+      onFriendRemoved() {},
+      onConnectionChange: (state) => states.push(state),
+      onBroadcastInterrupted: (reason) => interruptions.push(reason),
+      onLocationNotice() {},
+    });
+
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+    await locationChannelManager.setBroadcasting(true);
+
+    vi.useFakeTimers();
+    // Each failure schedules the next attempt; each attempt rebuilds the
+    // channel, which fails again. Three rungs, then it gives up.
+    for (let i = 0; i < RECONNECT_ATTEMPTS + 1; i++) {
+      const channel = ownChannel();
+      channel.state = 'closed';
+      await channel.emit('CHANNEL_ERROR');
+      await vi.advanceTimersByTimeAsync(30_000);
+    }
+    vi.useRealTimers();
+
+    // Only now does the button go dark -- and it says why, rather than leaving
+    // the user to notice the colour changed.
+    expect(states.at(-1)).toBe('error');
     expect(broadcastingChanges.at(-1)).toBe(false);
     expect(watchers.every((w) => w.removed)).toBe(true);
+    expect(interruptions.at(-1)).toMatch(/connection/i);
   });
 
   it('can still start broadcasting after a transient close', async () => {
@@ -648,6 +720,46 @@ describe('locationChannelManager', () => {
     expect(watchers.filter((w) => !w.removed)).toHaveLength(1);
   });
 
+  it('keeps retrying past the limit while a journey holds the process open', async () => {
+    const broadcastingChanges: boolean[] = [];
+    const states: string[] = [];
+    locationChannelManager.setHandlers({
+      onBroadcastingChange: (enabled) => broadcastingChanges.push(enabled),
+      onFriendLocation() {},
+      onFriendPresence() {},
+      onFriendJourney() {},
+      onFriendRemoved() {},
+      onConnectionChange: (state) => states.push(state),
+      onBroadcastInterrupted() {},
+      onLocationNotice() {},
+    });
+
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+    await locationChannelManager.setBroadcasting(true);
+    // What a tracked journey sets, and the only thing this layer knows about it.
+    locationChannelManager.setBackgroundAllowed(true);
+
+    vi.useFakeTimers();
+    // Well past where the bounded ladder would have given up.
+    for (let i = 0; i < RECONNECT_ATTEMPTS + 4; i++) {
+      const channel = ownChannel();
+      channel.state = 'closed';
+      await channel.emit('CHANNEL_ERROR');
+      await vi.advanceTimersByTimeAsync(30_000);
+    }
+    vi.useRealTimers();
+
+    // Half an hour underground must not end with sharing switched off: the
+    // notification is on screen the whole time saying it is on, and the user
+    // asked to be followed for the length of the trip.
+    expect(states.at(-1)).toBe('reconnecting');
+    expect(broadcastingChanges.at(-1)).toBe(true);
+    expect(watchers.filter((w) => !w.removed)).toHaveLength(1);
+
+    locationChannelManager.setBackgroundAllowed(false);
+  });
+
   it('treats CLOSED as reconnecting rather than a hard error', async () => {
     const states: string[] = [];
     locationChannelManager.setHandlers({
@@ -658,14 +770,17 @@ describe('locationChannelManager', () => {
       onFriendRemoved() {},
       onConnectionChange: (state) => states.push(state),
       onBroadcastInterrupted() {},
+      onLocationNotice() {},
     });
 
     await locationChannelManager.joinOwn(USER_ID);
     await ownChannel().emit('CLOSED');
 
-    // Showing "connection lost" for a routine socket cycle is what put the
-    // banner on screen and left it there.
-    expect(states.at(-1)).toBe('connecting');
+    // 'reconnecting', not 'error': a routine socket cycle is being retried,
+    // and saying "connection lost" for it is what put the banner on screen and
+    // left it there. The banner distinguishes the two -- one counts itself out
+    // and is worth waiting on, the other is terminal.
+    expect(states.at(-1)).toBe('reconnecting');
   });
 
   it('stops and reports when the location provider errors mid-broadcast', async () => {
@@ -679,6 +794,7 @@ describe('locationChannelManager', () => {
       onFriendRemoved() {},
       onConnectionChange() {},
       onBroadcastInterrupted: (reason) => interruptions.push(reason),
+      onLocationNotice() {},
     });
 
     await locationChannelManager.joinOwn(USER_ID);
@@ -766,6 +882,7 @@ describe('locationChannelManager', () => {
       onFriendRemoved() {},
       onConnectionChange() {},
       onBroadcastInterrupted() {},
+      onLocationNotice() {},
     });
 
     await locationChannelManager.joinOwn(USER_ID);

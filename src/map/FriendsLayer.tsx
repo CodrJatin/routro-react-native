@@ -63,10 +63,18 @@ export function FriendsLayer() {
   const pins = useMemo(
     () =>
       Object.values(friendLocations)
-        // 'offline' covers both "presence says they stopped" and "past the
-        // hard TTL" -- either way the pin goes, rather than lingering dimmed
-        // at a last known position forever.
-        .filter((loc) => statuses[loc.userId] !== 'offline' && profilesByUserId.has(loc.userId))
+        // Only the two statuses that mean "there is a position worth drawing".
+        // Deliberately not `!== 'offline'`: a friend who stops sharing now
+        // keeps their last location in the store until it ages out (see
+        // `setFriendPresence`), so 'online' has to be excluded here or their
+        // pin would sit on the map after they had visibly stopped. 'stale'
+        // stays -- it draws dimmed, which is the honest rendering of a friend
+        // in a tunnel.
+        .filter(
+          (loc) =>
+            (statuses[loc.userId] === 'live' || statuses[loc.userId] === 'stale') &&
+            profilesByUserId.has(loc.userId),
+        )
         .map((loc) => ({
           location: loc,
           profile: profilesByUserId.get(loc.userId)!,
