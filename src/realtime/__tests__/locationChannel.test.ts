@@ -719,6 +719,91 @@ describe('locationChannelManager', () => {
     expect(watchers.filter((w) => !w.removed)).toHaveLength(1);
   });
 
+  it('collapses simultaneous manual retries into a single rejoin', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+    const channelsBefore = channels.length;
+
+    const channel = ownChannel();
+    channel.state = 'closed';
+    await channel.emit('CHANNEL_ERROR');
+
+    // Two taps in the same tick, the second landing while the first rejoin is
+    // still awaiting. Not awaited in turn, deliberately -- awaiting them one
+    // after the other would test nothing, since the first would have finished.
+    await Promise.all([locationChannelManager.retryNow(), locationChannelManager.retryNow()]);
+
+    // One replacement channel, not two. Two interleaved rejoins would have the
+    // later one's teardown clear state the earlier one's join had just set.
+    expect(channels.length - channelsBefore).toBe(1);
+  });
+
+  it('cancels the scheduled retry when the user retries by hand', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+
+    vi.useFakeTimers();
+    const channel = ownChannel();
+    channel.state = 'closed';
+    await channel.emit('CHANNEL_ERROR');
+
+    // Tap while the 3s attempt is still pending.
+    await vi.advanceTimersByTimeAsync(2000);
+    const channelsBefore = channels.length;
+    await locationChannelManager.retryNow();
+
+    // Past when the scheduled one would have fired. It must not rejoin on top
+    // of the manual attempt that just replaced it.
+    await vi.advanceTimersByTimeAsync(10_000);
+    vi.useRealTimers();
+
+    expect(channels.length - channelsBefore).toBe(1);
+  });
+
+  it('restarts the retry ramp when the user asks, and recovers from it', async () => {
+    const states: string[] = [];
+    locationChannelManager.setHandlers({
+      onBroadcastingChange() {},
+      onFriendLocation() {},
+      onFriendPresence() {},
+      onFriendJourney() {},
+      onFriendRemoved() {},
+      onConnectionChange: (state) => states.push(state),
+      onBroadcastInterrupted() {},
+      onLocationNotice() {},
+    });
+
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+
+    vi.useFakeTimers();
+    const channel = ownChannel();
+    channel.state = 'closed';
+    await channel.emit('CHANNEL_ERROR');
+    // Out to the steady interval, so the ramp is well past its quick rungs.
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    // The user taps Retry, and this time the connection comes back.
+    await locationChannelManager.retryNow();
+    await ownChannel().emit('SUBSCRIBED');
+    vi.useRealTimers();
+
+    expect(states.at(-1)).toBe('connected');
+  });
+
+  it('does not retry a channel for a user who has signed out', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+    await locationChannelManager.leaveOwn();
+    const channelsBefore = channels.length;
+
+    // The banner can outlive the session by a frame, so this must be inert
+    // rather than rejoining a channel on behalf of nobody.
+    await locationChannelManager.retryNow();
+
+    expect(channels.length).toBe(channelsBefore);
+  });
+
   it('never gives up on the connection, however long the outage', async () => {
     const broadcastingChanges: boolean[] = [];
     const states: string[] = [];

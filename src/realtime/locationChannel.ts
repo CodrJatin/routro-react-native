@@ -99,7 +99,7 @@ const FOREGROUND_WAIT_MS = 90_000;
  * per-message REST fallback, so a long outage costs nothing but the retries
  * themselves.
  */
-const RECONNECT_DELAYS_MS = [3000, 8000];
+const RECONNECT_DELAYS_MS = [3000, 7000];
 
 /**
  * The steady interval the retries settle into once the quick attempts above
@@ -110,10 +110,11 @@ const RECONNECT_DELAYS_MS = [3000, 8000];
  * full interval for something that was already over. Past that it is a real
  * outage, and there is nothing to be gained by backing off further: a longer
  * tunnel would only mean a slower recovery, which is precisely backwards. At
- * four service ticks apart this costs effectively nothing, and it is the same
- * whether or not a journey is running.
+ * two service ticks apart this costs effectively nothing -- a rejoin on a
+ * socket that is already down is a local no-op, not a network round trip --
+ * and it is the same whether or not a journey is running.
  */
-const RECONNECT_INTERVAL_MS = 20_000;
+const RECONNECT_INTERVAL_MS = 10_000;
 
 function topicFor(userId: string): string {
   return `user-location:${userId}`;
@@ -271,6 +272,11 @@ class LocationChannelManager {
    * Never reset by giving up -- only by recovering. See `RECONNECT_DELAYS_MS`. */
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** True while a rejoin is actually executing, as opposed to merely
+   * scheduled. The manual retry, the scheduled timer and `tick()` can all
+   * reach `runAttempt`, and two overlapping rejoins would have one's teardown
+   * clear state the other's join had already set. */
+  private isAttemptInFlight = false;
   /** When the pending attempt is due, so `tick()` can run it if the JS timer
    * above never fires -- which is exactly what happens in the background, per
    * BACKGROUND.md. Zero when nothing is pending. */
@@ -473,39 +479,90 @@ class LocationChannelManager {
     this.handlers.onConnectionChange('reconnecting');
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      void this.runReconnectAttempt();
+      this.runScheduledAttempt();
     }, delay);
   }
 
-  /** Runs the pending attempt. Safe to call from both the JS timer and
-   * `tick()`: the first one through clears `reconnectDueAt`, and the other
-   * finds nothing to do. */
-  private async runReconnectAttempt(): Promise<void> {
+  /**
+   * Retry right now, because the user asked.
+   *
+   * Three callers can start an attempt -- this, the scheduled timer and
+   * `tick()` -- and they must never produce two rejoins at once, because a
+   * rejoin tears the channel down before building it back and two interleaved
+   * ones can leave the later `cleanupOwnChannel` clearing state the earlier
+   * `joinOwn` had already set. `runAttempt` is the single gate they all pass
+   * through, and `isAttemptInFlight` is what makes overlapping calls collapse
+   * into one rather than racing.
+   *
+   * Claiming the pending slot first is what makes this safe against the timer
+   * firing at the same instant: whichever of the two zeroes `reconnectDueAt`
+   * wins, and the loser finds nothing scheduled and does nothing.
+   *
+   * Resolves once the attempt has been made, not once it has succeeded --
+   * success arrives later, on the channel's `SUBSCRIBED` callback. The caller
+   * uses it only to stop showing a spinner.
+   */
+  async retryNow(): Promise<void> {
+    if (!this.ownUserId) return;
+    this.clearReconnectTimer();
+    this.reconnectDueAt = 0;
+    // Back to the start of the ramp. A manual retry means the user believes
+    // something has changed -- they have just turned wifi back on, or walked
+    // out of a tunnel -- so the automatic attempts that follow this one should
+    // be eager again rather than continuing at the patient interval.
+    this.reconnectAttempt = 0;
+    await this.runAttempt();
+  }
+
+  /** The scheduled attempt coming due, from either the JS timer or `tick()`.
+   * Whichever arrives first claims the slot by zeroing `reconnectDueAt`; the
+   * other then finds nothing pending. */
+  private runScheduledAttempt(): void {
     if (this.reconnectDueAt === 0) return;
     this.reconnectDueAt = 0;
     this.clearReconnectTimer();
+    void this.runAttempt();
+  }
+
+  /** Called from `tick()`, because the JS timer does not run while the app is
+   * backgrounded (BACKGROUND.md) -- which is precisely when a phone in a
+   * pocket crosses a tunnel and drops the socket. */
+  private runReconnectIfDue(): void {
+    if (this.reconnectDueAt === 0 || Date.now() < this.reconnectDueAt) return;
+    this.runScheduledAttempt();
+  }
+
+  /**
+   * One rejoin, never two at once.
+   *
+   * A failure here does not need handling: the rejoined channel's subscribe
+   * callback reports it, which lands in `handleConnectionLost` and schedules
+   * the next rung. That is also why the in-flight flag is cleared in a
+   * `finally` -- an attempt that throws must not wedge the flag on and leave
+   * every later attempt, manual or scheduled, silently refusing.
+   */
+  private async runAttempt(): Promise<void> {
+    if (this.isAttemptInFlight) return;
     if (!this.ownUserId) return;
 
-    // Recovered on its own while the delay was running -- realtime-js rejoins
-    // by itself and often wins this race. Nothing to rebuild.
+    // Recovered on its own -- realtime-js rejoins by itself and often wins
+    // this race, and a manual tap frequently lands right after it has. Nothing
+    // to rebuild, and rebuilding anyway would drop a working channel.
     if (this.ownChannel?.state === 'joined') {
       this.clearReconnect();
       this.handlers.onConnectionChange('connected');
       return;
     }
 
-    // Broadcasting is preserved across the teardown here, unlike every other
-    // caller: this rejoin is repairing the transport under a session the user
-    // never asked to end.
-    await this.rejoinOwnChannel({ keepBroadcasting: true });
-  }
-
-  /** Called from `tick()`, because the JS timer above does not run while the
-   * app is backgrounded (BACKGROUND.md) -- which is precisely when a phone in
-   * a pocket crosses a tunnel and drops the socket. */
-  private runReconnectIfDue(): void {
-    if (this.reconnectDueAt === 0 || Date.now() < this.reconnectDueAt) return;
-    void this.runReconnectAttempt();
+    this.isAttemptInFlight = true;
+    try {
+      // Broadcasting is preserved across the teardown here, unlike every other
+      // caller: this rejoin is repairing the transport under a session the
+      // user never asked to end.
+      await this.rejoinOwnChannel({ keepBroadcasting: true });
+    } finally {
+      this.isAttemptInFlight = false;
+    }
   }
 
   private clearReconnectTimer(): void {

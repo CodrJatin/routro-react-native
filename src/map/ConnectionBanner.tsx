@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Pressable, StyleSheet, Text } from 'react-native';
+import { locationChannelManager } from '../realtime/locationChannel';
 import { useLocationStore } from '../realtime/locationStore';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens } from '../theme/tokens';
@@ -26,6 +28,17 @@ const APPEAR_AFTER_MS = 4500;
 const PULSE_MS = 1300;
 
 const DOT_SIZE = 7;
+
+/**
+ * How long the retry button keeps spinning at minimum.
+ *
+ * `retryNow` resolves once the rejoin has been *made*, which is almost
+ * immediate -- the answer arrives later, on the channel's subscribe callback.
+ * Without a floor the spinner would appear and vanish within a frame or two,
+ * which reads as the tap not having registered. Long enough to be seen,
+ * short enough not to hold a button hostage that is already tappable again.
+ */
+const MIN_SPINNER_MS = 700;
 
 /**
  * Says the live connection is down and being worked on.
@@ -93,15 +106,68 @@ export function ConnectionBanner() {
     return () => loop.stop();
   }, [isVisible, pulse]);
 
+  // Tracked so the minimum-duration timer below cannot set state after the
+  // banner has gone -- which is the *expected* ending here, since a successful
+  // retry unmounts this component while its own spinner is still running.
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  const [isRetrying, setIsRetrying] = useState(false);
+
+  const handleRetry = useCallback(async () => {
+    // The manager collapses overlapping attempts on its own, so this guard is
+    // only about the button: a second tap should do nothing visible rather
+    // than restart the spinner on an attempt already under way.
+    if (isRetrying) return;
+    setIsRetrying(true);
+    const startedAt = Date.now();
+    try {
+      await locationChannelManager.retryNow();
+    } finally {
+      const remaining = Math.max(0, MIN_SPINNER_MS - (Date.now() - startedAt));
+      setTimeout(() => {
+        if (isMounted.current) setIsRetrying(false);
+      }, remaining);
+    }
+  }, [isRetrying]);
+
   // Unmounted entirely once hidden, so a dropped connection costs nothing at
-  // all in the normal case. `isVisible` gates the fade-out too, which is why
-  // this checks the animated value rather than the flag.
+  // all in the normal case.
   if (!isVisible) return null;
 
   return (
-    <Animated.View style={[styles.banner, { opacity: fade }]} pointerEvents="none">
+    // Not `pointerEvents="none"` any more, unlike every other overlay on this
+    // map: there is something to press now. The parent is `box-none`, so
+    // touches outside the banner still reach the map underneath.
+    <Animated.View style={[styles.banner, { opacity: fade }]}>
       <Animated.View style={[styles.dot, { opacity: pulse }]} />
       <Text style={styles.text}>Reconnecting — friend locations may be behind</Text>
+      {/* The automatic retries are already running; this only brings the next
+          one forward. It earns its place because the user often knows
+          something the app cannot: they have just left the tunnel, or turned
+          wifi back on, and waiting out the interval for news they already have
+          is the frustrating part. */}
+      <Pressable
+        onPress={handleRetry}
+        disabled={isRetrying}
+        hitSlop={10}
+        accessibilityRole="button"
+        accessibilityLabel="Retry connection now"
+        accessibilityState={{ disabled: isRetrying, busy: isRetrying }}
+        style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
+      >
+        {isRetrying ? (
+          <ActivityIndicator size="small" color={colors.onSurfaceVariant} />
+        ) : (
+          <Ionicons name="refresh" size={14} color={colors.onSurfaceVariant} />
+        )}
+        <Text style={styles.retryText}>Retry</Text>
+      </Pressable>
     </Animated.View>
   );
 }
@@ -131,6 +197,25 @@ function createStyles(colors: ColorTokens, radius: { none: number; badge: number
       flex: 1,
       fontSize: 12,
       color: colors.onSurfaceVariant,
+    },
+    retry: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      // Fixed width so swapping the icon for the spinner -- which is the wider
+      // of the two -- does not shove the label sideways mid-press.
+      minWidth: 62,
+      justifyContent: 'flex-end',
+    },
+    retryPressed: {
+      opacity: 0.6,
+    },
+    retryText: {
+      fontSize: 12,
+      // The one thing here that is meant to look tappable, so it carries the
+      // full-strength text colour against the banner's muted one.
+      color: colors.textPrimary,
+      fontWeight: '600',
     },
   });
 }
