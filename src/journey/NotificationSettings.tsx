@@ -107,12 +107,6 @@ export function NotificationSettings() {
           </View>
         ))}
       </View>
-
-      <Text style={styles.footnote}>
-        Journey and friend alerts only fire while you are following a journey. Meet requests can
-        arrive any time — they expire in 30 seconds, so they are not worth holding back. The
-        progress notification is always shown while a journey is running: it is how you stop it.
-      </Text>
     </>
   );
 }
@@ -168,11 +162,6 @@ function createStyles(colors: ColorTokens, radiusNone: number) {
       color: colors.textSecondary,
       fontSize: 12,
       lineHeight: 16,
-    },
-    footnote: {
-      color: colors.textSecondary,
-      fontSize: 12,
-      lineHeight: 17,
     },
   });
 }
