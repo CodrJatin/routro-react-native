@@ -1,7 +1,7 @@
 import * as Location from 'expo-location';
 import { useEffect } from 'react';
 import { useSelfPositionStore } from './selfPosition';
-import { watchOptions } from './watchOptions';
+import { logFixAccuracy, watchOptions } from './watchOptions';
 
 /** How long to wait before trying again after the provider errors or the
  * watcher won't start. Long enough not to spin on a device with location
@@ -46,6 +46,7 @@ export function useSelfPositionWatcher(enabled: boolean): void {
           // `watchOptions.ts` for why these must not be per-file copies.
           watchOptions(),
           (position) => {
+            logFixAccuracy('map', position.coords.accuracy);
             useSelfPositionStore
               .getState()
               .setLive(position.coords.latitude, position.coords.longitude);

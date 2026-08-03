@@ -7,22 +7,14 @@ export type PresenceStatus = 'offline' | 'online' | 'broadcasting';
  * `connecting` is the first join. `reconnecting` is a live connection that
  * dropped and is being retried -- a separate state because the two mean very
  * different things to someone looking at the map: one is "not there yet", the
- * other is "you were sharing and we are trying to get it back". See
- * `RECONNECT_ATTEMPTS` in `locationChannel.ts`. `error` is the terminal state,
- * reached only once the retries are spent.
+ * other is "you had this and we are getting it back".
+ *
+ * There is deliberately no terminal error state. Retrying does not stop while
+ * the user is signed in (see `RECONNECT_DELAYS_MS` in `locationChannel.ts`), so
+ * a state meaning "gave up" would never be reachable, and having one invited
+ * the UI to imply an outage was permanent when it was simply ongoing.
  */
-export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'error';
-
-/** Which retry is in flight, for the banner to count out. The field itself is
- * null whenever the connection is not being retried at all. */
-export interface ReconnectProgress {
-  attempt: number;
-  /** How many attempts there will be, or null when retrying does not stop --
-   * which is the case during a tracked journey, where a foreground service is
-   * already holding the process open and there is nothing to be gained by
-   * giving up. See `JOURNEY_RECONNECT_INTERVAL_MS` in `locationChannel.ts`. */
-  max: number | null;
-}
+export type ConnectionState = 'connecting' | 'connected' | 'reconnecting';
 
 /**
  * A one-off message about location, carrying its own title.
@@ -75,8 +67,6 @@ export interface FriendLocation {
 interface LocationState {
   isBroadcasting: boolean;
   connectionState: ConnectionState;
-  /** Non-null only while `connectionState` is 'reconnecting'. */
-  reconnect: ReconnectProgress | null;
   /** Something about location the user needs telling, so the map can say it.
    * Cleared once shown. */
   broadcastNotice: LocationNotice | null;
@@ -104,9 +94,7 @@ interface LocationState {
   friendNames: Record<string, string>;
   setBroadcasting: (value: boolean) => void;
   setFriendNames: (names: Record<string, string>) => void;
-  /** `reconnect` is cleared unless explicitly passed, so no state other than
-   * 'reconnecting' can ever be left showing a stale attempt count. */
-  setConnectionState: (state: ConnectionState, reconnect?: ReconnectProgress | null) => void;
+  setConnectionState: (state: ConnectionState) => void;
   upsertFriendLocation: (loc: Omit<FriendLocation, 'receivedAt' | 'movedAt' | 'previous'>) => void;
   setFriendPresence: (userId: string, status: PresenceStatus) => void;
   /** Null clears it -- see `friendJourneys`. */
@@ -121,7 +109,6 @@ interface LocationState {
 export const useLocationStore = create<LocationState>((set) => ({
   isBroadcasting: false,
   connectionState: 'connecting',
-  reconnect: null,
   broadcastNotice: null,
   friendLocations: {},
   friendPresence: {},
@@ -132,8 +119,7 @@ export const useLocationStore = create<LocationState>((set) => ({
 
   setFriendNames: (friendNames) => set({ friendNames }),
 
-  setConnectionState: (state, reconnect = null) =>
-    set({ connectionState: state, reconnect }),
+  setConnectionState: (state) => set({ connectionState: state }),
 
   setBroadcastNotice: (notice) => set({ broadcastNotice: notice }),
 

@@ -12,7 +12,7 @@ import {
 import { findRoute } from '../engine/graph';
 import type { RouteMode, RouteResult, StationId } from '../engine/types';
 import { useSelfPositionStore } from '../location/selfPosition';
-import { watchOptions } from '../location/watchOptions';
+import { logFixAccuracy, watchOptions } from '../location/watchOptions';
 import { locationChannelManager } from '../realtime/locationChannel';
 import type { RouteClock } from '../route/routeClock';
 import { getRouteProgress, type RouteProgress } from '../route/routeProgress';
@@ -41,7 +41,7 @@ const TICK_INTERVAL_MS = 5000;
 
 /** How long to wait before rebuilding a watcher the provider dropped, and how
  * many times to try before the journey is actually ended. Same reasoning as
- * `RECONNECT_ATTEMPTS` in `locationChannel.ts`: a provider hiccup -- entering a
+ * `RECONNECT_DELAYS_MS` in `locationChannel.ts`: a provider hiccup -- entering a
  * tunnel, a fused-provider restart, a moment of no satellites -- is a normal
  * event on a metro, and ending a journey on the first one meant the app gave
  * up on the ride at exactly the point it was most needed. */
@@ -458,6 +458,7 @@ async function startWatcher(): Promise<void> {
         // created -- a watcher that installs cleanly and then delivers nothing
         // is the failure this is counting.
         watcherFailures = 0;
+        logFixAccuracy('journey', position.coords.accuracy);
         // The journey's watcher is the app's live position while it runs --
         // the map and route planner read the same store, so they can't place
         // the user at a different station than the notification does.

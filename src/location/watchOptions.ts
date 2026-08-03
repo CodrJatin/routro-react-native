@@ -87,6 +87,41 @@ export function watchOptions(
   };
 }
 
+/** How often to log a fix's own accuracy. Every fix would be a line every five
+ * seconds for a whole journey, which buries everything else in the log; one a
+ * minute is enough to see what the provider is actually giving us and how it
+ * changes between a platform, a tunnel and an elevated section. */
+const ACCURACY_LOG_INTERVAL_MS = 60_000;
+
+let lastAccuracyLogAt = 0;
+
+/**
+ * Logs the radius of uncertainty the OS reports on a fix, occasionally.
+ *
+ * The one number that settles what is actually wrong when tracking misbehaves,
+ * and nothing was recording it. "The pin is frozen" has at least three causes
+ * that look identical from the outside -- a coarse permission grant, a
+ * provider serving cell-tower fixes, and genuinely no signal -- and they want
+ * opposite fixes. The reported accuracy tells them apart immediately: ~10m is
+ * GPS working, ~100m is a network fix, ~1000m or worse means the fix is
+ * useless for deciding which station someone is standing at, whatever the app
+ * does with it.
+ *
+ * Called from all three watchers, so whichever one is live produces the same
+ * evidence. Cheap enough to leave in permanently at this interval, and worth
+ * far more than reasoning about a ride after the fact.
+ */
+export function logFixAccuracy(source: string, accuracy: number | null | undefined): void {
+  const now = Date.now();
+  if (now - lastAccuracyLogAt < ACCURACY_LOG_INTERVAL_MS) return;
+  lastAccuracyLogAt = now;
+  // Undefined as well as null: the type says `number | null`, but a provider
+  // that simply omits it would otherwise log `NaNm`, which reads as a value
+  // rather than as an absence and is the opposite of what this is for.
+  const reading = typeof accuracy === 'number' ? `${Math.round(accuracy)}m` : 'unknown';
+  console.warn(`[location] ${source} fix accuracy: ${reading}`);
+}
+
 /**
  * Whether Android handed back only "Approximate" location.
  *

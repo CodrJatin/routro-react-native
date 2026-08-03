@@ -60,8 +60,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
       onFriendPresence: (id, status) => useLocationStore.getState().setFriendPresence(id, status),
       onFriendJourney: (id, journey) => useLocationStore.getState().setFriendJourney(id, journey),
       onFriendRemoved: (id) => useLocationStore.getState().removeFriend(id),
-      onConnectionChange: (state, reconnect) =>
-        useLocationStore.getState().setConnectionState(state, reconnect),
+      onConnectionChange: (state) => useLocationStore.getState().setConnectionState(state),
       onBroadcastInterrupted: (reason) =>
         useLocationStore.getState().setBroadcastNotice({ title: 'Sharing stopped', message: reason }),
       onLocationNotice: (notice) => useLocationStore.getState().setBroadcastNotice(notice),

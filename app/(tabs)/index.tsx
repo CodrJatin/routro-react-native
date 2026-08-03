@@ -34,6 +34,7 @@ import type { CompiledStation, StationId } from '../../src/engine/types';
 import { friendColorFor } from '../../src/friends/friendColor';
 import { MeetRequestStack } from '../../src/friends/MeetRequestCard';
 import { useBasemapStore } from '../../src/map/basemapStore';
+import { ConnectionBanner } from '../../src/map/ConnectionBanner';
 import { FriendFocusStack, type ActiveFriend } from '../../src/map/FriendFocusStack';
 import { FriendsLayer } from '../../src/map/FriendsLayer';
 import {
@@ -133,8 +134,6 @@ export default function MapScreen() {
 
   const { isConfigured, session } = useAuth();
   const isBroadcasting = useLocationStore((state) => state.isBroadcasting);
-  const connectionState = useLocationStore((state) => state.connectionState);
-  const reconnect = useLocationStore((state) => state.reconnect);
   const broadcastNotice = useLocationStore((state) => state.broadcastNotice);
 
   // Something about location the user needs telling -- sharing stopped without
@@ -685,35 +684,9 @@ export default function MapScreen() {
         >
           {/* Without this, a dropped realtime connection is indistinguishable
               from "nobody is sharing right now" -- the map just quietly
-              empties. */}
-          {/* Two different messages, because they call for two different
-              things from the user. A retry in progress is worth waiting out
-              and says so; a spent one is not, and stops implying anything is
-              still being attempted.
-              A bounded retry counts towards its limit, so the user can see it
-              running out. During a journey there is no limit -- it simply keeps
-              going -- and counting attempts at someone would read as failures
-              piling up rather than as the app waiting out a tunnel on their
-              behalf, so it just says it is still trying. */}
-          {connectionState === 'reconnecting' && (
-            <View style={styles.connectionBanner} pointerEvents="none">
-              <ActivityIndicator size="small" color={colors.onSurfaceVariant} />
-              <Text style={styles.connectionBannerText}>
-                {reconnect && reconnect.max !== null
-                  ? `Live connection lost — reconnecting (${reconnect.attempt} of ${reconnect.max})`
-                  : 'Live connection lost — reconnecting…'}
-              </Text>
-            </View>
-          )}
-
-          {connectionState === 'error' && (
-            <View style={styles.connectionBanner} pointerEvents="none">
-              <Ionicons name="cloud-offline-outline" size={14} color={colors.onSurfaceVariant} />
-              <Text style={styles.connectionBannerText}>
-                Live connection lost — friend locations may be out of date
-              </Text>
-            </View>
-          )}
+              empties. It stays silent for short drops and says nothing about
+              attempts; see the component for why. */}
+          <ConnectionBanner />
 
           {/* A friend asking to meet, with thirty seconds on the clock. Here
               rather than in a modal on purpose: it must not stop the user
@@ -927,23 +900,6 @@ function createStyles(colors: ColorTokens, radius: { none: number; badge: number
       right: 12,
       gap: 8,
       zIndex: 3,
-    },
-    // Squared off, like everything else that floats over the map.
-    connectionBanner: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      paddingVertical: 8,
-      paddingHorizontal: 12,
-      borderRadius: radius.none,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    connectionBannerText: {
-      flex: 1,
-      fontSize: 12,
-      color: colors.onSurfaceVariant,
     },
     broadcastButton: {
       bottom: 84,

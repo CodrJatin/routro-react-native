@@ -4,13 +4,17 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { useSelfPositionStore } from '../location/selfPosition';
 import { haversineMeters } from '../engine/geo';
-import { COARSE_GRANT_MESSAGE, isCoarseAndroidGrant, watchOptions } from '../location/watchOptions';
+import {
+  COARSE_GRANT_MESSAGE,
+  isCoarseAndroidGrant,
+  logFixAccuracy,
+  watchOptions,
+} from '../location/watchOptions';
 import type {
   ConnectionState,
   FriendLocation,
   LocationNotice,
   PresenceStatus,
-  ReconnectProgress,
 } from './locationStore';
 import { parseSharedJourney, type SharedJourney } from './sharedJourney';
 
@@ -71,55 +75,45 @@ const REJOIN_WAIT_MS = 8000;
 const FOREGROUND_WAIT_MS = 90_000;
 
 /**
- * How many times a dropped connection is retried before sharing is given up on.
+ * A dropped connection is retried for as long as the user is signed in. There
+ * is no attempt limit and no give-up state.
  *
- * The old behaviour was zero: the first `CLOSED` tore the watcher down and
- * cleared `isBroadcasting`. `CLOSED` is not an error -- it is the ordinary
- * lifecycle event for a socket drop, and realtime-js rejoins on its own -- so a
- * metro ride, which is nothing but tunnels, ended sharing within the first
- * minute. Worse, it ended it *invisibly*: the rejoin succeeded, `SUBSCRIBED`
- * fired, and presence was re-tracked from an `isBroadcasting` that had already
- * been set false, so the user was announced to their friends as merely
- * 'online' by a device whose GPS watcher was gone. The button went dark with
- * no explanation and nothing ever turned it back on.
+ * The original behaviour was the opposite extreme: the first `CLOSED` tore the
+ * watcher down and cleared `isBroadcasting`. `CLOSED` is not an error -- it is
+ * the ordinary lifecycle event for a socket drop, and realtime-js rejoins on
+ * its own -- so a metro ride, which is nothing but tunnels, ended sharing
+ * within the first minute. Worse, it ended it *invisibly*: the rejoin
+ * succeeded, `SUBSCRIBED` fired, and presence was re-tracked from an
+ * `isBroadcasting` that had already been set false, so the user was announced
+ * to their friends as merely 'online' by a device whose GPS watcher was gone.
  *
- * Now the intent to broadcast outlives the transport carrying it. Fixes
- * continue to be collected throughout (`sendFix` simply drops them while the
- * channel is down, which is cheaper and more honest than realtime-js's silent
- * per-message REST fallback), and only once the retries are spent is the user
- * told sharing has stopped.
+ * A bounded ladder was the first attempt at a fix and was still wrong, just
+ * more slowly: a tunnel longer than the budget ended sharing anyway, and the
+ * user had to notice and re-enable it. The argument for a limit was that a lit
+ * toggle over a dead connection is a lie -- but the banner already says the
+ * connection is down, so nothing is being hidden, and the honest thing is to
+ * keep trying and recover the moment there is signal.
+ *
+ * Fixes continue to be collected throughout. `sendFix` drops what it cannot
+ * transmit, which is cheaper and more honest than realtime-js's silent
+ * per-message REST fallback, so a long outage costs nothing but the retries
+ * themselves.
  */
-export const RECONNECT_ATTEMPTS = 3;
+const RECONNECT_DELAYS_MS = [3000, 8000];
 
 /**
- * Spacing between those attempts, in order. Backed off rather than fixed: the
- * first is for a momentary blip between two carriages of signal, the last for
- * a genuine tunnel. Roughly half a minute in total, which covers the gap
- * between most Delhi Metro stations without leaving a dead button sitting
- * there indefinitely if the connection is really gone.
- */
-const RECONNECT_DELAYS_MS = [3000, 8000, 20_000];
-
-/**
- * The retry interval used instead of giving up, while a journey is running.
+ * The steady interval the retries settle into once the quick attempts above
+ * are used up.
  *
- * `RECONNECT_ATTEMPTS` exists because a toggle that stays lit over a dead
- * connection is a lie, and the app has to stop claiming to share eventually.
- * That reasoning does not survive a tracked journey. There the process is
- * already being held open by a foreground service, the user has explicitly
- * asked to be followed for the length of a trip, and an ongoing notification
- * is on screen the whole time saying so -- nothing is being hidden from them,
- * and there is no cost to keep trying. Half an hour underground on the Magenta
- * Line should not end with sharing switched off; it should end with sharing
- * resuming the moment there is signal again.
- *
- * Flat rather than backed off, because there is no longer a deadline being
- * worked towards -- backing off would only make the recovery slower the longer
- * the tunnel, which is precisely backwards. 20s matches the last rung of the
- * ladder above, so the two agree on what a patient retry looks like, and at
- * four service ticks apart it costs effectively nothing.
+ * The ramp exists only to catch a momentary blip -- the gap between two
+ * carriages of signal -- in seconds rather than making the user wait out a
+ * full interval for something that was already over. Past that it is a real
+ * outage, and there is nothing to be gained by backing off further: a longer
+ * tunnel would only mean a slower recovery, which is precisely backwards. At
+ * four service ticks apart this costs effectively nothing, and it is the same
+ * whether or not a journey is running.
  */
-const JOURNEY_RECONNECT_INTERVAL_MS = 20_000;
+const RECONNECT_INTERVAL_MS = 20_000;
 
 function topicFor(userId: string): string {
   return `user-location:${userId}`;
@@ -179,10 +173,7 @@ export interface LocationManagerHandlers {
    * never describe different moments. */
   onFriendJourney(userId: string, journey: SharedJourney | null): void;
   onFriendRemoved(userId: string): void;
-  /** `reconnect` is set only alongside 'reconnecting', and counts the attempt
-   * out so the UI can say which retry is in flight rather than just that
-   * something is wrong. */
-  onConnectionChange(state: ConnectionState, reconnect?: ReconnectProgress | null): void;
+  onConnectionChange(state: ConnectionState): void;
   /** Broadcasting stopped on its own -- GPS switched off, provider error --
    * rather than because the user toggled it. The UI needs to say so, since
    * the alternative is the button quietly staying lit while nothing is
@@ -277,7 +268,7 @@ class LocationChannelManager {
   private lastSentFix: LocPayload | null = null;
   private lastSentAt = 0;
   /** Which reconnect attempt has been made, 0 when the connection is healthy
-   * or has been given up on. See `RECONNECT_ATTEMPTS`. */
+   * Never reset by giving up -- only by recovering. See `RECONNECT_DELAYS_MS`. */
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   /** When the pending attempt is due, so `tick()` can run it if the JS timer
@@ -392,8 +383,7 @@ class LocationChannelManager {
     // renders nothing for 'connecting' -- would blink off and back on with
     // every attempt, and read as the connection recovering each time it was in
     // fact failing again.
-    if (this.reconnectAttempt > 0) this.reportReconnecting();
-    else this.handlers.onConnectionChange('connecting');
+    this.handlers.onConnectionChange(this.reconnectAttempt > 0 ? 'reconnecting' : 'connecting');
 
     channel.subscribe(async (status, error) => {
       if (myGeneration !== this.generation) return; // superseded
@@ -415,24 +405,21 @@ class LocationChannelManager {
         return;
       }
 
-      // Everything below is the connection being down. None of these is
-      // treated as fatal on its own any more -- see `RECONNECT_ATTEMPTS` for
-      // why the first one used to be, and what it cost.
+      // Everything below is the connection being down. None of it is fatal --
+      // see `RECONNECT_DELAYS_MS` for why the first one used to be, and what
+      // that cost. The error message is still kept, because `setBroadcasting`
+      // reports it when a *user-initiated* start can't reach the service.
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
         this.lastChannelError = error?.message ?? status;
-        this.handleConnectionLost(
-          this.lastChannelError
-            ? `Lost the connection to the location service: ${this.lastChannelError}`
-            : 'Lost the connection to the location service.',
-        );
+        this.handleConnectionLost();
         return;
       }
 
       if (status === 'CLOSED') {
         // CLOSED is a normal lifecycle event (socket drop, rejoin, leave), not
-        // an error, and realtime-js rejoins on its own. It is retried like the
-        // rest so that a rejoin which never lands still eventually surfaces.
-        this.handleConnectionLost('Lost the connection to the location service.');
+        // an error, and realtime-js rejoins on its own. Retried like the rest
+        // so that a rejoin which never lands is still eventually repaired.
+        this.handleConnectionLost();
       }
     });
 
@@ -459,7 +446,7 @@ class LocationChannelManager {
 
   /**
    * The connection went down. Retry it rather than giving sharing up on the
-   * spot -- see `RECONNECT_ATTEMPTS` for what the old behaviour cost.
+   * spot -- see `RECONNECT_DELAYS_MS` for what the old behaviour cost.
    *
    * The ladder is self-driving: each attempt calls `rejoinOwnChannel`, whose
    * subscribe callback lands back here on failure with the counter one higher,
@@ -473,51 +460,21 @@ class LocationChannelManager {
    * arriving meanwhile cost nothing and the first one after a successful
    * rejoin goes out immediately.
    */
-  private handleConnectionLost(reason: string): void {
+  private handleConnectionLost(): void {
     // An attempt is already pending -- realtime-js emits several of these per
-    // drop, and each must not push the ladder along a rung on its own.
+    // drop, and each must not push the ramp along a rung on its own.
     if (this.reconnectTimer !== null || this.reconnectDueAt !== 0) return;
 
-    // A tracked journey never gives up -- see `JOURNEY_RECONNECT_INTERVAL_MS`.
-    // Read from `backgroundAllowed` because that is already this layer's word
-    // for "something is holding the process open", which is exactly the
-    // condition that makes retrying free. It keeps the manager knowing nothing
-    // about journeys, same as everywhere else here.
-    const isPersistent = this.backgroundAllowed;
-
-    if (this.reconnectAttempt >= RECONNECT_ATTEMPTS && !isPersistent) {
-      this.giveUpReconnecting(reason);
-      return;
-    }
-
     const attempt = ++this.reconnectAttempt;
-    // Past the end of the ladder only a journey can get, and it retries flat
-    // from there rather than inheriting the last (longest) rung forever.
-    const delay =
-      attempt > RECONNECT_DELAYS_MS.length
-        ? JOURNEY_RECONNECT_INTERVAL_MS
-        : RECONNECT_DELAYS_MS[attempt - 1];
-    console.warn(
-      `[location] connection lost, retry ${attempt}${isPersistent ? '' : `/${RECONNECT_ATTEMPTS}`} in ${delay}ms`,
-    );
+    const delay = RECONNECT_DELAYS_MS[attempt - 1] ?? RECONNECT_INTERVAL_MS;
+    console.warn(`[location] connection lost, retry ${attempt} in ${delay}ms`);
 
     this.reconnectDueAt = Date.now() + delay;
-    this.reportReconnecting();
+    this.handlers.onConnectionChange('reconnecting');
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       void this.runReconnectAttempt();
     }, delay);
-  }
-
-  /** Announces the retry currently in flight. One place, because the attempt
-   * count and whether there is a limit at all have to agree wherever they are
-   * reported from -- and `joinOwn` reports it too, mid-ladder. Null `max`
-   * means the retries do not stop; see `JOURNEY_RECONNECT_INTERVAL_MS`. */
-  private reportReconnecting(): void {
-    this.handlers.onConnectionChange('reconnecting', {
-      attempt: this.reconnectAttempt,
-      max: this.backgroundAllowed ? null : RECONNECT_ATTEMPTS,
-    });
   }
 
   /** Runs the pending attempt. Safe to call from both the JS timer and
@@ -549,22 +506,6 @@ class LocationChannelManager {
   private runReconnectIfDue(): void {
     if (this.reconnectDueAt === 0 || Date.now() < this.reconnectDueAt) return;
     void this.runReconnectAttempt();
-  }
-
-  /** The retries are spent. Now, and only now, does sharing actually stop. */
-  private giveUpReconnecting(reason: string): void {
-    console.warn(`[location] giving up after ${RECONNECT_ATTEMPTS} reconnect attempts`);
-    this.clearReconnect();
-    this.handlers.onConnectionChange('error');
-    // Reported through the interrupted channel rather than left to the dark
-    // button to imply, and only when there was something to lose: with sharing
-    // already off, a failed connection is the banner's business alone.
-    if (this.isBroadcasting) {
-      this.stopLocationWatcher();
-      this.setIsBroadcasting(false);
-      void this.trackPresence();
-      this.handlers.onBroadcastInterrupted(reason);
-    }
   }
 
   private clearReconnectTimer(): void {
@@ -995,6 +936,7 @@ class LocationChannelManager {
       // where the user tapped nothing at all.
       watchOptions(),
       (position) => {
+        logFixAccuracy('broadcast', position.coords.accuracy);
         // This watcher is the app's live position while it's the one running,
         // exactly as the journey controller's is while a journey is tracked.
         // Writing it to the shared store is what lets the map screen stand its

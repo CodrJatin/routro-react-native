@@ -164,7 +164,7 @@ vi.mock('react-native', () => ({
   },
 }));
 
-const { locationChannelManager, RECONNECT_ATTEMPTS } = await import('../locationChannel');
+const { locationChannelManager } = await import('../locationChannel');
 
 const USER_ID = 'self-user';
 const FRIEND_ID = 'friend-user';
@@ -613,9 +613,8 @@ describe('locationChannelManager', () => {
     expect(watchers.filter((w) => !w.removed)).toHaveLength(1);
   });
 
-  it('stops broadcasting once the reconnect attempts are spent', async () => {
+  it('recovers broadcasting when the connection comes back', async () => {
     const broadcastingChanges: boolean[] = [];
-    const interruptions: string[] = [];
     const states: string[] = [];
     locationChannelManager.setHandlers({
       onBroadcastingChange: (enabled) => broadcastingChanges.push(enabled),
@@ -624,31 +623,31 @@ describe('locationChannelManager', () => {
       onFriendJourney() {},
       onFriendRemoved() {},
       onConnectionChange: (state) => states.push(state),
-      onBroadcastInterrupted: (reason) => interruptions.push(reason),
+      onBroadcastInterrupted() {},
       onLocationNotice() {},
     });
 
     await locationChannelManager.joinOwn(USER_ID);
-    await ownChannel().emit('SUBSCRIBED');
+    const channel = ownChannel();
+    await channel.emit('SUBSCRIBED');
     await locationChannelManager.setBroadcasting(true);
 
     vi.useFakeTimers();
-    // Each failure schedules the next attempt; each attempt rebuilds the
-    // channel, which fails again. Three rungs, then it gives up.
-    for (let i = 0; i < RECONNECT_ATTEMPTS + 1; i++) {
-      const channel = ownChannel();
-      channel.state = 'closed';
-      await channel.emit('CHANNEL_ERROR');
-      await vi.advanceTimersByTimeAsync(30_000);
-    }
+    channel.state = 'closed';
+    await channel.emit('CHANNEL_ERROR');
+    // Long enough to be well past the quick rungs and into the steady
+    // interval, i.e. a real tunnel rather than a blip.
+    await vi.advanceTimersByTimeAsync(90_000);
+    expect(states.at(-1)).toBe('reconnecting');
+
+    // Signal returns. The rejoined channel re-announces the user as
+    // broadcasting, because the flag survived the whole outage.
+    await ownChannel().emit('SUBSCRIBED');
     vi.useRealTimers();
 
-    // Only now does the button go dark -- and it says why, rather than leaving
-    // the user to notice the colour changed.
-    expect(states.at(-1)).toBe('error');
-    expect(broadcastingChanges.at(-1)).toBe(false);
-    expect(watchers.every((w) => w.removed)).toBe(true);
-    expect(interruptions.at(-1)).toMatch(/connection/i);
+    expect(states.at(-1)).toBe('connected');
+    expect(broadcastingChanges.at(-1)).toBe(true);
+    expect(watchers.filter((w) => !w.removed)).toHaveLength(1);
   });
 
   it('can still start broadcasting after a transient close', async () => {
@@ -720,7 +719,7 @@ describe('locationChannelManager', () => {
     expect(watchers.filter((w) => !w.removed)).toHaveLength(1);
   });
 
-  it('keeps retrying past the limit while a journey holds the process open', async () => {
+  it('never gives up on the connection, however long the outage', async () => {
     const broadcastingChanges: boolean[] = [];
     const states: string[] = [];
     locationChannelManager.setHandlers({
@@ -737,12 +736,11 @@ describe('locationChannelManager', () => {
     await locationChannelManager.joinOwn(USER_ID);
     await ownChannel().emit('SUBSCRIBED');
     await locationChannelManager.setBroadcasting(true);
-    // What a tracked journey sets, and the only thing this layer knows about it.
-    locationChannelManager.setBackgroundAllowed(true);
 
     vi.useFakeTimers();
-    // Well past where the bounded ladder would have given up.
-    for (let i = 0; i < RECONNECT_ATTEMPTS + 4; i++) {
+    // Ten failed attempts -- far past anything a bounded ladder would have
+    // survived, and roughly a long tunnel's worth of outage.
+    for (let i = 0; i < 10; i++) {
       const channel = ownChannel();
       channel.state = 'closed';
       await channel.emit('CHANNEL_ERROR');
@@ -750,14 +748,13 @@ describe('locationChannelManager', () => {
     }
     vi.useRealTimers();
 
-    // Half an hour underground must not end with sharing switched off: the
-    // notification is on screen the whole time saying it is on, and the user
-    // asked to be followed for the length of the trip.
+    // Sharing is still on and still being retried. The banner says the
+    // connection is down, so nothing is being hidden -- and the moment signal
+    // returns this recovers on its own rather than needing the user to notice
+    // a dark button and switch it back on.
     expect(states.at(-1)).toBe('reconnecting');
     expect(broadcastingChanges.at(-1)).toBe(true);
     expect(watchers.filter((w) => !w.removed)).toHaveLength(1);
-
-    locationChannelManager.setBackgroundAllowed(false);
   });
 
   it('treats CLOSED as reconnecting rather than a hard error', async () => {
