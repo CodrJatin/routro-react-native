@@ -16,6 +16,7 @@ import { logFixAccuracy, watchOptions } from '../location/watchOptions';
 import { locationChannelManager } from '../realtime/locationChannel';
 import type { RouteClock } from '../route/routeClock';
 import { getRouteProgress, type RouteProgress } from '../route/routeProgress';
+import { flipSavedJourneyAfterArrival } from '../route/savedJourneysStore';
 import { ensureAlertChannel, presentAlert } from './alertNotifications';
 import { journeyAlertFor } from './alerts';
 import { startFriendAlerts, stopFriendAlerts } from './friendAlerts';
@@ -373,6 +374,12 @@ async function refresh(): Promise<void> {
     if (arrivedAt === null) {
       arrivedAt = Date.now();
     } else if (Date.now() - arrivedAt >= ARRIVAL_LINGER_MS) {
+      // Before ending it, which clears the session this reads. Deliberately
+      // here rather than inside `endJourney`: that also runs for a journey
+      // stopped halfway, one whose route vanished under a recompiled graph,
+      // and one whose service died -- none of which mean the user arrived
+      // anywhere, and none of which should offer them the trip home.
+      await flipSavedJourneyForArrival();
       await endJourney(null);
     }
   } else {
@@ -430,6 +437,19 @@ async function maybeAlert(progress: RouteProgress | null): Promise<void> {
   if (!isAlertKindEnabled(alert.kind)) return;
 
   await presentAlert(alert);
+}
+
+/** Offers the trip home on the card the trip out was planned from. Failures
+ * are swallowed on purpose: a saved-list write that didn't land must not stop
+ * the journey it was triggered by from ending. */
+async function flipSavedJourneyForArrival(): Promise<void> {
+  const session = useJourneyStore.getState().session;
+  if (!session) return;
+  try {
+    await flipSavedJourneyAfterArrival(session.originId, session.destinationId);
+  } catch {
+    // Best-effort; the card simply stays pointing the way it did.
+  }
 }
 
 function hasArrived(progress: RouteProgress | null): boolean {

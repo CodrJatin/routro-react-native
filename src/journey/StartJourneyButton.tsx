@@ -1,13 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { AnimatedPressable } from '../components/AnimatedPressable';
 import { isJourneyServiceAvailable } from '../../modules/journey-service';
 import type { RouteMode, StationId } from '../engine/types';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../theme/tokens';
-import { startJourney, stopJourney } from './journeyController';
+import { stopJourney } from './journeyController';
 import { useJourneyStore } from './journeyStore';
+import { confirmAndStartJourney } from './startJourneyFlow';
 
 const ACTION_HEIGHT = 44;
 
@@ -46,7 +47,6 @@ export function StartJourneyButton({
   );
 
   const session = useJourneyStore((state) => state.session);
-  const hasSeenIntro = useJourneyStore((state) => state.hasSeenIntro);
   const [isBusy, setIsBusy] = useState(false);
 
   // Tracking *this* route, as opposed to a different one started earlier.
@@ -56,44 +56,11 @@ export function StartJourneyButton({
 
   if (!isJourneyServiceAvailable) return null;
 
-  async function begin() {
+  async function handleStart() {
     setIsBusy(true);
-    const result = await startJourney(originId, destinationId, mode);
+    const outcome = await confirmAndStartJourney(originId, destinationId, mode);
     setIsBusy(false);
-    if (!result.ok) {
-      Alert.alert("Couldn't start the journey", result.reason);
-      return;
-    }
-    onStarted?.();
-  }
-
-  function handleStart() {
-    if (hasSeenIntro) {
-      void begin();
-      return;
-    }
-    // Shown once. This changes what the app does while the user isn't looking
-    // at it, which is exactly the kind of change that should be stated plainly
-    // before it happens rather than discovered from a notification later.
-    Alert.alert(
-      'Start this journey?',
-      'Routro will show a notification with your progress and tell you when to get off — ' +
-        'including while the app is closed and your phone is locked.\n\n' +
-        'If you are sharing your location, friends will keep seeing you move for the whole ' +
-        'journey — including where you are headed and when you reach each stop. You can turn ' +
-        'that off in Settings.\n\n' +
-        'Stop any time from the notification, or by swiping the app away.',
-      [
-        { text: 'Not now', style: 'cancel' },
-        {
-          text: 'Start',
-          onPress: () => {
-            useJourneyStore.getState().markIntroSeen();
-            void begin();
-          },
-        },
-      ],
-    );
+    if (outcome === 'started') onStarted?.();
   }
 
   async function handleStop() {

@@ -1,21 +1,24 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { findRoute, getCompiledGraph, getStation } from '../../src/engine/graph';
+import { findNearestStation } from '../../src/friends/nearestStation';
 import { useMeetMarkers } from '../../src/friends/useMeet';
 import { isJourneyServiceAvailable } from '../../modules/journey-service';
 import { useIsJourneyActive } from '../../src/journey/journeyStore';
 import { LiveJourneySection } from '../../src/journey/LiveJourneySection';
 import { StartJourneyButton } from '../../src/journey/StartJourneyButton';
+import { confirmAndStartJourney } from '../../src/journey/startJourneyFlow';
 import { useSelfPositionStore } from '../../src/location/selfPosition';
 import { useSeedSelfPosition } from '../../src/location/useSeedSelfPosition';
 import type { CompiledStation, RouteMode, RouteResult } from '../../src/engine/types';
 import { useActiveRouteStore } from '../../src/route/activeRouteStore';
 import { ItineraryList } from '../../src/route/ItineraryList';
 import { RouteModeToggle } from '../../src/route/RouteModeToggle';
+import { AUTOFILL_RADIUS_METERS, shouldAutofillOrigin } from '../../src/route/originAutofill';
 import { getRouteProgress } from '../../src/route/routeProgress';
 import { useRouteClock } from '../../src/route/useRouteClock';
 import { RouteSummaryCard } from '../../src/route/RouteSummaryCard';
@@ -74,6 +77,70 @@ export default function RouteScreen() {
   const selfPosition = useSelfPositionStore((state) => state.position);
   const progress = useMemo(() => getRouteProgress(route, selfPosition), [route, selfPosition]);
 
+  // Whether the station in the origin field was put there by the app. Drives
+  // the "NEAREST" tag, and is dropped the moment the user touches the field --
+  // once they have confirmed or replaced it, it is their choice like any other.
+  const [isOriginAutofilled, setIsOriginAutofilled] = useState(false);
+  const hasAutofilledRef = useRef(false);
+  const userClearedOriginRef = useRef(false);
+  const [isTabFocused, setIsTabFocused] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      setIsTabFocused(true);
+      return () => {
+        setIsTabFocused(false);
+        // Both reset on the way out: leaving the tab and coming back is the
+        // gesture that means "I'm planning something else now", and it is what
+        // earns the app another guess after the user has refused one.
+        hasAutofilledRef.current = false;
+        userClearedOriginRef.current = false;
+      };
+    }, []),
+  );
+
+  // Deliberately keyed on the position as well as on focus. The screen is
+  // usually focused before the first fix lands -- filling only at the moment
+  // of focus would mean the guess almost never happened on a cold start.
+  useEffect(() => {
+    if (!isTabFocused) return;
+    // The cheap guards first, with a null distance standing in for "haven't
+    // looked yet". Every one of them is false far more often than it is true,
+    // and this effect runs on every fix -- searching for the nearest station
+    // only to throw the answer away would be a grid query per GPS tick for the
+    // whole time the tab is open.
+    if (
+      !shouldAutofillOrigin({
+        hasOrigin: origin !== null,
+        hasFilledThisVisit: hasAutofilledRef.current,
+        userClearedThisVisit: userClearedOriginRef.current,
+        nearestDistanceMeters: selfPosition ? 0 : null,
+      })
+    ) {
+      return;
+    }
+    const nearest = selfPosition ? findNearestStation(selfPosition.lat, selfPosition.lon) : null;
+    if (!nearest || nearest.distanceMeters > AUTOFILL_RADIUS_METERS) return;
+    const station = getStation(nearest.stationId);
+    if (!station) return;
+    // Latched before the state update, not after: this effect re-runs on the
+    // very next fix, and `origin` will not have committed yet.
+    hasAutofilledRef.current = true;
+    setOrigin(station);
+    setIsOriginAutofilled(true);
+  }, [isTabFocused, selfPosition, origin]);
+
+  function handleSelectOrigin(station: CompiledStation) {
+    setOrigin(station);
+    setIsOriginAutofilled(false);
+  }
+
+  function handleClearOrigin() {
+    setOrigin(null);
+    setIsOriginAutofilled(false);
+    userClearedOriginRef.current = true;
+  }
+
   // Arrival times are measured from where the user actually is whenever
   // progress resolves, and from "leaving now" otherwise -- so a journey
   // already half done stops quoting the times you'd have hit by starting it
@@ -109,11 +176,19 @@ export default function RouteScreen() {
   function handleSwap() {
     setOrigin(destination);
     setDestination(origin);
+    // The guess has moved to the other field, where the tag would be a lie.
+    setIsOriginAutofilled(false);
+    // A swap that empties the origin is the user putting the app's guess to
+    // work, not rejecting it -- but refilling the field they just vacated
+    // would immediately undo the swap they asked for.
+    if (!destination) userClearedOriginRef.current = true;
   }
 
   function handleClearAll() {
     setOrigin(null);
     setDestination(null);
+    setIsOriginAutofilled(false);
+    userClearedOriginRef.current = true;
   }
 
   function handleGoToMap() {
@@ -139,6 +214,7 @@ export default function RouteScreen() {
   ) {
     setOrigin(liveOrigin);
     setDestination(liveDestination);
+    setIsOriginAutofilled(false);
     // The mode too, or the itinerary that comes back could be a different path
     // from the one actually being followed in the background.
     setMode(liveMode);
@@ -152,6 +228,31 @@ export default function RouteScreen() {
     if (!savedOrigin || !savedDestination) return;
     setOrigin(savedOrigin);
     setDestination(savedDestination);
+    setIsOriginAutofilled(false);
+  }
+
+  /**
+   * Starts a saved journey without a trip through the planner.
+   *
+   * The fields are filled anyway, and first: the map draws whatever the
+   * planner published, so leaving them empty would start a journey and then
+   * send the user to a map with no route on it. `setActiveRoute` bumps the fit
+   * token itself, so framing the camera comes free with that.
+   *
+   * Saved journeys carry no mode -- they are a pair of stations, and `pairKey`
+   * is the whole identity. 'fastest' matches what the card has been quoting a
+   * time and fare for all along.
+   */
+  async function handleStartSaved(journey: SavedJourney) {
+    handleOpenSaved(journey);
+    const outcome = await confirmAndStartJourney(journey.originId, journey.destinationId, 'fastest');
+    if (outcome !== 'started') return;
+    // Read off the store rather than reusing `handleGoToMap`, which closes over
+    // the `origin`/`destination` state this function set a moment ago and so
+    // would still see the values from before the tap -- null, on the common
+    // path of starting a saved journey from an empty planner.
+    useActiveRouteStore.getState().requestFit();
+    router.navigate('/(tabs)');
   }
 
   return (
@@ -184,10 +285,11 @@ export default function RouteScreen() {
               label="From"
               placeholder="Origin station"
               selectedStation={origin}
-              onSelect={setOrigin}
-              onClear={() => setOrigin(null)}
+              onSelect={handleSelectOrigin}
+              onClear={handleClearOrigin}
               marker="origin"
               lineColor={railColor}
+              hint={isOriginAutofilled ? 'NEAREST' : null}
             />
             {/* Starts clear of the rail, so the divider separates the two
                 fields without cutting the line running between them. */}
@@ -290,6 +392,7 @@ export default function RouteScreen() {
                 journeys={savedJourneys}
                 lines={lines}
                 onOpen={handleOpenSaved}
+                onStart={handleStartSaved}
                 onRemove={removeSavedJourney}
               />
             ) : isJourneyActive ? null : (

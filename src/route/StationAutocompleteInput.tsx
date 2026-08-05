@@ -46,6 +46,11 @@ interface Props {
   /** Colour of the rail joining the two fields. The caller owns it because it
    * reflects the pair -- a journey with both ends chosen draws a live line. */
   lineColor: string;
+  /** A short tag beside the selected station, for when the field was filled by
+   * the app rather than by the user. Without it an auto-filled origin is
+   * indistinguishable from one they picked, which is how someone ends up
+   * travelling from a station they never chose. */
+  hint?: string | null;
 }
 
 export function StationAutocompleteInput({
@@ -56,6 +61,7 @@ export function StationAutocompleteInput({
   onClear,
   marker,
   lineColor,
+  hint,
 }: Props) {
   const { colors, radius, typography } = useTheme();
   const shared = useSharedStyles();
@@ -147,11 +153,20 @@ export function StationAutocompleteInput({
               style={({ pressed }) => [styles.selectedRow, pressed && styles.selectedRowPressed]}
               onPress={handleEditSelection}
               accessibilityRole="button"
-              accessibilityLabel={`${selectedStation.name}, tap to change ${label.toLowerCase()} station`}
+              accessibilityLabel={
+                hint
+                  ? `${selectedStation.name}, ${hint}, tap to change ${label.toLowerCase()} station`
+                  : `${selectedStation.name}, tap to change ${label.toLowerCase()} station`
+              }
             >
               <Text style={styles.selectedText} numberOfLines={1}>
                 {selectedStation.name}
               </Text>
+              {hint && (
+                <Text style={styles.hintTag} numberOfLines={1}>
+                  {hint}
+                </Text>
+              )}
               <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
             </Pressable>
           ) : (
@@ -324,6 +339,21 @@ function createStyles(
       fontWeight: '600',
       flex: 1,
       marginRight: 8,
+      includeFontPadding: false,
+    },
+    /** Outlined rather than filled, and in the secondary colour: this is a note
+     * about where the name came from, not a status worth spending a colour on.
+     * `flexShrink: 0` so a long station name truncates instead of squeezing the
+     * tag into an ellipsis. */
+    hintTag: {
+      ...typography.dataSm,
+      color: colors.textSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radiusNone,
+      paddingHorizontal: 5,
+      marginRight: 8,
+      flexShrink: 0,
       includeFontPadding: false,
     },
     dropdown: {

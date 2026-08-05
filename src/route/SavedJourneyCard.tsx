@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { isJourneyServiceAvailable } from '../../modules/journey-service';
 import { findRoute } from '../engine/graph';
 import type { RawLines } from '../engine/types';
 import { AnimatedPressable } from '../components/AnimatedPressable';
+import { useJourneyStore } from '../journey/journeyStore';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../theme/tokens';
 import type { SavedJourney } from './savedJourneysStore';
@@ -15,15 +17,22 @@ export function SavedJourneyCard({
   journey,
   lines,
   onOpen,
+  onStart,
   onRemove,
 }: {
   journey: SavedJourney;
   lines: RawLines;
   onOpen: (journey: SavedJourney) => void;
+  /** Begins this journey outright, rather than loading it into the planner for
+   * the user to start from there. The card keeps both: tapping it still opens
+   * the route to look at, which is what you want for a trip you haven't
+   * decided on yet. */
+  onStart: (journey: SavedJourney) => Promise<void>;
   onRemove: (id: string) => void;
 }) {
   const { colors, radius, typography } = useTheme();
   const styles = useMemo(() => createStyles(colors, radius, typography), [colors, radius, typography]);
+  const [isStarting, setIsStarting] = useState(false);
 
   // Recomputed rather than snapshotted at save time, so a saved journey always
   // reflects the current graph instead of showing stale times/fares.
@@ -31,6 +40,27 @@ export function SavedJourneyCard({
     () => findRoute(journey.originId, journey.destinationId, 'fastest'),
     [journey.originId, journey.destinationId],
   );
+
+  // Hidden while this exact trip is the one being followed -- the live journey
+  // card above already owns it, and a second "Start" for a journey already
+  // running is an offer with nothing behind it. The reverse direction keeps
+  // its button: that is a different trip.
+  const isFollowingThis = useJourneyStore(
+    (state) =>
+      state.session?.originId === journey.originId &&
+      state.session?.destinationId === journey.destinationId,
+  );
+  const canStart = isJourneyServiceAvailable && !!route && !isFollowingThis;
+
+  async function handleStart() {
+    if (isStarting) return;
+    setIsStarting(true);
+    try {
+      await onStart(journey);
+    } finally {
+      setIsStarting(false);
+    }
+  }
 
   const swatchColors = route
     ? route.legs.slice(0, MAX_SWATCHES).map((leg) => lines[leg.line]?.color ?? colors.outline)
@@ -84,6 +114,29 @@ export function SavedJourneyCard({
         <Text style={styles.metaText} numberOfLines={1}>
           {route ? formatOverview(route.totalTimeSeconds, route.fareRupees, route.legs.length - 1) : 'ROUTE UNAVAILABLE'}
         </Text>
+
+        {/* Down here rather than beside the remove button at the top: the two
+            would be a primary action and a destructive one a thumb's width
+            apart, on a card people tap in a moving train. */}
+        {canStart && (
+          <AnimatedPressable
+            style={styles.startButton}
+            onPress={handleStart}
+            disabled={isStarting}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel={`Start journey from ${journey.originName} to ${journey.destinationName}`}
+          >
+            {isStarting ? (
+              <ActivityIndicator size="small" color={colors.onPrimary} />
+            ) : (
+              <>
+                <Ionicons name="navigate" size={12} color={colors.onPrimary} />
+                <Text style={styles.startText}>START</Text>
+              </>
+            )}
+          </AnimatedPressable>
+        )}
       </View>
     </AnimatedPressable>
   );
@@ -187,10 +240,33 @@ function createStyles(
       height: 8,
       borderRadius: radius.none,
     },
+    // flex rather than flexShrink, so the overview takes the row's free width
+    // and pins the start button to the right edge instead of letting it float
+    // in beside a short summary.
     metaText: {
       ...typography.dataSm,
       color: colors.textSecondary,
-      flexShrink: 1,
+      flex: 1,
+      minWidth: 0,
+    },
+    startButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 5,
+      // Enough to hold the spinner without the row changing height when the
+      // label swaps out for it mid-press.
+      minWidth: 66,
+      height: 26,
+      paddingHorizontal: 10,
+      borderRadius: radius.none,
+      backgroundColor: colors.accent,
+      flexShrink: 0,
+    },
+    startText: {
+      ...typography.dataSm,
+      color: colors.onPrimary,
+      fontWeight: '700',
     },
   });
 }

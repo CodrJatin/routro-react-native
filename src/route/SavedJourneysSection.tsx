@@ -12,11 +12,13 @@ export function SavedJourneysSection({
   journeys,
   lines,
   onOpen,
+  onStart,
   onRemove,
 }: {
   journeys: SavedJourney[];
   lines: RawLines;
   onOpen: (journey: SavedJourney) => void;
+  onStart: (journey: SavedJourney) => Promise<void>;
   onRemove: (id: string) => void;
 }) {
   const { colors, typography } = useTheme();
@@ -42,7 +44,13 @@ export function SavedJourneysSection({
             exiting={FadeOut.duration(140)}
             layout={LinearTransition.duration(220)}
           >
-            <SavedJourneyCard journey={journey} lines={lines} onOpen={onOpen} onRemove={onRemove} />
+            <SavedJourneyCard
+              journey={journey}
+              lines={lines}
+              onOpen={onOpen}
+              onStart={onStart}
+              onRemove={onRemove}
+            />
           </Animated.View>
         ))}
       </View>
