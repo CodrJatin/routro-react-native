@@ -2,13 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
   type LayoutChangeEvent,
-  type ViewStyle,
 } from 'react-native';
 import Animated, {
   Easing,
@@ -22,6 +19,7 @@ import Animated, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { RoutroMark } from '../../src/components/RoutroMark';
+import { SchematicBackdrop } from '../../src/components/SchematicBackdrop';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import type { ColorTokens } from '../../src/theme/tokens';
 import { AnimatedPressable } from '../../src/components/AnimatedPressable';
@@ -89,65 +87,6 @@ export default function SignInScreen() {
   );
 }
 
-/** Two trunk lines, two cross lines and a 45-degree connector, drawn at the
- * threshold of visibility: the geometry of a transit diagram used as page
- * texture rather than as an illustration. Sits outside the safe area so it
- * runs edge to edge. */
-function SchematicBackdrop({ colors }: { colors: ColorTokens }) {
-  const { width, height } = useWindowDimensions();
-
-  const x1 = Math.round(width * 0.24);
-  const x2 = Math.round(width * 0.74);
-  const y1 = Math.round(height * 0.14);
-  const y2 = Math.round(height * 0.62);
-  const diagonal = Math.round(Math.hypot(width, height));
-
-  const line: ViewStyle = { position: 'absolute', backgroundColor: colors.outlineVariant };
-
-  return (
-    <View style={backdropStyles.container} pointerEvents="none">
-      <View style={[line, { left: -24, right: -24, top: y1, height: 1 }]} />
-      <View style={[line, { left: -24, right: -24, top: y2, height: 1 }]} />
-      <View style={[line, { top: -24, bottom: -24, left: x1, width: 1 }]} />
-      <View style={[line, { top: -24, bottom: -24, left: x2, width: 1 }]} />
-      <View
-        style={[
-          line,
-          {
-            width: diagonal,
-            height: 1,
-            left: Math.round((width - diagonal) / 2),
-            top: Math.round(height * 0.4),
-            transform: [{ rotate: '-52deg' }],
-          },
-        ]}
-      />
-
-      {/* Interchange boxes sit exactly on the crossings, filled with the canvas
-       * colour so the lines appear to pass behind them. */}
-      {[
-        [x1, y1],
-        [x2, y1],
-        [x1, y2],
-        [x2, y2],
-      ].map(([x, y]) => (
-        <View
-          key={`${x}-${y}`}
-          style={[
-            backdropStyles.interchange,
-            {
-              left: x - INTERCHANGE / 2,
-              top: y - INTERCHANGE / 2,
-              borderColor: colors.outline,
-              backgroundColor: colors.canvas,
-            },
-          ]}
-        />
-      ))}
-    </View>
-  );
-}
-
 /** Terminus-to-terminus shuttle: the car runs back and forth between the end
  * stops, so the screen has a pulse before you touch it. Replaces the static
  * three-station mark that used to stand in for a logo. */
@@ -185,25 +124,7 @@ function ShuttleLine({ colors }: { colors: ColorTokens }) {
   );
 }
 
-const INTERCHANGE = 10;
 const CAR_WIDTH = 26;
-
-const backdropStyles = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    opacity: 0.6,
-  },
-  interchange: {
-    position: 'absolute',
-    width: INTERCHANGE,
-    height: INTERCHANGE,
-    borderWidth: 1,
-  },
-});
 
 const shuttleStyles = StyleSheet.create({
   track: {
