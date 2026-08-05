@@ -294,6 +294,11 @@ class LocationChannelManager {
   private wantedFriendIds = new Set<string>();
   private locationSubscription: Location.LocationSubscription | null = null;
   private isBroadcasting = false;
+
+  /** Ghost Mode. Not persisted anywhere and never inferred -- the store in
+   * `ghostModeStore` is the source of truth and `LocationProvider` asserts it
+   * onto this class. See `setGhost`. */
+  private isGhost = false;
   /** Bumped on every joinOwn/teardown call so a stale async call that
    * finishes after a newer one started can detect it's obsolete and bail
    * out instead of clobbering state a subsequent call already set up. */
@@ -332,6 +337,15 @@ class LocationChannelManager {
   ): Promise<unknown> {
     const channel = options.channel ?? this.ownChannel;
     if (!channel) return Promise.resolve();
+
+    // Ghost Mode: joined to the channel, announcing nothing on it. Guarded
+    // here rather than at the call sites because presence is re-tracked from
+    // most of this class -- the subscribe callback, every reconnect, a journey
+    // update, the resume path -- and a single one of those missed would put
+    // the user back on their friends' maps without them touching anything.
+    // This is also what makes ghost survive a socket drop, which is the case
+    // an untrack alone would silently lose.
+    if (this.isGhost) return Promise.resolve();
 
     const status: PresenceStatus =
       options.status ?? (this.isBroadcasting ? 'broadcasting' : 'online');
@@ -777,6 +791,13 @@ class LocationChannelManager {
         await this.trackPresence();
       }
       return { ok: true };
+    }
+
+    // Belt and braces. The provider already declines to ask while ghost is on,
+    // but this is the class that owes the guarantee, and a start that slipped
+    // through would put a live watcher behind a UI saying the user is hidden.
+    if (this.isGhost) {
+      return this.refuse('ghost', "Ghost Mode is on. Turn it off to share your location.");
     }
 
     if (!this.ownChannel) {
@@ -1245,6 +1266,40 @@ class LocationChannelManager {
    */
   setBackgroundAllowed(allowed: boolean): void {
     this.backgroundAllowed = allowed;
+  }
+
+  /**
+   * Ghost Mode: stop transmitting, and stop existing as far as friends can
+   * tell, until the user says otherwise.
+   *
+   * Deliberately not built on `pauseForBackground`, which looks like the same
+   * thing and is not. That one is temporary, undone automatically by the next
+   * foreground, and steps aside entirely while a journey holds the process
+   * open. This is a decision the user made, so it has to outlive every one of
+   * those paths -- which is why the enforcement is a flag on `trackPresence`
+   * and not the untrack below. The untrack only withdraws what was already
+   * announced; the flag is what stops it coming back.
+   *
+   * Only half of ghost lives here. Cutting off what arrives *from* friends is
+   * the caller's job, since the friend list belongs to `LocationProvider`.
+   */
+  async setGhost(enabled: boolean): Promise<void> {
+    if (this.isGhost === enabled) return;
+    this.isGhost = enabled;
+
+    if (enabled) {
+      // Set the flag first, so the courtesy re-track inside `setBroadcasting`
+      // is already a no-op by the time it runs and cannot re-announce the user
+      // as 'online' a moment before the untrack below.
+      await this.setBroadcasting(false);
+      await this.ownChannel?.untrack();
+      return;
+    }
+
+    // Back to merely online. Whether to start transmitting again is not this
+    // method's call -- the provider re-asserts sharing on the way out, under
+    // the same rules that started it in the first place.
+    await this.trackPresence();
   }
 
   /**

@@ -185,6 +185,10 @@ function position(lat: number, lon: number) {
 describe('locationChannelManager', () => {
   beforeEach(async () => {
     await locationChannelManager.teardown();
+    // Ghost Mode deliberately outlives a teardown -- it belongs to the device,
+    // not to the session -- so it is process-global state like the fakes below
+    // and has to be put back by hand between tests.
+    await locationChannelManager.setGhost(false);
     channels.length = 0;
     watchers.length = 0;
     removedChannels.length = 0;
@@ -419,6 +423,57 @@ describe('locationChannelManager', () => {
     await locationChannelManager.joinOwn(USER_ID);
     const channel = ownChannel();
     await channel.emit('SUBSCRIBED');
+
+    expect(channel.tracked.at(-1)).toEqual({ status: 'online' });
+  });
+
+  it('stops transmitting when Ghost Mode goes on', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+    await locationChannelManager.setBroadcasting(true);
+
+    await locationChannelManager.setGhost(true);
+
+    expect(watchers.filter((w) => !w.removed)).toHaveLength(0);
+  });
+
+  it('announces nothing across a reconnect while Ghost Mode is on', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    const channel = ownChannel();
+    await channel.emit('SUBSCRIBED');
+    await locationChannelManager.setBroadcasting(true);
+    await locationChannelManager.setGhost(true);
+
+    const trackedBeforeBlip = channel.tracked.length;
+    // The subscribe callback re-tracks presence from manager state, so a
+    // network blip is exactly how someone who chose to be invisible reappears
+    // on their friends' maps without having touched anything. Withdrawing
+    // presence once is not enough; it has to stay withdrawn.
+    await channel.emit('SUBSCRIBED');
+
+    expect(channel.tracked).toHaveLength(trackedBeforeBlip);
+  });
+
+  it('refuses to start broadcasting while Ghost Mode is on', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    await ownChannel().emit('SUBSCRIBED');
+    await locationChannelManager.setGhost(true);
+
+    const result = await locationChannelManager.setBroadcasting(true);
+
+    // A watcher behind a UI that says the user is hidden is the one outcome
+    // this mode cannot survive having.
+    expect(result.ok).toBe(false);
+    expect(watchers.filter((w) => !w.removed)).toHaveLength(0);
+  });
+
+  it('becomes visible again when Ghost Mode is turned off', async () => {
+    await locationChannelManager.joinOwn(USER_ID);
+    const channel = ownChannel();
+    await channel.emit('SUBSCRIBED');
+    await locationChannelManager.setGhost(true);
+
+    await locationChannelManager.setGhost(false);
 
     expect(channel.tracked.at(-1)).toEqual({ status: 'online' });
   });

@@ -33,6 +33,7 @@ import { otherParty } from '../../src/friends/useFriendships';
 import { useSelfPositionStore } from '../../src/location/selfPosition';
 import { useSeedSelfPosition } from '../../src/location/useSeedSelfPosition';
 import { useFriendStatuses, useLocationStore, type FriendLocation, type FriendStatus } from '../../src/realtime/locationStore';
+import { useGhostModeStore } from '../../src/sharing/ghostModeStore';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import { useSharedStyles } from '../../src/theme/sharedStyles';
 import type { ColorTokens, TypeStyle } from '../../src/theme/tokens';
@@ -111,6 +112,8 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
 
   const friendLocations = useLocationStore((state) => state.friendLocations);
   const statuses = useFriendStatuses();
+  const isGhost = useGhostModeStore((state) => state.isGhost);
+  const setGhost = useGhostModeStore((state) => state.setGhost);
 
   // Journeys friends are advertising on presence, and the viewer's own route
   // to measure them against. Both resolved once here rather than per card, so
@@ -214,6 +217,26 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={refetch} />}
       >
         <Text style={styles.title}>Friends</Text>
+
+        {/* Without this the list is just everyone marked Inactive, which is a
+            lie the user told themselves and then forgot -- and "all my friends
+            are offline" is exactly the wrong conclusion to draw from it. Sits
+            above the list rather than replacing it: the friendships are still
+            real and still manageable while hidden, it is only their live status
+            that is unavailable. */}
+        {isGhost && (
+          <Pressable
+            style={styles.ghostNotice}
+            onPress={() => setGhost(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Turn off Ghost Mode"
+          >
+            <Ionicons name="eye-off" size={15} color={colors.textPrimary} />
+            <Text style={styles.ghostNoticeText}>
+              Ghost Mode is on, so nobody's status is showing. Tap to turn it off.
+            </Text>
+          </Pressable>
+        )}
 
         <View style={styles.addRow}>
           <View style={styles.addInputWrapper}>
@@ -832,6 +855,22 @@ function createStyles(
       ...typography.headlineLg,
       fontSize: 26,
       color: colors.textPrimary,
+    },
+    ghostNotice: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 11,
+      paddingHorizontal: 13,
+      borderWidth: 1,
+      borderColor: colors.outline,
+      backgroundColor: colors.surface,
+    },
+    ghostNoticeText: {
+      flex: 1,
+      fontSize: 12,
+      lineHeight: 17,
+      color: colors.textSecondary,
     },
     addRow: {
       flexDirection: 'row',

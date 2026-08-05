@@ -20,7 +20,7 @@ import { SegmentedToggle } from '../../src/components/SegmentedToggle';
 import { JourneySimulatorPanel } from '../../src/dev/JourneySimulatorPanel';
 // MOCK FRIEND -- temporary dev fixture, delete with src/dev/mockFriend.ts
 import { MockFriendPanel } from '../../src/dev/MockFriendPanel';
-import { JourneySharingSettings } from '../../src/journey/JourneySharingSettings';
+import { GhostModeSettings } from '../../src/sharing/GhostModeSettings';
 import { NotificationSettings } from '../../src/journey/NotificationSettings';
 import { MapSettings } from '../../src/map/MapSettings';
 import { useTheme, type ThemePreference } from '../../src/theme/ThemeProvider';
@@ -220,7 +220,7 @@ export default function SettingsScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Sharing</Text>
-          <JourneySharingSettings />
+          <GhostModeSettings />
         </View>
 
         <View style={styles.section}>

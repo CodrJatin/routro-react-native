@@ -1,32 +1,32 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SquareSwitch } from '../components/SquareSwitch';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens } from '../theme/tokens';
-import { useJourneySharingStore } from './journeySharingPrefs';
+import { useGhostModeStore } from './ghostModeStore';
 
 /**
- * The one control over how much of a journey friends see.
+ * The whole of the Sharing section, now that there is only one decision left
+ * in it.
  *
- * Off does not stop location sharing -- friends still see the live dot, they
- * just stop seeing where it is going. That distinction is the whole reason this
- * switch exists, so the hint says it in as many words rather than leaving the
- * user to infer which of the two they are turning off.
+ * It replaced two switches -- one for location, one for the destination
+ * attached to it -- and the merge was the point rather than a side effect. The
+ * old pair asked the user to reason about a middle state where friends could
+ * watch them cross the city but not learn where they were going, which the
+ * dot already gives away by the third stop. One switch, one sentence, one
+ * thing to remember having done.
  *
- * Shaped like the notification card next to it: a bordered row, not a panel.
+ * The map's own button is the one people will actually use. This exists
+ * because Ghost Mode is app-wide, and a state that outlives the screen you set
+ * it on should be findable somewhere other than that screen.
  */
-export function JourneySharingSettings() {
+export function GhostModeSettings() {
   const { colors, radius } = useTheme();
   const styles = useMemo(() => createStyles(colors, radius.none), [colors, radius]);
 
-  const shareJourney = useJourneySharingStore((state) => state.shareJourney);
-  const setShareJourney = useJourneySharingStore((state) => state.setShareJourney);
-  const hydrate = useJourneySharingStore((state) => state.hydrate);
-
-  useEffect(() => {
-    void hydrate();
-  }, [hydrate]);
+  const isGhost = useGhostModeStore((state) => state.isGhost);
+  const setGhost = useGhostModeStore((state) => state.setGhost);
 
   return (
     <>
@@ -34,29 +34,30 @@ export function JourneySharingSettings() {
         <View style={styles.row}>
           <View style={styles.rowLabel}>
             <Ionicons
-              name={shareJourney ? 'navigate' : 'navigate-outline'}
+              name={isGhost ? 'eye-off' : 'eye-outline'}
               size={16}
               color={colors.textPrimary}
             />
             <View style={styles.rowLabelText}>
-              <Text style={styles.rowTextStrong}>Share where you're going</Text>
+              <Text style={styles.rowTextStrong}>Ghost Mode</Text>
               <Text style={styles.rowHint}>
-                Friends you are sharing your location with can see your destination and route, and
-                when you reach each stop.
+                Nothing goes out and nothing comes in: friends can't see where you are, and you
+                can't see them. To them you look offline.
               </Text>
             </View>
           </View>
           <SquareSwitch
-            value={shareJourney}
-            onValueChange={setShareJourney}
-            accessibilityLabel="Share where you're going"
+            value={isGhost}
+            onValueChange={setGhost}
+            accessibilityLabel="Ghost Mode"
           />
         </View>
       </View>
 
       <Text style={styles.footnote}>
-        Only while you are sharing your location and following a journey. Turning location sharing
-        off hides your destination too.
+        Otherwise Routro shares your location with your friends whenever the app is open, and for
+        the whole of a journey you've started. Ghost Mode switches itself off when you close the
+        app.
       </Text>
     </>
   );

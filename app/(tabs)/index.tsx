@@ -12,12 +12,10 @@ import * as Location from 'expo-location';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   AppState,
   type AppStateStatus,
-  Easing,
   Linking,
   type NativeSyntheticEvent,
   Platform,
@@ -37,6 +35,7 @@ import { useBasemapStore } from '../../src/map/basemapStore';
 import { ConnectionBanner } from '../../src/map/ConnectionBanner';
 import { FriendFocusStack, type ActiveFriend } from '../../src/map/FriendFocusStack';
 import { FriendsLayer } from '../../src/map/FriendsLayer';
+import { GhostModeBanner } from '../../src/map/GhostModeBanner';
 import {
   BASEMAP_ATTRIBUTION,
   DEFAULT_ZOOM,
@@ -63,6 +62,7 @@ import { useActiveRouteStore } from '../../src/route/activeRouteStore';
 import { getRouteProgress } from '../../src/route/routeProgress';
 import { useRouteClock } from '../../src/route/useRouteClock';
 import { useLocationStore } from '../../src/realtime/locationStore';
+import { useGhostModeStore } from '../../src/sharing/ghostModeStore';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import type { ColorTokens } from '../../src/theme/tokens';
 
@@ -126,7 +126,6 @@ export default function MapScreen() {
   );
   const cameraRef = useRef<CameraRef>(null);
   const [selectedStation, setSelectedStation] = useState<CompiledStation | null>(null);
-  const [isPendingBroadcast, setIsPendingBroadcast] = useState(false);
   /** Whose route to draw. One at a time and only on request: several friends'
    * routes at once would fight the user's own highlighted journey for the same
    * tracks and turn the map into a tangle nobody can read. */
@@ -135,6 +134,8 @@ export default function MapScreen() {
   const { isConfigured, session } = useAuth();
   const isBroadcasting = useLocationStore((state) => state.isBroadcasting);
   const broadcastNotice = useLocationStore((state) => state.broadcastNotice);
+  const isGhost = useGhostModeStore((state) => state.isGhost);
+  const setGhost = useGhostModeStore((state) => state.setGhost);
 
   // Something about location the user needs telling -- sharing stopped without
   // them asking (GPS switched off, provider error), or a grant too coarse to
@@ -147,19 +148,23 @@ export default function MapScreen() {
     useLocationStore.getState().setBroadcastNotice(null);
   }, [broadcastNotice]);
 
-  // Drives a smooth crossfade on the button fill instead of an instant snap
-  // when broadcasting toggles on/off. Fading the green layer's *opacity*,
-  // rather than interpolating the background colour, is what lets the button
-  // rest on the same translucent surface as the locate button below it --
-  // interpolating colours would have meant a second opaque layer over it.
+  // Drives a smooth crossfade on the button fill instead of an instant snap.
+  // Fading the marked layer's *opacity*, rather than interpolating the
+  // background colour, is what lets the button rest on the same translucent
+  // surface as the locate button below it -- interpolating colours would have
+  // meant a second opaque layer over it.
+  //
+  // Keyed on Ghost Mode now, not on broadcasting, and the inversion is the
+  // point: sharing is the ordinary state and an ordinary state should not be
+  // lit up. What deserves the ink is the mode that makes you disappear.
   const activeAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(activeAnim, {
-      toValue: isBroadcasting ? 1 : 0,
+      toValue: isGhost ? 1 : 0,
       duration: 220,
       useNativeDriver: true,
     }).start();
-  }, [isBroadcasting, activeAnim]);
+  }, [isGhost, activeAnim]);
 
   const stationsGeoJSON = useMemo(() => buildStationsGeoJSON(), []);
   const router = useRouter();
@@ -494,22 +499,18 @@ export default function MapScreen() {
     );
   }
 
-  async function handleToggleBroadcast() {
-    if (isPendingBroadcast) return;
-    const isStarting = !isBroadcasting;
-    setIsPendingBroadcast(true);
-    try {
-      const result = await locationChannelManager.setBroadcasting(isStarting);
-      // A button that spins and then just doesn't light up tells the user
-      // nothing -- say why it couldn't start. Titled by direction: stopping
-      // can no longer fail, but a fixed "Couldn't start sharing" would be
-      // actively misleading if it ever did.
-      if (!result.ok) {
-        Alert.alert(isStarting ? "Couldn't start sharing" : "Couldn't stop sharing", result.reason);
-      }
-    } finally {
-      setIsPendingBroadcast(false);
-    }
+  /**
+   * Ghost Mode, both directions.
+   *
+   * There is no longer a "start sharing" to fail: sharing is what the app does
+   * once you have a friend, and this button only takes it away. Leaving ghost
+   * hands the decision back to `LocationProvider`, which re-asserts sharing
+   * under the same rules that started it -- so a user whose location permission
+   * has since been revoked comes back to a map that says so, rather than to an
+   * alert raised by a button that was only ever about visibility.
+   */
+  function handleToggleGhost() {
+    setGhost(!isGhost);
   }
 
   function handleFocusFriend(friend: ActiveFriend) {
@@ -686,6 +687,11 @@ export default function MapScreen() {
               from "nobody is sharing right now" -- the map just quietly
               empties. It stays silent for short drops and says nothing about
               attempts; see the component for why. */}
+          {/* Above the connection banner: while Ghost Mode is on it is the
+              explanation for the empty map, and a "reconnecting" notice under
+              it would be answering a question nobody is asking. */}
+          <GhostModeBanner />
+
           <ConnectionBanner />
 
           {/* A friend asking to meet, with thirty seconds on the clock. Here
@@ -700,31 +706,32 @@ export default function MapScreen() {
 
       {isConfigured && session && (
         <View style={[styles.locateButtonWrapper, styles.broadcastButton]} pointerEvents="box-none">
-          {isBroadcasting && <BroadcastPing color={colors.success} />}
           <Pressable
-            disabled={isPendingBroadcast}
             // Pressed state is a fill change, not `opacity`: dimming the whole
             // view lets the elevation shadow show through it, which is the
             // polygon the opaque background above exists to hide.
             style={({ pressed }) => [styles.locateButton, pressed && styles.locateButtonPressed]}
-            onPress={handleToggleBroadcast}
+            onPress={handleToggleGhost}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: isGhost }}
+            accessibilityLabel={isGhost ? 'Turn off Ghost Mode' : 'Turn on Ghost Mode'}
           >
+            {/* Inverted rather than coloured. Ghost Mode is not a warning and
+                not a success, so spending green or amber on it would be
+                claiming something about it that isn't true -- and the loudest
+                thing available that says nothing is simply the page's own ink. */}
             <Animated.View
               pointerEvents="none"
               style={[
                 StyleSheet.absoluteFill,
-                { backgroundColor: colors.success, opacity: activeAnim },
+                { backgroundColor: colors.textPrimary, opacity: activeAnim },
               ]}
             />
-            {isPendingBroadcast ? (
-              <ActivityIndicator color={isBroadcasting ? colors.onSuccess : colors.textPrimary} />
-            ) : (
-              <Ionicons
-                name={isBroadcasting ? 'radio' : 'radio-outline'}
-                size={22}
-                color={isBroadcasting ? colors.onSuccess : colors.textPrimary}
-              />
-            )}
+            <Ionicons
+              name={isGhost ? 'eye-off' : 'eye-outline'}
+              size={22}
+              color={isGhost ? colors.canvas : colors.textPrimary}
+            />
           </Pressable>
         </View>
       )}
@@ -776,51 +783,11 @@ export default function MapScreen() {
   );
 }
 
-/** Expanding ring that fades out on a loop -- reads as "actively transmitting"
- * without dimming the icon the way the old whole-button blink did. */
-function BroadcastPing({ color }: { color: string }) {
-  const progress = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    progress.setValue(0);
-    const loop = Animated.loop(
-      Animated.timing(progress, {
-        toValue: 1,
-        duration: 1600,
-        easing: Easing.out(Easing.ease),
-        useNativeDriver: true,
-      }),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [progress]);
-
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[
-        pingStyles.ring,
-        {
-          borderColor: color,
-          opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }),
-          transform: [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [1, 1.7] }) }],
-        },
-      ]}
-    />
-  );
-}
-
-const pingStyles = StyleSheet.create({
-  ring: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: 24,
-    borderWidth: 2,
-  },
-});
+/* The broadcast ping -- an expanding ring that looped while sharing was on --
+ * was removed when sharing became the default state. A permanent pulse on the
+ * ordinary case is the ambient shouting `ConnectionBanner` argues against at
+ * length, and there is nothing left for it to announce: sharing is no longer an
+ * event, it is the resting state. Ghost Mode is what the button marks now. */
 
 /** Region events fire on settle even when nothing actually moved (a tap that
  * pans by a pixel, a camera stop landing where it already was). Comparing the

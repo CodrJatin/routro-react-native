@@ -20,7 +20,6 @@ import { flipSavedJourneyAfterArrival } from '../route/savedJourneysStore';
 import { ensureAlertChannel, presentAlert } from './alertNotifications';
 import { journeyAlertFor } from './alerts';
 import { startFriendAlerts, stopFriendAlerts } from './friendAlerts';
-import { isJourneySharingEnabled, useJourneySharingStore } from './journeySharingPrefs';
 import { isAlertKindEnabled, useNotificationPrefsStore } from './notificationPrefs';
 import { useJourneyStore, type JourneySession } from './journeyStore';
 import { buildJourneyNotification } from './notificationContent';
@@ -221,9 +220,6 @@ export async function startJourney(
   locationChannelManager.setBackgroundAllowed(true);
   await locationChannelManager.setExternalFixSource(true);
 
-  // Hydrated before publishing, or the first push would use the default rather
-  // than what the user actually chose.
-  await useJourneySharingStore.getState().hydrate();
   await publishSharedJourney();
 
   // Scoped to the journey rather than always-on: a friend two stops away
@@ -288,7 +284,6 @@ export async function initJourneyController(): Promise<void> {
   await ensureAlertChannel();
   locationChannelManager.setBackgroundAllowed(true);
   await locationChannelManager.setExternalFixSource(true);
-  await useJourneySharingStore.getState().hydrate();
   await publishSharedJourney();
   await useNotificationPrefsStore.getState().hydrate();
   startFriendAlerts();
@@ -395,22 +390,27 @@ function currentProgress(): RouteProgress | null {
 
 /**
  * Pushes the current journey (or nothing) to the realtime layer for friends to
- * see, honouring the user's sharing preference.
+ * see.
  *
- * The single place that decision is made. `locationChannel` deliberately has no
- * idea what a journey or a preference is -- it takes a record and relays it, in
- * the same way `setBackgroundAllowed` only tells it that *something* is holding
- * the process open.
+ * There used to be a preference consulted here -- friends could watch you move
+ * without learning where you were going. It went with Ghost Mode, which
+ * subsumes it: the destination is only ever advertised alongside a position
+ * that is already being shared (`trackPresence` gates it on broadcasting), and
+ * anyone who can watch a dot cross the city can read the destination off it by
+ * the third stop. A switch that hid a fact its neighbour gave away was asking
+ * the user to hold a distinction the app could not actually keep.
+ *
+ * `locationChannel` still knows nothing about journeys -- it takes a record and
+ * relays it, the same arrangement as `setBackgroundAllowed`.
  *
  * Idempotent, and called from `refresh` as well as from start/stop, so it
- * doubles as a re-assertion: a preference toggled mid-journey, or a journey
- * that outlived a channel teardown, is corrected on the next tick rather than
- * staying wrong until the journey ends.
+ * doubles as a re-assertion: a journey that outlived a channel teardown is
+ * corrected on the next tick rather than staying wrong until it ends.
  */
 async function publishSharedJourney(): Promise<void> {
   const session = useJourneyStore.getState().session;
   await locationChannelManager.setSharedJourney(
-    session && isJourneySharingEnabled()
+    session
       ? {
           originId: session.originId,
           destinationId: session.destinationId,

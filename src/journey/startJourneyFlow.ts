@@ -44,11 +44,14 @@ function askIntro(): Promise<boolean> {
   return new Promise((resolve) => {
     Alert.alert(
       'Start this journey?',
+      // Trimmed when sharing became the default. The paragraph about friends
+      // seeing you move has moved to onboarding, where it belongs: it is true
+      // of the whole app now, not of this button, and repeating it here made
+      // the one genuinely new fact -- that something keeps running after you
+      // put the phone away -- the middle of a wall of text.
       'Routro will show a notification with your progress and tell you when to get off — ' +
-        'including while the app is closed and your phone is locked.\n\n' +
-        'If you are sharing your location, friends will keep seeing you move for the whole ' +
-        'journey — including where you are headed and when you reach each stop. You can turn ' +
-        'that off in Settings.\n\n' +
+        'including while the app is closed and your phone is locked. Friends keep seeing you ' +
+        'move for the whole journey.\n\n' +
         'Stop any time from the notification, or by swiping the app away.',
       [
         { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },

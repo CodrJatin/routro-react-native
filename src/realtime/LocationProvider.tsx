@@ -11,6 +11,8 @@ import {
 } from '../friends/meetController';
 import { otherParty } from '../friends/useFriendships';
 import { useFriendshipsContext } from '../friends/FriendshipsProvider';
+import { useGhostModeStore } from '../sharing/ghostModeStore';
+import { hasSpentLocationPrompt, markLocationPromptSpent } from '../sharing/locationPromptMemory';
 import { locationChannelManager } from './locationChannel';
 import { meetChannelManager } from './meetChannel';
 import { useLocationStore } from './locationStore';
@@ -35,6 +37,8 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   const { isConfigured, session } = useAuth();
   const userId = session?.user.id;
   const { rows } = useFriendshipsContext();
+  const isGhost = useGhostModeStore((state) => state.isGhost);
+  const connectionState = useLocationStore((state) => state.connectionState);
 
   const acceptedFriendIds = userId
     ? rows
@@ -104,14 +108,75 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [acceptedFriendIdsKey]);
 
+  // Ghost Mode's outbound half: stop transmitting, withdraw presence, and keep
+  // it withdrawn across reconnects. Asserted from here rather than set at the
+  // toggle, so the manager and the store cannot drift apart -- whatever the
+  // store says is what the channel does, including on a fresh sign-in.
+  useEffect(() => {
+    void locationChannelManager.setGhost(isGhost);
+  }, [isGhost]);
+
+  // Ghost Mode's inbound half. Dropping the subscriptions rather than hiding
+  // the pins is the honest version of "you can't see your friends": nothing
+  // arrives, nothing is buffered, and `unsubscribeFromFriend` reports each
+  // departure through `onFriendRemoved`, which clears their last position out
+  // of the store. Leaving those behind would be a map full of friend pins in
+  // the mode whose whole promise is that there are none.
+  //
+  // Meets go with them. A meet is an offer to be somewhere at a time, and one
+  // arriving while the sender cannot see you -- and you cannot answer without
+  // giving yourself away -- is a request neither side can act on.
   useEffect(() => {
     if (!isConfigured || !userId) return;
-    locationChannelManager.syncFriendSubscriptions(acceptedFriendIds);
+    const visibleFriendIds = isGhost ? [] : acceptedFriendIds;
+    locationChannelManager.syncFriendSubscriptions(visibleFriendIds);
     // MOCK FRIEND -- `acceptedFriendIds` is already filtered of the fixture id
     // above, so no meet channel is ever attempted for it.
-    meetChannelManager.syncFriends(acceptedFriendIds);
+    meetChannelManager.syncFriends(visibleFriendIds);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConfigured, userId, acceptedFriendIdsKey]);
+  }, [isConfigured, userId, acceptedFriendIdsKey, isGhost]);
+
+  /**
+   * Sharing starts on its own, without anybody tapping a thing.
+   *
+   * Two conditions guard it. Ghost Mode, obviously. And having at least one
+   * accepted friend: broadcasting to nobody is a GPS watcher and a websocket
+   * spent on an audience of zero, and -- the bigger reason -- it would spend
+   * the one automatic location prompt at the moment it can least be justified,
+   * on a map with nothing to show for saying yes.
+   *
+   * Gated on the connection being up rather than firing on mount, because
+   * `joinOwn` above is not awaited: an attempt on the first render would be
+   * refused as 'no-channel' every cold start. Re-running on later reconnects is
+   * harmless and mildly useful -- `setBroadcasting` returns early when a live
+   * watcher already exists, and re-asserts sharing when one somehow doesn't.
+   */
+  useEffect(() => {
+    if (!isConfigured || !userId) return;
+    if (isGhost || acceptedFriendIds.length === 0) return;
+    if (connectionState !== 'connected') return;
+
+    let isCancelled = false;
+    void (async () => {
+      const isPromptSpent = await hasSpentLocationPrompt();
+      if (isCancelled) return;
+      // Marked before the ask, not after: a dialog the user dismisses without
+      // answering still spent the one we were allowed to open.
+      if (!isPromptSpent) markLocationPromptSpent();
+      const result = await locationChannelManager.setBroadcasting(true, {
+        prompt: !isPromptSpent,
+      });
+      // Deliberately silent. Nobody asked for this, so nobody is owed an alert
+      // when it doesn't happen -- the map's sharing button already shows the
+      // state, and tapping it is the path that explains itself.
+      if (!result.ok) console.warn(`[location] auto-share did not start: ${result.reason}`);
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConfigured, userId, isGhost, acceptedFriendIds.length > 0, connectionState]);
 
   // Mirrored into the location store so background alerts can name a friend.
   // They run with nothing mounted, so reaching back into this list at the
