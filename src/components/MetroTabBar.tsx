@@ -105,7 +105,13 @@ export function MetroTabBar({ state, descriptors, navigation, insets }: BottomTa
               accessibilityLabel={options.tabBarAccessibilityLabel}
               testID={options.tabBarButtonTestID}
             >
-              {options.tabBarIcon?.({ focused: isFocused, color, size: ICON_SIZE })}
+              <View style={styles.iconWrap}>
+                {options.tabBarIcon?.({ focused: isFocused, color, size: ICON_SIZE })}
+                {/* Only ever a dot, never the number itself -- a route that
+                    sets tabBarBadge is just saying "something needs
+                    attention here", not asking for a printed count. */}
+                {!!options.tabBarBadge && <View style={styles.badgeDot} />}
+              </View>
               <Text style={[styles.label, { color }]}>{options.title ?? route.name}</Text>
             </Pressable>
           );
@@ -148,6 +154,20 @@ function createStyles(colors: ColorTokens) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: 3,
+    },
+    iconWrap: {
+      position: 'relative',
+    },
+    badgeDot: {
+      position: 'absolute',
+      top: -2,
+      right: -3,
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: colors.success,
+      borderWidth: 1.5,
+      borderColor: colors.surface,
     },
     label: {
       fontFamily: 'Outfit_600SemiBold',

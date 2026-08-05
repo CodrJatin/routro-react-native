@@ -43,6 +43,11 @@ import { AnimatedTextInput, useFocusAnimation } from '../../src/theme/useFocusAn
  * of typical inter-station spacing, so it doesn't hide legitimate matches. */
 const NEARBY_LINE_MAX_METERS = 1500;
 
+/** Orders each status ahead of the ones "less worth checking on" than it --
+ * used to reorder friends within a section as their status changes, rather
+ * than leaving them parked wherever the friendship row happened to sort. */
+const STATUS_RANK: Record<FriendStatus, number> = { live: 0, stale: 1, online: 2, offline: 3 };
+
 export default function FriendsScreen() {
   const { isConfigured, session } = useAuth();
 
@@ -138,6 +143,19 @@ function FriendsContent({ selfUserId }: { selfUserId: string }) {
       inactive.push({ profile, location, status });
     }
   }
+
+  // Reorder within each section as status changes, rather than leaving a
+  // friend parked wherever their friendship row happened to sort -- a
+  // friend actively sharing a journey, or freshly live, is the one worth
+  // seeing first. `rows` stays sorted by created_at, so this only reorders
+  // on top of that, it doesn't replace it.
+  active.sort((a, b) => {
+    const aJourney = friendJourneys[a.profile.id] ? 0 : 1;
+    const bJourney = friendJourneys[b.profile.id] ? 0 : 1;
+    if (aJourney !== bJourney) return aJourney - bJourney;
+    return STATUS_RANK[a.status] - STATUS_RANK[b.status];
+  });
+  inactive.sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status]);
 
   const isEmpty = accepted.length === 0 && incoming.length === 0 && outgoing.length === 0;
 
