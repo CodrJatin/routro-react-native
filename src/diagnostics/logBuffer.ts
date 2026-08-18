@@ -31,9 +31,9 @@ let entries: LogEntry[] = [];
 /**
  * Anything that looks like a bearer token, replaced wholesale.
  *
- * Load-bearing, not decorative: this text exists to be copied out of the app
- * and pasted to someone else, and a supabase-js or realtime-js error is
- * perfectly capable of quoting the JWT it just failed to authenticate with.
+ * Load-bearing, not decorative: these entries are uploaded with a crash report
+ * (see crashReport.ts), and a supabase-js or realtime-js error is perfectly
+ * capable of quoting the JWT it just failed to authenticate with.
  * Matching on the JWT shape (three base64url segments after an `eyJ` header)
  * catches access and refresh tokens wherever in a message they appear.
  */
@@ -92,31 +92,6 @@ export function getLogEntries(): readonly LogEntry[] {
 
 export function clearLogEntries(): void {
   entries = [];
-}
-
-function timeOf(at: number): string {
-  const d = new Date(at);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-/**
- * The whole report, as the text the user copies.
- *
- * `context` is passed in rather than read here so this module keeps knowing
- * nothing about app config -- and so the caller decides what is safe to
- * include.
- */
-export function formatDiagnostics(context: Record<string, string | null | undefined>): string {
-  const header = Object.entries(context)
-    .filter(([, value]) => value != null && value !== '')
-    .map(([key, value]) => `${key}: ${redact(String(value))}`);
-
-  const body = entries.length
-    ? entries.map((e) => `${timeOf(e.at)} ${e.level === 'error' ? 'ERR ' : 'WARN'} ${e.message}`)
-    : ['(nothing logged this session)'];
-
-  return [...header, '', `--- ${entries.length} log entries ---`, ...body].join('\n');
 }
 
 /**

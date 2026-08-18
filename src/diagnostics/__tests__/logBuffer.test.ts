@@ -1,16 +1,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearLogEntries,
-  formatDiagnostics,
   getLogEntries,
   installConsoleCapture,
   recordLog,
 } from '../logBuffer';
 
 /**
- * The ring buffer, and above all its redaction -- this text is built to be
- * copied out of the app and handed to someone else, so anything it fails to
- * strip leaves the device.
+ * The ring buffer, and above all its redaction -- these entries are uploaded
+ * with a crash report (see crashReport.ts), so anything it fails to strip
+ * leaves the device.
  */
 
 beforeEach(() => {
@@ -56,12 +55,6 @@ describe('redaction', () => {
     expect(entry.message).toContain('aaaaaaaa…');
     expect(entry.message).toContain('bbbbbbbb…');
   });
-
-  it('redacts the context header too, not just the log lines', () => {
-    const text = formatDiagnostics({ updateId: 'ffffffff-1111-2222-3333-444444444444' });
-    expect(text).not.toContain('ffffffff-1111-2222-3333-444444444444');
-    expect(text).toContain('ffffffff…');
-  });
 });
 
 describe('the buffer', () => {
@@ -87,17 +80,6 @@ describe('the buffer', () => {
     // The newest survive, the earliest are gone.
     expect(held[held.length - 1].message).toBe('entry 249');
     expect(held.some((e) => e.message === 'entry 0')).toBe(false);
-  });
-
-  it('says so plainly when there is nothing to report', () => {
-    expect(formatDiagnostics({ app: 'Routro 1.0.0' })).toContain('(nothing logged this session)');
-  });
-
-  it('includes the context header and drops empty fields', () => {
-    const text = formatDiagnostics({ app: 'Routro 1.0.0', channel: null, updateId: '' });
-    expect(text).toContain('app: Routro 1.0.0');
-    expect(text).not.toContain('channel:');
-    expect(text).not.toContain('updateId:');
   });
 });
 

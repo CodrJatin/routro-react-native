@@ -16,7 +16,6 @@ import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanim
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { Avatar } from '../../src/components/Avatar';
-import { CopyDiagnostics } from '../../src/diagnostics/CopyDiagnostics';
 import { SegmentedToggle } from '../../src/components/SegmentedToggle';
 import { JourneySimulatorPanel } from '../../src/dev/JourneySimulatorPanel';
 // MOCK FRIEND -- temporary dev fixture, delete with src/dev/mockFriend.ts
@@ -250,9 +249,6 @@ export default function SettingsScreen() {
               </View>
               <Ionicons name="open-outline" size={16} color={colors.textSecondary} />
             </Pressable>
-            {/* Under the version, because the two are read together: a report
-                is only useful alongside the build it came from. */}
-            <CopyDiagnostics />
           </View>
         </View>
 
