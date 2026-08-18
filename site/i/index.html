@@ -69,17 +69,20 @@
       }
 
       /* Inlined from assets/logo/mark.svg, which is the same geometry the app
-         icons are rendered from. The diamond strokes with currentColor so it
-         inverts with the theme without a second copy; the bar reads --routro-accent
-         so it can pick up this page's green rather than the file's fallback. */
+         icons are rendered from. The diamond fills and strokes with currentColor
+         so it inverts with the theme without a second copy; the bar reads
+         --routro-accent so it can pick up this page's green rather than the
+         file's fallback. */
       .mark {
         width: 54px;
         height: 54px;
         color: var(--text-primary);
         --routro-accent: var(--live);
-        /* The mark is wider than it is tall, so the square viewBox already
-           carries ~7px of empty space below it. */
-        margin-bottom: 9px;
+        /* Turned 45 degrees, the mark is as tall as it is wide and the square
+           viewBox carries only ~6px of empty space below it, where the
+           unrotated one left ~8px. Hence a slightly larger margin for the
+           same gap. */
+        margin-bottom: 11px;
       }
 
       .eyebrow {
@@ -151,13 +154,16 @@
     <main>
       <a href="/" aria-label="Go to Routro homepage" style="color: inherit; display: inline-block;">
         <svg class="mark" viewBox="0 0 100 100" fill="none" aria-hidden="true">
-          <path d="M2 50H98" stroke="var(--routro-accent, #3dd68c)" stroke-width="15" />
-          <path
-            d="M50 20L80 50L50 80L20 50Z"
-            stroke="currentColor"
-            stroke-width="8"
-            stroke-linejoin="miter"
-          />
+          <g transform="rotate(-45 50 50)">
+            <path d="M2 50H98" stroke="var(--routro-accent, #3dd68c)" stroke-width="15" />
+            <path
+              d="M50 27L73 50L50 73L27 50Z"
+              fill="currentColor"
+              stroke="currentColor"
+              stroke-width="8"
+              stroke-linejoin="miter"
+            />
+          </g>
         </svg>
       </a>
 

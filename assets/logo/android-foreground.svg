@@ -1,6 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
-  <g transform="translate(218.7 218.7) scale(5.867)" fill="none">
-    <path d="M2 50H98" stroke="#3dd68c" stroke-width="15"/>
-    <path d="M50 20L80 50L50 80L20 50Z" stroke="#e5e2e1" stroke-width="8" stroke-linejoin="miter"/>
+  <g transform="translate(197.3 197.3) scale(6.293)" fill="none">
+    <g transform="rotate(-45 50 50)">
+      <path d="M2 50H98" stroke="#3dd68c" stroke-width="15"/>
+      <path d="M50 27L73 50L50 73L27 50Z" fill="#e5e2e1" stroke="#e5e2e1" stroke-width="8" stroke-linejoin="miter"/>
+    </g>
   </g>
 </svg>

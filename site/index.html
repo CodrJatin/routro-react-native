@@ -22,11 +22,12 @@
 
     <!-- Same geometry as assets/logo/mark.svg, inlined so the tab icon needs no
          extra request. Paint order is the whole trick: the bar goes down first
-         and the diamond covers it at both side points. -->
+         and the filled diamond covers it across its whole span, so the bar
+         shows only where it emerges either side. -->
 
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none'%3E%3Cpath d='M2 50H98' stroke='%233dd68c' stroke-width='15'/%3E%3Cpath d='M50 20L80 50L50 80L20 50Z' stroke='%23e5e2e1' stroke-width='8' stroke-linejoin='miter'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none'%3E%3Cg transform='rotate(-45 50 50)'%3E%3Cpath d='M2 50H98' stroke='%233dd68c' stroke-width='15'/%3E%3Cpath d='M50 27L73 50L50 73L27 50Z' fill='%23e5e2e1' stroke='%23e5e2e1' stroke-width='8' stroke-linejoin='miter'/%3E%3C/g%3E%3C/svg%3E"
     />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -44,8 +45,10 @@
     <header class="nav">
       <a class="brand" href="#" style="text-decoration: none; color: inherit">
         <svg width="30" height="30" viewBox="0 0 100 100" fill="none" aria-hidden="true">
-          <path d="M2 50H98" stroke="#3dd68c" stroke-width="15" />
-          <path d="M50 20L80 50L50 80L20 50Z" stroke="#e5e2e1" stroke-width="8" stroke-linejoin="miter" />
+          <g transform="rotate(-45 50 50)">
+            <path d="M2 50H98" stroke="#3dd68c" stroke-width="15" />
+            <path d="M50 27L73 50L50 73L27 50Z" fill="#e5e2e1" stroke="#e5e2e1" stroke-width="8" stroke-linejoin="miter" />
+          </g>
         </svg>
         <span>Routro</span>
       </a>
@@ -472,8 +475,10 @@
               <div class="notif notif-alert">
                 <div class="notif-head">
                   <svg width="12" height="12" viewBox="0 0 100 100" fill="none" aria-hidden="true">
-                    <path d="M2 50H98" stroke="#8e9192" stroke-width="18" />
-                    <path d="M50 20L80 50L50 80L20 50Z" stroke="#8e9192" stroke-width="11" stroke-linejoin="miter" />
+                    <g transform="rotate(-45 50 50)">
+                      <path d="M2 50H98" stroke="#8e9192" stroke-width="18" />
+                      <path d="M50 27L73 50L50 73L27 50Z" fill="#8e9192" stroke="#8e9192" stroke-width="11" stroke-linejoin="miter" />
+                    </g>
                   </svg>
                   <span>Routro</span><span>&middot;</span><span>now</span>
                 </div>
@@ -484,8 +489,10 @@
               <div class="notif">
                 <div class="notif-head">
                   <svg width="12" height="12" viewBox="0 0 100 100" fill="none" aria-hidden="true">
-                    <path d="M2 50H98" stroke="#8e9192" stroke-width="18" />
-                    <path d="M50 20L80 50L50 80L20 50Z" stroke="#8e9192" stroke-width="11" stroke-linejoin="miter" />
+                    <g transform="rotate(-45 50 50)">
+                      <path d="M2 50H98" stroke="#8e9192" stroke-width="18" />
+                      <path d="M50 27L73 50L50 73L27 50Z" fill="#8e9192" stroke="#8e9192" stroke-width="11" stroke-linejoin="miter" />
+                    </g>
                   </svg>
                   <span>Routro</span><span>&middot;</span><span>Blue Line</span>
                 </div>
@@ -1433,8 +1440,10 @@
       <div class="outro-bottom">
         <div style="display: flex; align-items: center; gap: 10px">
           <svg width="24" height="24" viewBox="0 0 100 100" fill="none" aria-hidden="true">
-            <path d="M2 50H98" stroke="#8e9192" stroke-width="15" />
-            <path d="M50 20L80 50L50 80L20 50Z" stroke="#8e9192" stroke-width="8" stroke-linejoin="miter" />
+            <g transform="rotate(-45 50 50)">
+              <path d="M2 50H98" stroke="#8e9192" stroke-width="15" />
+              <path d="M50 27L73 50L50 73L27 50Z" fill="#8e9192" stroke="#8e9192" stroke-width="8" stroke-linejoin="miter" />
+            </g>
           </svg>
           <span>Routro &copy; 2026 &middot; Developer: <a href="https://github.com/codrjatin" target="_blank" rel="noopener noreferrer" style="color: var(--muted); text-decoration: underline; text-underline-offset: 3px">CodrJatin</a></span>
         </div>
