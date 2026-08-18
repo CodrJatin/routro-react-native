@@ -57,6 +57,7 @@
     },
     "plugins": [
       "./plugins/withAndroidMaterial3Theme.js",
+      "./plugins/withAndroidAbiSplits.js",
       "@maplibre/maplibre-react-native",
       "expo-router",
       [

@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Invite links are personal and carry someone's public ID in the query string.
+# They are pages for one recipient, not content to index.
+Disallow: /i/
+
+Sitemap: https://routro.vercel.app/sitemap.xml

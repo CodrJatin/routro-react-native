@@ -1,0 +1,1490 @@
+/* Mirrors src/theme/tokens.ts, same as i/index.html: square corners,
+   monochrome chrome, monospace for data and small-caps labels. The metro
+   line colours are the only saturated things on the page. */
+:root {
+  --bg: #141313;
+  --surface: #1c1b1b;
+  --line: #2b2a2a;
+  --border: #444748;
+  --text: #e5e2e1;
+  --head: #f4f0ef;
+  --muted: #c4c7c7;
+  --dim: #8e9192;
+  --faint: #5f5e5e;
+  --accent: #c8c6c5;
+  --on-accent: #181818;
+  --live: #3dd68c;
+
+  --yellow: #ffdf00;
+  --blue: #4169e1;
+  --red: #ff4040;
+  --green: #00a651;
+  --violet: #92278f;
+  --magenta: #ec0f8a;
+  --pink: #f06292;
+  --orange: #f58220;
+
+  --gutter: clamp(20px, 5vw, 64px);
+  --section: clamp(64px, 8vw, 96px);
+  --nav-h: 69px;
+}
+
+* { box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  /* Anchors land below the sticky header rather than under it. */
+  scroll-padding-top: calc(var(--nav-h) + 16px);
+}
+/* Lets the FAQ animate to `auto` height instead of snapping open.
+   Ignored where unsupported, which is exactly the old behaviour. */
+@supports (interpolate-size: allow-keywords) {
+  :root { interpolate-size: allow-keywords; }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Outfit", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+a { color: var(--text); }
+
+/* The one piece of motion the app itself has: the live dot, used wherever
+   something is happening in real time. */
+@keyframes ms-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.4); }
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  background: var(--live);
+  flex-shrink: 0;
+  animation: ms-pulse 1.4s ease-in-out infinite;
+}
+.dot--sm { width: 5px; height: 5px; }
+
+.mono {
+  font-family: "Space Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.eyebrow {
+  font-family: "Space Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--dim);
+  margin: 0;
+}
+
+.section { padding: var(--section) var(--gutter); }
+
+.section-head { max-width: 640px; margin-bottom: 48px; }
+.section-head h2 {
+  margin: 12px 0 0;
+  font-size: clamp(28px, 3.5vw, 42px);
+  font-weight: 700;
+  letter-spacing: -0.8px;
+  line-height: 1.15;
+  color: var(--head);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--accent);
+  color: var(--on-accent);
+  padding: 16px 26px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 15px;
+  transition: background 0.18s ease, transform 0.18s ease;
+}
+.btn:hover { background: var(--head); color: var(--on-accent); transform: translateY(-2px); }
+.btn:active { transform: translateY(0); }
+
+.btn-text {
+  font-family: "Space Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--dim);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.18s ease;
+}
+.btn-text:hover { color: var(--muted); }
+
+/* ── Nav ────────────────────────────────────────────────── */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px var(--gutter);
+  border-bottom: 1px solid var(--line);
+  background: rgba(20, 19, 19, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand span { font-weight: 700; font-size: 18px; letter-spacing: -0.3px; }
+
+/* The toggle is a real focusable checkbox, just moved out of sight -- the
+   burger is its <label>, so the menu works with the keyboard and with no
+   script at all. */
+.nav-toggle {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+.nav-burger { display: none; }
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: clamp(16px, 3vw, 32px);
+}
+.nav-links a {
+  font-size: 14px;
+  text-decoration: none;
+  color: var(--muted);
+  transition: color 0.18s ease;
+}
+.nav-links a:hover { color: var(--head); }
+.nav-cta {
+  font-family: "Space Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px !important;
+  font-weight: 700;
+  letter-spacing: 1px;
+  background: var(--accent);
+  color: var(--on-accent) !important;
+  padding: 11px 18px;
+  transition: background 0.18s ease;
+}
+.nav-cta:hover { background: var(--head); }
+
+@media (max-width: 720px) {
+  :root { --nav-h: 84px; }
+  /* row-gap, not the shorthand: the collapsed menu is still a flex line,
+     and a 16px gap above a zero-height line is 16px of nav for nothing. */
+  .nav { flex-wrap: wrap; row-gap: 0; column-gap: 16px; }
+  .nav-burger {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    width: 40px;
+    height: 40px;
+    padding: 0 8px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+  }
+  .nav-burger i {
+    display: block;
+    height: 1.5px;
+    background: var(--text);
+    transition: transform 0.28s ease, opacity 0.2s ease;
+  }
+  /* Three bars fold into a cross. */
+  .nav-toggle:checked ~ .nav-burger i:nth-child(1) { transform: translateY(6.5px) rotate(45deg); }
+  .nav-toggle:checked ~ .nav-burger i:nth-child(2) { opacity: 0; }
+  .nav-toggle:checked ~ .nav-burger i:nth-child(3) { transform: translateY(-6.5px) rotate(-45deg); }
+  .nav-toggle:focus-visible ~ .nav-burger { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .nav-links {
+    flex-basis: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.32s cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  .nav-toggle:checked ~ .nav-links { max-height: 260px; }
+  .nav-links a {
+    padding: 14px 0;
+    border-top: 1px solid var(--line);
+    font-size: 15px;
+  }
+  .nav-links a:first-child { margin-top: 8px; }
+  .nav-cta { margin: 12px 0 4px; text-align: center; padding: 14px 18px; border-top: 0 !important; }
+}
+
+/* ── Hero ───────────────────────────────────────────────── */
+.hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(24px, 5vw, 64px);
+  flex-wrap: wrap;
+  padding: clamp(48px, 8vw, 96px) var(--gutter) var(--section);
+}
+.hero-copy {
+  flex: 1 1 460px;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.hero-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+}
+.hero h1 {
+  margin: 0;
+  font-size: clamp(38px, 5.5vw, 64px);
+  line-height: 1.04;
+  font-weight: 700;
+  letter-spacing: -1.5px;
+  color: var(--head);
+}
+.hero p {
+  margin: 0;
+  font-size: clamp(16px, 1.6vw, 19px);
+  line-height: 1.6;
+  color: var(--muted);
+  max-width: 520px;
+}
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.hero-device { flex: 0 1 340px; min-width: 260px; display: flex; justify-content: center; }
+
+/* ── Android device frame ───────────────────────────────── */
+/* Bezel, status bar and gesture pill traced from the Material 3 frame in
+   the design source, rebuilt as plain markup so the page stays buildless. */
+.phone {
+  width: 280px;
+  height: 606px;
+  flex-shrink: 0;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #1d1b20;
+  border: 8px solid rgba(116, 119, 117, 0.5);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+}
+.phone--sm { width: 260px; height: 562px; }
+.phone-status {
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  position: relative;
+  font-family: Roboto, system-ui, sans-serif;
+  font-size: 14px;
+  letter-spacing: 0.25px;
+  color: #fff;
+}
+.phone-punch {
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  transform: translateX(-50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 100px;
+  background: #2e2e2e;
+}
+.phone-icons { display: flex; align-items: center; gap: 2px; }
+/* Column, because every screen is content plus the tab bar under it. */
+.phone-screen {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+.screen-body { position: relative; flex: 1; overflow: hidden; }
+.phone-nav { height: 24px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.phone-nav i { width: 108px; height: 4px; border-radius: 2px; background: #fff; opacity: 0.4; }
+.device { display: flex; flex-direction: column; align-items: center; gap: 20px; }
+.device figcaption { font-size: 13px; color: var(--dim); }
+
+/* ── Bottom tab bar ─────────────────────────────────────── */
+/* The app's own: a hairline track along the top edge with a thicker car
+   riding it, parked over whichever tab is active. */
+.tabbar { position: relative; flex-shrink: 0; padding-top: 3px; background: var(--surface); }
+.tab-track { position: absolute; top: 0; left: 0; right: 0; height: 1px; background: var(--border); }
+.tab-car { position: absolute; top: -1px; left: 0; width: 34px; height: 3px; background: var(--accent); }
+.tab-row { display: flex; height: 50px; }
+.tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--dim);
+}
+.tab span { font-size: 10px; font-weight: 600; line-height: 13px; }
+.tab.is-active { color: var(--accent); }
+
+/* ── Hero demo ──────────────────────────────────────────── */
+/* One looping pass through the app, in the order you'd actually do it:
+   plan a route, read the itinerary, start the journey, watch yourself
+   catch up with a friend waiting on the platform, then pull the shade
+   down for the ongoing notification and the interchange alert.
+
+   Every layer runs off the same 22s master timeline (percentages below
+   are of those 22 seconds), which is what keeps the scenes in step with
+   no script on the page. Copy is lifted from the real screens --
+   src/journey/notificationContent.ts and src/journey/alerts.ts write
+   these exact strings. */
+.scene { position: absolute; inset: 0; }
+
+.scene-plan { opacity: 0; animation: hd-plan 22s linear infinite; }
+.scene-map { opacity: 1; animation: hd-map 22s linear infinite; }
+@keyframes hd-plan {
+  0%, 43.2% { opacity: 1; }
+  46.4%, 95.5% { opacity: 0; }
+  99%, 100% { opacity: 1; }
+}
+@keyframes hd-map {
+  0%, 43.2% { opacity: 0; }
+  46.4%, 95.5% { opacity: 1; }
+  99%, 100% { opacity: 0; }
+}
+
+/* — Planner scene — */
+/* The whole column scrolls, because it is a ScrollView in the app and the
+   itinerary is taller than the screen. */
+.plan { padding: 16px 14px 20px; animation: hd-scroll 22s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+@keyframes hd-scroll {
+  0%, 18.2% { transform: translateY(0); }
+  28.2%, 32.7% { transform: translateY(-170px); }
+  38.2%, 100% { transform: translateY(0); }
+}
+.plan h4 { margin: 0 0 12px; font-size: 19px; font-weight: 600; color: var(--text); }
+
+.planner-card { display: flex; background: var(--surface); border: 1px solid var(--border); padding-left: 6px; margin-bottom: 16px; }
+.planner-fields { flex: 1; min-width: 0; position: relative; }
+.prail {
+  position: absolute; left: 5px; top: 31px; bottom: 19px; width: 2px; background: #c8c6c5;
+  animation: hd-accent-bg 22s linear infinite;
+}
+.pmark { position: absolute; left: 1px; width: 10px; height: 10px; }
+.pmark--o {
+  top: 26px; border-radius: 50%; border: 2px solid #c8c6c5; background: var(--surface);
+  animation: hd-accent-bd 22s linear infinite;
+}
+.pmark--d { bottom: 14px; background: #c8c6c5; animation: hd-accent-bg 22s linear infinite; }
+.field { padding: 9px 10px 9px 22px; }
+.field-label { display: block; font-family: "Space Mono", monospace; font-size: 8px; font-weight: 700; letter-spacing: 1px; color: var(--dim); }
+.field-slot { display: block; position: relative; height: 18px; margin-top: 1px; }
+.field-slot > span { position: absolute; left: 0; top: 0; font-size: 13px; white-space: nowrap; }
+.field-ph { color: var(--dim); }
+.field-val { color: var(--text); font-weight: 600; }
+.fdiv { height: 1px; margin-left: 22px; background: var(--border); }
+.swap { width: 40px; align-self: stretch; display: flex; align-items: center; justify-content: center; border-left: 1px solid var(--border); color: var(--dim); font-size: 14px; }
+
+.f-o-ph { animation: hd-o-ph 22s linear infinite; }
+.f-o-val { animation: hd-o-val 22s linear infinite; }
+.f-d-ph { animation: hd-d-ph 22s linear infinite; }
+.f-d-val { animation: hd-d-val 22s linear infinite; }
+
+@keyframes hd-accent-bg {
+  0%, 12.5% { background: #444748; }
+  13.5%, 93% { background: #c8c6c5; }
+  95%, 100% { background: #444748; }
+}
+@keyframes hd-accent-bd {
+  0%, 12.5% { border-color: #444748; }
+  13.5%, 93% { border-color: #c8c6c5; }
+  95%, 100% { border-color: #444748; }
+}
+
+@keyframes hd-o-ph { 0%, 11% { opacity: 1; } 13.5%, 93% { opacity: 0; } 95%, 100% { opacity: 1; } }
+@keyframes hd-o-val { 0%, 11% { opacity: 0; } 13.5%, 93% { opacity: 1; } 95%, 100% { opacity: 0; } }
+@keyframes hd-d-ph { 0%, 11% { opacity: 1; } 13.5%, 93% { opacity: 0; } 95%, 100% { opacity: 1; } }
+@keyframes hd-d-val { 0%, 11% { opacity: 0; } 13.5%, 93% { opacity: 1; } 95%, 100% { opacity: 0; } }
+
+.sj-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.sj-label { font-family: "Space Mono", monospace; font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: var(--dim); }
+.sj-count { font-family: "Space Mono", monospace; font-size: 10px; color: var(--dim); }
+
+.saved-journeys {
+  animation: hd-sj 22s linear infinite;
+  overflow: hidden;
+}
+@keyframes hd-sj {
+  0%, 11% { opacity: 1; max-height: 400px; padding-bottom: 12px; }
+  14.5%, 92% { opacity: 0; max-height: 0px; padding-bottom: 0px; margin-bottom: 0px; }
+  94%, 100% { opacity: 0; max-height: 0px; padding-bottom: 0px; margin-bottom: 0px; }
+}
+
+.saved-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  overflow: hidden;
+}
+.sc-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.sc-path { flex: 1; min-width: 0; }
+.sc-path-row { display: flex; align-items: center; gap: 10px; }
+.sc-o { width: 10px; height: 10px; border-radius: 5px; border: 2px solid var(--text); }
+.sc-d { width: 10px; height: 10px; background: var(--text); }
+.sc-conn { width: 2px; height: 10px; margin-left: 4px; background: var(--border); }
+.sc-name { font-size: 15px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 20px; }
+.sc-remove { width: 28px; height: 28px; border: 1px solid var(--border); background: var(--bg); display: flex; align-items: center; justify-content: center; color: var(--dim); }
+.sc-meta { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--border); padding-top: 9px; }
+.sc-swatches { display: flex; align-items: center; gap: 4px; }
+.sc-swatch { width: 8px; height: 8px; }
+.sc-meta-text { font-family: "Space Mono", monospace; font-size: 10px; color: var(--dim); letter-spacing: 0.5px; }
+
+.saved-card--active {
+  animation: hd-press-saved 22s linear infinite;
+}
+@keyframes hd-press-saved {
+  0%, 9.5% { transform: none; filter: none; }
+  10.5% { transform: scale(0.97); filter: brightness(0.82); }
+  12%, 100% { transform: none; filter: none; }
+}
+.tap--saved { animation: hd-tap-saved 22s linear infinite; }
+@keyframes hd-tap-saved {
+  0%, 8.5% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+  10% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  12.5%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
+}
+
+.plan-result {
+  overflow: hidden;
+  animation: hd-result 22s linear infinite;
+}
+@keyframes hd-result {
+  0%, 11% { opacity: 0; transform: translateY(10px); max-height: 0; }
+  14.5%, 92% { opacity: 1; transform: translateY(0); max-height: 800px; }
+  94%, 100% { opacity: 0; transform: translateY(10px); max-height: 0; }
+}
+.summary { background: var(--surface); border: 1px solid var(--border); padding: 12px; }
+.metrics { display: flex; align-items: flex-start; justify-content: space-between; }
+.metric-label {
+  font-family: "Space Mono", monospace;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--dim);
+}
+.metric-value { font-size: 24px; line-height: 26px; font-weight: 600; color: var(--text); }
+.metric-value em {
+  font-family: "Space Mono", monospace;
+  font-style: normal;
+  font-size: 10px;
+  color: var(--muted);
+}
+.meta-line { font-family: "Space Mono", monospace; font-size: 10px; color: var(--dim); margin-top: 6px; }
+.action-row { display: flex; align-items: flex-start; gap: 6px; margin-top: 12px; }
+.btn-start {
+  position: relative;
+  flex: 1;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 700;
+  animation: hd-press 22s linear infinite;
+}
+@keyframes hd-press {
+  0%, 41% { transform: none; filter: none; }
+  41.8% { transform: scale(0.97); filter: brightness(0.82); }
+  43%, 100% { transform: none; filter: none; }
+}
+.btn-save {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+}
+
+/* — Itinerary, as the route screen draws it — */
+/* Every row owns its piece of the rail so the line runs unbroken from the
+   origin dot to the destination block, changing colour at the interchange. */
+.itin {
+  margin-top: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  padding-left: 11px;
+}
+.irow { display: flex; }
+.irail { width: 22px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; position: relative; }
+.irail i { width: 3px; flex: 1; }
+.imark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+}
+.imark--o { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--text); background: var(--surface); }
+.imark--x { width: 17px; height: 17px; border: 2px solid var(--text); background: var(--surface); }
+.imark--d { width: 12px; height: 12px; background: var(--text); }
+.icontent { flex: 1; min-width: 0; padding: 10px 14px 10px 8px; }
+.istation { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.istation b { font-size: 15px; font-weight: 600; color: var(--text); }
+.istation .t { font-family: "Space Mono", monospace; font-size: 12px; color: var(--text); }
+.ichange { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); margin-top: 3px; }
+.ibadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--line);
+  padding: 3px 7px;
+  font-family: "Space Mono", monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text);
+}
+.imeta { font-family: "Space Mono", monospace; font-size: 10px; color: var(--dim); margin-top: 5px; }
+.iexpand { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 600; color: var(--dim); margin-top: 5px; }
+
+/* The tap rings: where a finger lands, drawn inside the control it hits
+   so the two can never drift apart. */
+.tap {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid rgba(229, 226, 225, 0.9);
+  background: rgba(229, 226, 225, 0.18);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.4);
+}
+.tap--start { animation: hd-tap-start 22s linear infinite; }
+.tap--bcast { animation: hd-tap-bcast 22s linear infinite; }
+@keyframes hd-tap-start {
+  0%, 39% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+  40.5% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  43%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
+}
+@keyframes hd-tap-bcast {
+  0%, 47.5% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+  49% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  51%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
+}
+
+/* — Map scene — */
+.journey-bar {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 44px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.journey-bar--demo { top: 12px; }
+.journey-bar .row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; }
+.journey-bar .station { font-size: 15px; font-weight: 600; color: var(--text); margin-top: 1px; }
+.journey-bar .count { font-size: 20px; font-weight: 600; line-height: 1; }
+.journey-bar .track { height: 3px; display: flex; }
+.jcount { position: relative; width: 24px; height: 22px; }
+.jcount span {
+  position: absolute;
+  inset: 0;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 22px;
+  color: var(--text);
+}
+/* Base state is the last digit of the run, so the reduced-motion still
+   shows one number rather than all three stacked on each other. */
+.jn5 { opacity: 0; animation: hd-n5 22s linear infinite; }
+.jn4 { opacity: 0; animation: hd-n4 22s linear infinite; }
+.jn3 { animation: hd-n3 22s linear infinite; }
+/* Everything that tracks the journey holds its final value until 99%,
+   then snaps back inside the half-frame where the map scene is already
+   fully faded out. Ramping the reset any earlier plays the journey
+   backwards in front of the viewer. */
+@keyframes hd-n5 { 0%, 52.5% { opacity: 1; } 53.5%, 98% { opacity: 0; } 99.5%, 100% { opacity: 1; } }
+@keyframes hd-n4 { 0%, 52.5% { opacity: 0; } 53.5%, 63.6% { opacity: 1; } 64.6%, 100% { opacity: 0; } }
+@keyframes hd-n3 { 0%, 63.6% { opacity: 0; } 64.6%, 98% { opacity: 1; } 99.5%, 100% { opacity: 0; } }
+
+/* Two copies of the same leg row, one ghosted and one solid, with the
+   solid one clipped to how far along the journey is. clip-path rather
+   than a width-clipped wrapper so the legs stay put and the boundary
+   sweeps across them -- and so nothing has to know the bar's width. */
+.jrail { position: relative; height: 3px; }
+.jrail-ghost, .jrail-solid { position: absolute; inset: 0; display: flex; }
+.jrail-solid { clip-path: inset(0 53% 0 0); animation: hd-jrail 22s linear infinite; }
+@keyframes hd-jrail {
+  0%, 46.4% { clip-path: inset(0 92% 0 0); }
+  63.6% { clip-path: inset(0 62% 0 0); }
+  92%, 99% { clip-path: inset(0 53% 0 0); }
+  99.5%, 100% { clip-path: inset(0 92% 0 0); }
+}
+
+/* Pins ride the journey geometry itself rather than a separate set of
+   coordinates, so they can't wander off the lines they're meant to be on. */
+.mpin {
+  position: absolute;
+  left: 0;
+  top: 0;
+  offset-rotate: 0deg;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Space Mono", monospace;
+  font-weight: 700;
+}
+.mpin--self {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #4169e1;
+  border: 2px solid var(--text);
+  offset-path: path("M232 388 L196 318 L160 245 L132 180 L118 278 L104 368");
+  offset-distance: 44%;
+  animation: hd-self 22s linear infinite;
+}
+/* Stops short of Rajiv Chowk on purpose: the bar, the notification and
+   the pin all have to agree that the interchange is still ahead. */
+@keyframes hd-self {
+  0%, 46.4% { offset-distance: 8%; }
+  63.6% { offset-distance: 38%; }
+  92%, 99% { offset-distance: 47%; }
+  99.5%, 100% { offset-distance: 8%; }
+}
+.mpin--friend {
+  width: 20px;
+  height: 20px;
+  font-size: 9px;
+  background: var(--text);
+  color: var(--on-accent);
+  border: 2px solid var(--bg);
+}
+/* Rohit is already on the platform one stop short of the interchange and
+   waits there. Same path as the user, and from the moment they meet at
+   63.6% the two keyframe tracks are identical -- so they ride on
+   together instead of drifting apart. The translate offsets the badge so
+   both pins stay readable once they are on the same spot. */
+.mpin--r {
+  offset-path: path("M232 388 L196 318 L160 245 L132 180 L118 278 L104 368");
+  offset-distance: 44%;
+  transform: translate(16px, -14px);
+  animation: hd-friend-r 22s linear infinite;
+}
+@keyframes hd-friend-r {
+  0%, 63.6% { offset-distance: 38%; }
+  92%, 99% { offset-distance: 47%; }
+  99.5%, 100% { offset-distance: 38%; }
+}
+/* Priya is coming down the Yellow Line the other way. One direction only:
+   the reset happens while the planner is on screen. */
+.mpin--p {
+  offset-path: path("M150 16 L140 96 L132 180 L118 278");
+  offset-distance: 60%;
+  animation: hd-friend-p 22s linear infinite;
+}
+@keyframes hd-friend-p {
+  0%, 46.4% { offset-distance: 22%; }
+  92%, 99% { offset-distance: 74%; }
+  99.5%, 100% { offset-distance: 22%; }
+}
+
+.map-buttons { position: absolute; right: 10px; bottom: 14px; display: flex; flex-direction: column; gap: 8px; }
+.map-btn {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+}
+.bcast-fill { position: absolute; inset: 0; background: var(--live); opacity: 1; animation: hd-bcast 22s linear infinite; }
+.bcast-icon { position: relative; display: flex; color: var(--on-accent); animation: hd-bcast-icon 22s linear infinite; }
+@keyframes hd-bcast { 0%, 49.5% { opacity: 0; } 51%, 98% { opacity: 1; } 99.5%, 100% { opacity: 0; } }
+@keyframes hd-bcast-icon { 0%, 49.5% { color: #e5e2e1; } 51%, 98% { color: #181818; } 99.5%, 100% { color: #e5e2e1; } }
+/* Gate and ring are separate elements because they both animate opacity:
+   the gate says *whether* it is transmitting, the ring is the transmission. */
+.ping-gate { position: absolute; inset: -1px; opacity: 1; animation: hd-bcast 22s linear infinite; }
+.ping { position: absolute; inset: 0; border: 2px solid var(--live); animation: hd-ping 1.8s ease-out infinite; }
+@keyframes hd-ping {
+  0% { transform: scale(1); opacity: 0.7; }
+  /* Stops at 1.6 rather than the app's wider ring: any further and the
+     screen's edge clips it into a rectangle. */
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* — The tab bar's car follows the scene — */
+.tab-car--demo { animation: hd-car 22s cubic-bezier(0.65, 0, 0.35, 1) infinite; }
+@keyframes hd-car {
+  0%, 43.2% { transform: translateX(82px); }
+  46.4%, 95.5% { transform: translateX(16px); }
+  99%, 100% { transform: translateX(82px); }
+}
+.tab-map { color: var(--accent); animation: hd-tab-map 22s linear infinite; }
+.tab-route { color: var(--dim); animation: hd-tab-route 22s linear infinite; }
+@keyframes hd-tab-map {
+  0%, 43.2% { color: #8e9192; }
+  46.4%, 95.5% { color: #c8c6c5; }
+  99%, 100% { color: #8e9192; }
+}
+@keyframes hd-tab-route {
+  0%, 43.2% { color: #c8c6c5; }
+  46.4%, 95.5% { color: #8e9192; }
+  99%, 100% { color: #c8c6c5; }
+}
+
+/* — Notification shade — */
+/* Sits over the tab bar too, because the system shade covers the app. */
+.swipe {
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  width: 34px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(229, 226, 225, 0.75);
+  opacity: 0;
+  z-index: 7;
+  animation: hd-swipe 22s linear infinite;
+}
+@keyframes hd-swipe {
+  0%, 68.5% { opacity: 0; transform: translate(-50%, 0); }
+  70% { opacity: 1; transform: translate(-50%, 0); }
+  75% { opacity: 0.9; transform: translate(-50%, 130px); }
+  77%, 100% { opacity: 0; transform: translate(-50%, 150px); }
+}
+.scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.78); opacity: 0; z-index: 5; animation: hd-scrim 22s linear infinite; }
+@keyframes hd-scrim { 0%, 69.5% { opacity: 0; } 74.5%, 92% { opacity: 1; } 95.5%, 100% { opacity: 0; } }
+.shade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 6;
+  padding: 8px 8px 14px;
+  /* Its own surface, not just floating cards: without it the map shows
+     through the gaps between notifications and the pull-down reads as a
+     rendering fault rather than as system UI over the app. */
+  background: rgba(18, 17, 17, 0.96);
+  transform: translateY(-105%);
+  animation: hd-shade 22s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+}
+@keyframes hd-shade {
+  0%, 70% { transform: translateY(-105%); }
+  75.5%, 92% { transform: translateY(0); }
+  95.5%, 100% { transform: translateY(-105%); }
+}
+.shade-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 10px;
+  font-family: "Space Mono", monospace;
+  font-size: 9px;
+  color: rgba(229, 226, 225, 0.7);
+}
+/* Rounded, unlike everything the app itself draws -- these are system
+   surfaces, and the corner radius is the cheapest way to say so. */
+.notif { background: #2a2929; border-radius: 8px; padding: 10px; }
+.notif-head { display: flex; align-items: center; gap: 5px; font-size: 9px; color: var(--dim); margin-bottom: 5px; }
+.notif-title { font-size: 13px; font-weight: 600; color: var(--head); line-height: 1.25; }
+.notif-body { font-size: 11px; color: var(--muted); line-height: 1.35; margin-top: 2px; }
+
+/* The Android tracker: coloured legs, an interchange marker, and a head
+   that keeps creeping while you watch it. */
+.notif-track { position: relative; height: 4px; margin-top: 10px; }
+.nt-base, .nt-fill { position: absolute; inset: 0; display: flex; }
+.nt-base { opacity: 0.28; }
+.nt-fill { clip-path: inset(0 53% 0 0); animation: hd-nt 22s linear infinite; }
+.nt-point {
+  position: absolute;
+  top: -2px;
+  left: 55%;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  background: var(--yellow);
+  transform: rotate(45deg);
+}
+.nt-head {
+  position: absolute;
+  top: -3px;
+  left: 47%;
+  width: 3px;
+  height: 10px;
+  margin-left: -1.5px;
+  background: var(--head);
+  animation: hd-nt-head 22s linear infinite;
+}
+@keyframes hd-nt { 0%, 70% { clip-path: inset(0 62% 0 0); } 92%, 100% { clip-path: inset(0 53% 0 0); } }
+@keyframes hd-nt-head { 0%, 70% { left: 38%; } 92%, 100% { left: 47%; } }
+
+.notif-actions { margin-top: 8px; border-top: 1px solid #3a3939; padding-top: 7px; }
+.notif-actions span {
+  font-family: "Space Mono", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--accent);
+}
+.notif-alert {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  border-left: 3px solid var(--yellow);
+  animation: hd-alert 22s linear infinite;
+}
+/* Two seconds after the shade settles, which is the point of the beat:
+   you are looking at the ongoing notification when the interchange
+   alert arrives on top of it. */
+@keyframes hd-alert {
+  0%, 84.5% { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; margin-bottom: 0; }
+  87%, 92% { max-height: 90px; opacity: 1; padding-top: 10px; padding-bottom: 10px; margin-bottom: 8px; }
+  93.5%, 100% { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; margin-bottom: 0; }
+}
+
+/* ── Line coverage strip ────────────────────────────────── */
+.lines {
+  padding: 28px var(--gutter);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: clamp(16px, 3vw, 36px);
+  flex-wrap: wrap;
+}
+.lines .eyebrow { white-space: nowrap; }
+.chip { display: flex; align-items: center; gap: 7px; }
+.chip i { width: 9px; height: 9px; }
+.chip span { font-size: 13px; color: var(--muted); }
+
+/* ── Features ───────────────────────────────────────────── */
+.cards { display: flex; gap: 20px; flex-wrap: wrap; }
+.card {
+  flex: 1 1 320px;
+  min-width: 280px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 28px;
+  transition: border-color 0.25s ease, transform 0.25s ease;
+}
+.card:hover { border-color: var(--border); transform: translateY(-3px); }
+.card h3 { margin: 14px 0 8px; font-size: 19px; font-weight: 600; color: var(--head); }
+.card > p { margin: 0 0 22px; font-size: 14px; line-height: 1.6; color: var(--muted); }
+.demo-box { background: var(--bg); border: 1px solid var(--border); }
+.avatar {
+  border-radius: 50%;
+  background: #353434;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.tag { background: var(--line); padding: 3px 7px; font-family: "Space Mono", monospace; font-size: 10px; color: var(--text); }
+
+/* ── Screens showcase ───────────────────────────────────── */
+.showcase { display: flex; gap: clamp(24px, 5vw, 56px); flex-wrap: wrap; justify-content: center; }
+.friends-screen { padding: 18px; height: 100%; }
+.friend { background: var(--surface); border: 1px solid var(--border); padding: 10px; margin-bottom: 8px; }
+
+/* ── How it works ───────────────────────────────────────── */
+.steps { display: flex; flex-wrap: wrap; }
+.step { flex: 1 1 260px; min-width: 240px; padding: 24px; border-top: 2px solid; }
+.step .num { font-family: "Space Mono", monospace; font-size: 28px; font-weight: 700; }
+.step h3 { margin: 14px 0 8px; font-size: 18px; font-weight: 600; color: var(--head); }
+.step p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--muted); }
+
+/* ── FAQ ────────────────────────────────────────────────── */
+/* <details name> gives the one-open-at-a-time accordion with no script;
+   ::details-content is what lets it slide rather than snap, and browsers
+   without it simply fall back to the snap. */
+#faq .section-head { margin-left: auto; margin-right: auto; text-align: center; }
+.faq { max-width: 760px; margin-left: auto; margin-right: auto; width: 100%; }
+.faq details { border-bottom: 1px solid var(--line); }
+.faq summary {
+  position: relative;
+  padding: 20px 34px 20px 0;
+  cursor: pointer;
+  list-style: none;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--head);
+  transition: color 0.2s ease;
+}
+.faq summary:hover { color: #fff; }
+.faq summary::-webkit-details-marker { display: none; }
+/* A plus whose upright bar rotates flat into a minus. */
+.faq summary::before,
+.faq summary::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  width: 13px;
+  height: 1.5px;
+  background: var(--dim);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s ease;
+}
+.faq summary::before { transform: translateY(-50%); }
+.faq summary::after { transform: translateY(-50%) rotate(90deg); }
+.faq details[open] summary::after { transform: translateY(-50%) rotate(0deg); }
+.faq details[open] summary::before,
+.faq details[open] summary::after { background: var(--head); }
+.faq p { margin: 0 0 20px; font-size: 14px; line-height: 1.65; color: var(--muted); max-width: 640px; }
+.faq details::details-content {
+  block-size: 0;
+  overflow: hidden;
+  transition: block-size 0.34s cubic-bezier(0.4, 0, 0.2, 1), content-visibility 0.34s allow-discrete;
+}
+.faq details[open]::details-content { block-size: auto; }
+
+/* ── Footer ─────────────────────────────────────────────── */
+.outro { padding: clamp(56px, 7vw, 80px) var(--gutter) 40px; background: var(--surface); border-top: 1px solid var(--line); }
+.outro-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+  flex-wrap: wrap;
+  padding-bottom: 48px;
+  border-bottom: 1px solid var(--line);
+}
+.outro-top h2 {
+  margin: 0 0 12px;
+  font-size: clamp(26px, 3vw, 34px);
+  font-weight: 700;
+  letter-spacing: -0.6px;
+  color: var(--head);
+}
+.outro-top p { margin: 0; font-size: 15px; line-height: 1.6; color: var(--muted); }
+.outro-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-top: 28px;
+}
+.outro-bottom span { font-size: 13px; color: var(--dim); }
+.outro-bottom .disclaimer { font-size: 12px; color: var(--faint); }
+
+/* ── Scroll reveal ──────────────────────────────────────── */
+/* Scroll-driven, so there is no observer to run and no state to keep.
+   The base state is fully visible: where view() isn't supported the
+   page simply doesn't animate rather than staying blank. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal {
+      animation: reveal-in linear both;
+      animation-timeline: view();
+      animation-range: entry 8% cover 24%;
+    }
+    @keyframes reveal-in {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: none; }
+    }
+  }
+}
+
+/* The device frames are fixed-size by design; on the narrowest phones
+   scale rather than let them push the page sideways. */
+@media (max-width: 359px) {
+  /* Scaling leaves the pre-scale height in the layout, so pull the
+     difference back with a negative margin -- otherwise the caption and
+     the next section sit a phone-fifth too low. */
+  .phone { transform: scale(0.8); transform-origin: top center; margin-bottom: -124px; }
+  .phone--sm { margin-bottom: -116px; }
+}
+
+/* A walkthrough is motion by definition; with motion turned down the base
+   styles already hold a legible still of the map mid-journey, and the
+   page stops scrolling itself. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .phone, .phone *, .phone *::before, .phone *::after,
+  .dot, .reveal { animation: none !important; }
+  .btn:hover, .card:hover { transform: none; }
+}
+
+/* ── Download ───────────────────────────────────────────── */
+.dl-section { border-top: 1px solid var(--line); }
+.dl-lede {
+  margin: 18px 0 0;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.dl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 32px 56px;
+  padding-bottom: 44px;
+  border-bottom: 1px solid var(--line);
+}
+.dl-main { flex: 0 1 340px; }
+
+.btn--lg { padding: 18px 30px; font-size: 16px; width: 100%; justify-content: center; }
+
+/* Says which build is about to be downloaded and how sure the page is about
+   that -- `is-guess` is the state where nothing could be read off the device
+   and the arm64 build is simply the safe bet. */
+.dl-detected {
+  margin: 14px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: var(--live);
+}
+.dl-detected.is-guess { color: var(--dim); }
+.dl-detected.is-unsupported { color: var(--orange); }
+
+.dl-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 22px 0 0;
+  border: 1px solid var(--line);
+}
+.dl-facts > div {
+  flex: 1 1 0;
+  min-width: 88px;
+  padding: 12px 14px;
+  border-right: 1px solid var(--line);
+}
+.dl-facts > div:last-child { border-right: 0; }
+.dl-facts dt {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: var(--faint);
+}
+.dl-facts dd {
+  margin: 5px 0 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* ── Variant chooser ────────────────────────────────────── */
+.dl-variants { flex: 1 1 380px; min-width: 280px; }
+.dl-variants > summary {
+  position: relative;
+  padding: 0 0 16px 22px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--head);
+}
+.dl-variants > summary::-webkit-details-marker { display: none; }
+/* Same plus-into-minus as the FAQ, on the left because this summary sits
+   above a list rather than spanning a full-width row. */
+.dl-variants > summary::before,
+.dl-variants > summary::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  width: 12px;
+  height: 1.5px;
+  background: var(--dim);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.dl-variants > summary::after { transform: rotate(90deg); }
+.dl-variants[open] > summary::after { transform: rotate(0deg); }
+
+.dl-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.dl-row { border-bottom: 1px solid var(--line); }
+.dl-row a {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 14px;
+  padding: 14px 4px;
+  text-decoration: none;
+  transition: background 0.18s ease, padding-left 0.18s ease;
+}
+.dl-row a:hover { background: var(--surface); padding-left: 10px; }
+.dl-abi { font-size: 12px; font-weight: 700; letter-spacing: 0.6px; color: var(--head); }
+.dl-note {
+  grid-column: 1;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--dim);
+}
+.dl-bytes {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* The one the page picked, marked in the list too so the primary button and
+   the list can never appear to disagree. */
+.dl-row.is-detected .dl-abi { color: var(--live); }
+.dl-row.is-detected .dl-abi::after {
+  content: " · YOUR DEVICE";
+  color: var(--live);
+  font-size: 9px;
+  letter-spacing: 1px;
+}
+
+.dl-verify {
+  margin: 16px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--dim);
+}
+.dl-verify code {
+  font-family: "Space Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 1px 5px;
+}
+.dl-verify a { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+
+/* ── Install steps ──────────────────────────────────────── */
+.dl-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  list-style: none;
+  margin: 44px 0 0;
+  padding: 0;
+}
+.dl-steps li { flex: 1 1 240px; min-width: 220px; }
+.dl-step-n {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--faint);
+  margin-bottom: 10px;
+}
+.dl-steps p { margin: 0; font-size: 13.5px; line-height: 1.65; color: var(--muted); }
+
+.dl-updates {
+  margin: 36px 0 0;
+  font-size: 13px;
+  color: var(--dim);
+}
+
+@media (max-width: 700px) {
+  .dl { gap: 28px; }
+  .dl-main { flex-basis: 100%; }
+}
+
+/* ── Split section (copy beside a single demo) ──────────── */
+.split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 48px 64px;
+  border-top: 1px solid var(--line);
+}
+.split-copy { flex: 1 1 380px; min-width: 280px; max-width: 560px; }
+.split-copy h2 {
+  margin: 12px 0 0;
+  font-size: clamp(26px, 3.2vw, 38px);
+  font-weight: 700;
+  letter-spacing: -0.7px;
+  line-height: 1.18;
+  color: var(--head);
+}
+.split-lede { margin: 18px 0 0; font-size: 15px; line-height: 1.7; color: var(--muted); }
+
+.split-points { list-style: none; margin: 28px 0 0; padding: 0; }
+.split-points li {
+  display: grid;
+  grid-template-columns: 128px 1fr;
+  gap: 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.split-point-k {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: var(--faint);
+  padding-top: 2px;
+}
+
+.split-demo { flex: 1 1 320px; min-width: 280px; max-width: 400px; }
+.split-caption {
+  margin: 18px 0 0;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  line-height: 1.7;
+  color: var(--faint);
+}
+
+@media (max-width: 620px) {
+  .split-points li { grid-template-columns: 1fr; gap: 6px; }
+}
+
+/* ── Meet request card ──────────────────────────────────── */
+.meet-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 16px 16px 18px;
+}
+.meet-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.meet-head b { color: var(--head); font-weight: 700; }
+.meet-dot { width: 8px; height: 8px; flex-shrink: 0; }
+
+.meet-station {
+  margin: 8px 0 14px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.6px;
+  line-height: 1.1;
+  color: var(--head);
+}
+
+.meet-lines { display: grid; gap: 9px; }
+.meet-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.meet-line svg { flex-shrink: 0; margin-top: 2px; color: var(--dim); }
+
+/* The line the decision actually turns on, boxed off from the details. */
+.meet-outcome {
+  margin: 14px 0 0;
+  padding: 11px 12px;
+  background: var(--bg);
+  border-left: 3px solid var(--live);
+}
+.meet-outcome-k { font-size: 9px; font-weight: 700; letter-spacing: 1.1px; color: var(--dim); }
+.meet-outcome-row { display: flex; align-items: baseline; gap: 10px; margin-top: 4px; }
+.meet-outcome-t { font-size: 20px; font-weight: 700; color: var(--head); }
+.meet-outcome-d { font-size: 11px; font-weight: 700; color: var(--orange); }
+
+.meet-actions { display: flex; gap: 8px; margin-top: 16px; }
+.meet-decline,
+.meet-accept {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.meet-decline { flex: 0 0 40%; border: 1px solid var(--border); color: var(--muted); }
+.meet-accept { flex: 1; background: var(--accent); color: var(--on-accent); }
+
+/* Thirty seconds, along the bottom edge. Static here -- the app animates it. */
+.meet-timer { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--line); }
+.meet-timer i { display: block; height: 100%; width: 62%; background: var(--live); }
+
+/* ── Privacy ────────────────────────────────────────────── */
+.privacy { background: var(--surface); border-top: 1px solid var(--line); }
+
+.priv-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  padding-bottom: 48px;
+  border-bottom: 1px solid var(--line);
+}
+.priv-col { flex: 1 1 260px; min-width: 240px; }
+.priv-k {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.3px;
+  color: var(--faint);
+  margin: 0 0 14px;
+}
+.priv-list { list-style: none; margin: 0; padding: 0; }
+.priv-list li {
+  position: relative;
+  padding: 9px 0 9px 18px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+.priv-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 17px;
+  width: 7px;
+  height: 1.5px;
+  background: var(--faint);
+}
+.priv-note { margin: 0 0 14px; font-size: 13px; line-height: 1.65; color: var(--muted); }
+
+.ghost { display: flex; flex-wrap: wrap; align-items: center; gap: 36px 56px; padding-top: 48px; }
+.ghost-demo { flex: 1 1 320px; min-width: 280px; }
+.ghost-copy { flex: 1 1 340px; min-width: 280px; max-width: 520px; }
+.ghost-copy h3 { margin: 0 0 12px; font-size: 21px; font-weight: 600; color: var(--head); }
+.ghost-copy p { margin: 0 0 14px; font-size: 14px; line-height: 1.65; color: var(--muted); }
+.ghost-copy p:last-child { margin-bottom: 0; }
+
+.ghost-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.ghost-banner svg { flex-shrink: 0; color: var(--dim); }
+.ghost-off {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--head);
+  border-left: 1px solid var(--border);
+  padding-left: 10px;
+}
+
+/* ── Also in the app ────────────────────────────────────── */
+.more-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+.more-item {
+  background: var(--bg);
+  padding: 24px 22px;
+  transition: background 0.22s ease;
+}
+.more-item:hover { background: var(--surface); }
+.more-item h3 { margin: 0 0 8px; font-size: 15.5px; font-weight: 600; color: var(--head); }
+.more-item p { margin: 0; font-size: 13px; line-height: 1.65; color: var(--dim); }
+.more-item .tag { vertical-align: baseline; }
+
+/* The Friends tab carries a dot when a friend is live, exactly as the app's
+   tab bar does -- never a number, only "something is happening here". */
+.tab-icon { position: relative; display: inline-flex; }
+.tab-badge {
+  position: absolute;
+  top: -2px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  background: var(--live);
+  border: 1.5px solid var(--surface);
+}
+
+/* ── Station detail card (showcase) ─────────────────────── */
+/* Sits above the tab bar, the way it slides up in the app when a station is
+   tapped -- lines first, then the station's place in your own route, then who
+   else is coming through it. */
+.stn-card {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 10px 11px 11px;
+}
+.stn-head { display: flex; align-items: flex-start; gap: 8px; color: var(--dim); }
+.stn-name {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--head);
+}
+.stn-lines { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 7px 0 9px; }
+.stn-line { display: flex; align-items: center; gap: 5px; font-size: 9px; color: var(--muted); }
+.stn-line i { width: 7px; height: 7px; flex-shrink: 0; }
+
+.stn-route { border-top: 1px solid var(--line); padding-top: 8px; }
+.stn-route-k { font-size: 7px; font-weight: 700; letter-spacing: 1px; color: var(--faint); }
+.stn-stats { display: flex; gap: 16px; margin-top: 6px; }
+.stn-stat-k { display: block; font-size: 8px; color: var(--dim); }
+.stn-stat-v { display: block; font-size: 12px; font-weight: 700; color: var(--head); margin-top: 1px; }
+
+.stn-friends { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.stn-friend {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text);
+}
+.stn-av {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Space Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 8px;
+  font-weight: 700;
+  font-style: normal;
+  color: var(--on-accent);
+}
+.stn-friend-t { margin-left: auto; font-size: 9px; color: var(--dim); }

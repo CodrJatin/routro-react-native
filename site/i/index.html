@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Routro invite</title>
     <meta name="description" content="Someone wants to share their live metro location with you on Routro." />
+    <!-- An invite URL carries one person's public ID. It is addressed to a
+         single recipient, so it has no business in a search index -- robots.txt
+         says the same thing, and this covers a link that reaches a crawler
+         some other way. -->
+    <meta name="robots" content="noindex, nofollow" />
     <meta name="color-scheme" content="light dark" />
 
     <!-- Link previews in WhatsApp/Telegram, which is where these get pasted. -->
@@ -194,7 +199,11 @@
       var APP_SCHEME = 'routro://invite/';
       var REPO = 'CodrJatin/routro-react-native';
       var RELEASES_URL = 'https://github.com/' + REPO + '/releases/latest';
-      var LATEST_API = 'https://api.github.com/repos/' + REPO + '/releases/latest';
+      // Same manifest the landing page reads -- written by
+      // scripts/release-apks.ts, served from this origin, so there is no
+      // GitHub API rate limit standing between an invited friend and the app.
+      // Absolute, because this page is served from /i/.
+      var MANIFEST = '/release.json';
 
       // Same shape the app validates against: public_uid is the first 8 hex
       // characters of a UUID, always lowercase. Anything else is a truncated or
@@ -235,30 +244,69 @@
       // version-stamped (routro-1.1.0.apk). Doing it this way means the
       // release process doesn't have to change, and a renamed asset can't
       // silently turn the button into a 404.
-      if (/android/i.test(navigator.userAgent)) {
-        fetch(LATEST_API, { headers: { Accept: 'application/vnd.github+json' } })
-          .then(function (response) {
-            return response.ok ? response.json() : null;
-          })
-          .then(function (release) {
-            if (!release || !release.assets) return;
+      // Which architecture, cut down from the landing page's version of the
+      // same question (see main.js). This page has no chooser to fall back on,
+      // so it only asks the cheap questions and lets universal absorb the
+      // rest -- but the 32-bit case is worth catching, because handing an old
+      // phone an arm64 build produces an APK that will not install, and the
+      // person seeing that was invited here by a friend.
+      function preferredAbi() {
+        var ua = navigator.userAgent;
+        if (/aarch64|arm64|armv8/i.test(ua)) return Promise.resolve('arm64-v8a');
+        if (/armv7|armeabi/i.test(ua)) return Promise.resolve('armeabi-v7a');
+        if (/x86_64|x86-64/i.test(ua)) return Promise.resolve('x86_64');
 
-            var apk = release.assets.filter(function (asset) {
-              return /\.apk$/i.test(asset.name);
-            })[0];
-            if (!apk) return;
+        var uaData = navigator.userAgentData;
+        if (!uaData || !uaData.getHighEntropyValues) return Promise.resolve('arm64-v8a');
+
+        return uaData
+          .getHighEntropyValues(['architecture', 'bitness'])
+          .then(function (hints) {
+            var arch = (hints.architecture || '').toLowerCase();
+            var bits = String(hints.bitness || '');
+            if (arch === 'x86') return bits === '64' ? 'x86_64' : 'universal';
+            // Android Chrome leaves `architecture` empty and fills in only
+            // `bitness`, so bitness is usually all there is to go on.
+            return bits === '32' ? 'armeabi-v7a' : 'arm64-v8a';
+          })
+          .catch(function () {
+            return 'arm64-v8a';
+          });
+      }
+
+      if (/android/i.test(navigator.userAgent)) {
+        Promise.all([
+          preferredAbi(),
+          fetch(MANIFEST, { headers: { Accept: 'application/json' } }).then(function (response) {
+            return response.ok ? response.json() : null;
+          }),
+        ])
+          .then(function (results) {
+            var preferred = results[0];
+            var manifest = results[1];
+            if (!manifest || !manifest.builds || manifest.builds.length === 0) return;
+
+            // Falls back to universal rather than to the next architecture
+            // along: universal is the one build guaranteed to run anywhere,
+            // which is the whole reason it is published.
+            function pick(abi) {
+              return manifest.builds.filter(function (build) {
+                return build.abi === abi;
+              })[0];
+            }
+            var apk = pick(preferred) || pick('universal') || manifest.builds[0];
 
             installLinks.forEach(function (link) {
-              link.href = apk.browser_download_url;
-              link.textContent = 'Download the app' + (release.tag_name ? ' (' + release.tag_name + ')' : '');
+              link.href = apk.url;
+              link.textContent = 'Download the app' + (manifest.tag ? ' (' + manifest.tag + ')' : '');
             });
 
             document.getElementById('install-note').textContent =
               'Android will ask you to allow installs from this source. Already signed in on another device? You can add the ID above by hand instead.';
           })
           .catch(function () {
-            // Rate-limited, offline, or no releases yet -- the href set above
-            // still goes somewhere sensible.
+            // Offline, or no manifest generated yet -- the href set above still
+            // goes somewhere sensible.
           });
       }
 

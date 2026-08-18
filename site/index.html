@@ -6,7 +6,7 @@
     <title>Routro — never ride the metro alone</title>
     <meta
       name="description"
-      content="Routro shows you which friends are already on the move across the Delhi Metro, NCR Metro and RRTS — so you meet them at the platform instead of texting about it."
+      content="Routro shows which friends are already on the move across the Delhi Metro, NCR Metro and RRTS, works out where to meet them, and tells you when to get off — without ever storing where you have been."
     />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#141313" />
@@ -15,7 +15,7 @@
     <meta property="og:title" content="Routro — never ride the metro alone" />
     <meta
       property="og:description"
-      content="See which friends are on the move across the Delhi Metro, follow a journey live, and know exactly when to get off."
+      content="See which friends are on the move across the Delhi Metro, agree where to meet them, and know exactly when to get off. Your location is never written down."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://routro.vercel.app/" />
@@ -36,1053 +36,7 @@
       rel="stylesheet"
     />
 
-    <style>
-      /* Mirrors src/theme/tokens.ts, same as i/index.html: square corners,
-         monochrome chrome, monospace for data and small-caps labels. The metro
-         line colours are the only saturated things on the page. */
-      :root {
-        --bg: #141313;
-        --surface: #1c1b1b;
-        --line: #2b2a2a;
-        --border: #444748;
-        --text: #e5e2e1;
-        --head: #f4f0ef;
-        --muted: #c4c7c7;
-        --dim: #8e9192;
-        --faint: #5f5e5e;
-        --accent: #c8c6c5;
-        --on-accent: #181818;
-        --live: #3dd68c;
-
-        --yellow: #ffdf00;
-        --blue: #4169e1;
-        --red: #ff4040;
-        --green: #00a651;
-        --violet: #92278f;
-        --magenta: #ec0f8a;
-        --pink: #f06292;
-        --orange: #f58220;
-
-        --gutter: clamp(20px, 5vw, 64px);
-        --section: clamp(64px, 8vw, 96px);
-        --nav-h: 69px;
-      }
-
-      * { box-sizing: border-box; }
-
-      html {
-        scroll-behavior: smooth;
-        /* Anchors land below the sticky header rather than under it. */
-        scroll-padding-top: calc(var(--nav-h) + 16px);
-      }
-      /* Lets the FAQ animate to `auto` height instead of snapping open.
-         Ignored where unsupported, which is exactly the old behaviour. */
-      @supports (interpolate-size: allow-keywords) {
-        :root { interpolate-size: allow-keywords; }
-      }
-
-      body {
-        margin: 0;
-        background: var(--bg);
-        color: var(--text);
-        font-family: "Outfit", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-        -webkit-font-smoothing: antialiased;
-        overflow-x: hidden;
-      }
-
-      a { color: var(--text); }
-
-      /* The one piece of motion the app itself has: the live dot, used wherever
-         something is happening in real time. */
-      @keyframes ms-pulse {
-        0%, 100% { opacity: 0.5; transform: scale(1); }
-        50% { opacity: 1; transform: scale(1.4); }
-      }
-      .dot {
-        width: 6px;
-        height: 6px;
-        background: var(--live);
-        flex-shrink: 0;
-        animation: ms-pulse 1.4s ease-in-out infinite;
-      }
-      .dot--sm { width: 5px; height: 5px; }
-
-      .mono {
-        font-family: "Space Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-      }
-
-      .eyebrow {
-        font-family: "Space Mono", ui-monospace, Menlo, Consolas, monospace;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 1.5px;
-        color: var(--dim);
-        margin: 0;
-      }
-
-      .section { padding: var(--section) var(--gutter); }
-
-      .section-head { max-width: 640px; margin-bottom: 48px; }
-      .section-head h2 {
-        margin: 12px 0 0;
-        font-size: clamp(28px, 3.5vw, 42px);
-        font-weight: 700;
-        letter-spacing: -0.8px;
-        line-height: 1.15;
-        color: var(--head);
-      }
-
-      .btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        background: var(--accent);
-        color: var(--on-accent);
-        padding: 16px 26px;
-        text-decoration: none;
-        font-weight: 600;
-        font-size: 15px;
-        transition: background 0.18s ease, transform 0.18s ease;
-      }
-      .btn:hover { background: var(--head); color: var(--on-accent); transform: translateY(-2px); }
-      .btn:active { transform: translateY(0); }
-
-      .btn-text {
-        font-family: "Space Mono", ui-monospace, Menlo, Consolas, monospace;
-        font-size: 12px;
-        color: var(--dim);
-        text-decoration: underline;
-        text-underline-offset: 3px;
-        transition: color 0.18s ease;
-      }
-      .btn-text:hover { color: var(--muted); }
-
-      /* ── Nav ────────────────────────────────────────────────── */
-      .nav {
-        position: sticky;
-        top: 0;
-        z-index: 30;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        padding: 22px var(--gutter);
-        border-bottom: 1px solid var(--line);
-        background: rgba(20, 19, 19, 0.88);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-      }
-      .brand { display: flex; align-items: center; gap: 10px; }
-      .brand span { font-weight: 700; font-size: 18px; letter-spacing: -0.3px; }
-
-      /* The toggle is a real focusable checkbox, just moved out of sight -- the
-         burger is its <label>, so the menu works with the keyboard and with no
-         script at all. */
-      .nav-toggle {
-        position: absolute;
-        opacity: 0;
-        width: 1px;
-        height: 1px;
-        margin: 0;
-      }
-      .nav-burger { display: none; }
-
-      .nav-links {
-        display: flex;
-        align-items: center;
-        gap: clamp(16px, 3vw, 32px);
-      }
-      .nav-links a {
-        font-size: 14px;
-        text-decoration: none;
-        color: var(--muted);
-        transition: color 0.18s ease;
-      }
-      .nav-links a:hover { color: var(--head); }
-      .nav-cta {
-        font-family: "Space Mono", ui-monospace, Menlo, Consolas, monospace;
-        font-size: 12px !important;
-        font-weight: 700;
-        letter-spacing: 1px;
-        background: var(--accent);
-        color: var(--on-accent) !important;
-        padding: 11px 18px;
-        transition: background 0.18s ease;
-      }
-      .nav-cta:hover { background: var(--head); }
-
-      @media (max-width: 720px) {
-        :root { --nav-h: 84px; }
-        /* row-gap, not the shorthand: the collapsed menu is still a flex line,
-           and a 16px gap above a zero-height line is 16px of nav for nothing. */
-        .nav { flex-wrap: wrap; row-gap: 0; column-gap: 16px; }
-        .nav-burger {
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          gap: 5px;
-          width: 40px;
-          height: 40px;
-          padding: 0 8px;
-          cursor: pointer;
-          border: 1px solid var(--border);
-        }
-        .nav-burger i {
-          display: block;
-          height: 1.5px;
-          background: var(--text);
-          transition: transform 0.28s ease, opacity 0.2s ease;
-        }
-        /* Three bars fold into a cross. */
-        .nav-toggle:checked ~ .nav-burger i:nth-child(1) { transform: translateY(6.5px) rotate(45deg); }
-        .nav-toggle:checked ~ .nav-burger i:nth-child(2) { opacity: 0; }
-        .nav-toggle:checked ~ .nav-burger i:nth-child(3) { transform: translateY(-6.5px) rotate(-45deg); }
-        .nav-toggle:focus-visible ~ .nav-burger { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-        .nav-links {
-          flex-basis: 100%;
-          flex-direction: column;
-          align-items: stretch;
-          gap: 0;
-          max-height: 0;
-          overflow: hidden;
-          transition: max-height 0.32s cubic-bezier(0.22, 0.61, 0.36, 1);
-        }
-        .nav-toggle:checked ~ .nav-links { max-height: 260px; }
-        .nav-links a {
-          padding: 14px 0;
-          border-top: 1px solid var(--line);
-          font-size: 15px;
-        }
-        .nav-links a:first-child { margin-top: 8px; }
-        .nav-cta { margin: 12px 0 4px; text-align: center; padding: 14px 18px; border-top: 0 !important; }
-      }
-
-      /* ── Hero ───────────────────────────────────────────────── */
-      .hero {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: clamp(24px, 5vw, 64px);
-        flex-wrap: wrap;
-        padding: clamp(48px, 8vw, 96px) var(--gutter) var(--section);
-      }
-      .hero-copy {
-        flex: 1 1 460px;
-        min-width: 300px;
-        display: flex;
-        flex-direction: column;
-        gap: 24px;
-      }
-      .hero-tag {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        align-self: flex-start;
-        border: 1px solid var(--border);
-        padding: 6px 10px;
-      }
-      .hero h1 {
-        margin: 0;
-        font-size: clamp(38px, 5.5vw, 64px);
-        line-height: 1.04;
-        font-weight: 700;
-        letter-spacing: -1.5px;
-        color: var(--head);
-      }
-      .hero p {
-        margin: 0;
-        font-size: clamp(16px, 1.6vw, 19px);
-        line-height: 1.6;
-        color: var(--muted);
-        max-width: 520px;
-      }
-      .hero-actions {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        flex-wrap: wrap;
-        margin-top: 8px;
-      }
-      .hero-device { flex: 0 1 340px; min-width: 260px; display: flex; justify-content: center; }
-
-      /* ── Android device frame ───────────────────────────────── */
-      /* Bezel, status bar and gesture pill traced from the Material 3 frame in
-         the design source, rebuilt as plain markup so the page stays buildless. */
-      .phone {
-        width: 280px;
-        height: 606px;
-        flex-shrink: 0;
-        border-radius: 18px;
-        overflow: hidden;
-        background: #1d1b20;
-        border: 8px solid rgba(116, 119, 117, 0.5);
-        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
-        display: flex;
-        flex-direction: column;
-      }
-      .phone--sm { width: 260px; height: 562px; }
-      .phone-status {
-        height: 40px;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0 16px;
-        position: relative;
-        font-family: Roboto, system-ui, sans-serif;
-        font-size: 14px;
-        letter-spacing: 0.25px;
-        color: #fff;
-      }
-      .phone-punch {
-        position: absolute;
-        left: 50%;
-        top: 8px;
-        transform: translateX(-50%);
-        width: 24px;
-        height: 24px;
-        border-radius: 100px;
-        background: #2e2e2e;
-      }
-      .phone-icons { display: flex; align-items: center; gap: 2px; }
-      /* Column, because every screen is content plus the tab bar under it. */
-      .phone-screen {
-        flex: 1;
-        position: relative;
-        overflow: hidden;
-        background: var(--bg);
-        display: flex;
-        flex-direction: column;
-      }
-      .screen-body { position: relative; flex: 1; overflow: hidden; }
-      .phone-nav { height: 24px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
-      .phone-nav i { width: 108px; height: 4px; border-radius: 2px; background: #fff; opacity: 0.4; }
-      .device { display: flex; flex-direction: column; align-items: center; gap: 20px; }
-      .device figcaption { font-size: 13px; color: var(--dim); }
-
-      /* ── Bottom tab bar ─────────────────────────────────────── */
-      /* The app's own: a hairline track along the top edge with a thicker car
-         riding it, parked over whichever tab is active. */
-      .tabbar { position: relative; flex-shrink: 0; padding-top: 3px; background: var(--surface); }
-      .tab-track { position: absolute; top: 0; left: 0; right: 0; height: 1px; background: var(--border); }
-      .tab-car { position: absolute; top: -1px; left: 0; width: 34px; height: 3px; background: var(--accent); }
-      .tab-row { display: flex; height: 50px; }
-      .tab {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 3px;
-        color: var(--dim);
-      }
-      .tab span { font-size: 10px; font-weight: 600; line-height: 13px; }
-      .tab.is-active { color: var(--accent); }
-
-      /* ── Hero demo ──────────────────────────────────────────── */
-      /* One looping pass through the app, in the order you'd actually do it:
-         plan a route, read the itinerary, start the journey, watch yourself
-         catch up with a friend waiting on the platform, then pull the shade
-         down for the ongoing notification and the interchange alert.
-
-         Every layer runs off the same 22s master timeline (percentages below
-         are of those 22 seconds), which is what keeps the scenes in step with
-         no script on the page. Copy is lifted from the real screens --
-         src/journey/notificationContent.ts and src/journey/alerts.ts write
-         these exact strings. */
-      .scene { position: absolute; inset: 0; }
-
-      .scene-plan { opacity: 0; animation: hd-plan 22s linear infinite; }
-      .scene-map { opacity: 1; animation: hd-map 22s linear infinite; }
-      @keyframes hd-plan {
-        0%, 43.2% { opacity: 1; }
-        46.4%, 95.5% { opacity: 0; }
-        99%, 100% { opacity: 1; }
-      }
-      @keyframes hd-map {
-        0%, 43.2% { opacity: 0; }
-        46.4%, 95.5% { opacity: 1; }
-        99%, 100% { opacity: 0; }
-      }
-
-      /* — Planner scene — */
-      /* The whole column scrolls, because it is a ScrollView in the app and the
-         itinerary is taller than the screen. */
-      .plan { padding: 16px 14px 20px; animation: hd-scroll 22s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
-      @keyframes hd-scroll {
-        0%, 18.2% { transform: translateY(0); }
-        28.2%, 32.7% { transform: translateY(-170px); }
-        38.2%, 100% { transform: translateY(0); }
-      }
-      .plan h4 { margin: 0 0 12px; font-size: 19px; font-weight: 600; color: var(--text); }
-
-      .planner-card { display: flex; background: var(--surface); border: 1px solid var(--border); padding-left: 6px; margin-bottom: 16px; }
-      .planner-fields { flex: 1; min-width: 0; position: relative; }
-      .prail {
-        position: absolute; left: 5px; top: 31px; bottom: 19px; width: 2px; background: #c8c6c5;
-        animation: hd-accent-bg 22s linear infinite;
-      }
-      .pmark { position: absolute; left: 1px; width: 10px; height: 10px; }
-      .pmark--o {
-        top: 26px; border-radius: 50%; border: 2px solid #c8c6c5; background: var(--surface);
-        animation: hd-accent-bd 22s linear infinite;
-      }
-      .pmark--d { bottom: 14px; background: #c8c6c5; animation: hd-accent-bg 22s linear infinite; }
-      .field { padding: 9px 10px 9px 22px; }
-      .field-label { display: block; font-family: "Space Mono", monospace; font-size: 8px; font-weight: 700; letter-spacing: 1px; color: var(--dim); }
-      .field-slot { display: block; position: relative; height: 18px; margin-top: 1px; }
-      .field-slot > span { position: absolute; left: 0; top: 0; font-size: 13px; white-space: nowrap; }
-      .field-ph { color: var(--dim); }
-      .field-val { color: var(--text); font-weight: 600; }
-      .fdiv { height: 1px; margin-left: 22px; background: var(--border); }
-      .swap { width: 40px; align-self: stretch; display: flex; align-items: center; justify-content: center; border-left: 1px solid var(--border); color: var(--dim); font-size: 14px; }
-      
-      .f-o-ph { animation: hd-o-ph 22s linear infinite; }
-      .f-o-val { animation: hd-o-val 22s linear infinite; }
-      .f-d-ph { animation: hd-d-ph 22s linear infinite; }
-      .f-d-val { animation: hd-d-val 22s linear infinite; }
-
-      @keyframes hd-accent-bg {
-        0%, 12.5% { background: #444748; }
-        13.5%, 93% { background: #c8c6c5; }
-        95%, 100% { background: #444748; }
-      }
-      @keyframes hd-accent-bd {
-        0%, 12.5% { border-color: #444748; }
-        13.5%, 93% { border-color: #c8c6c5; }
-        95%, 100% { border-color: #444748; }
-      }
-
-      @keyframes hd-o-ph { 0%, 11% { opacity: 1; } 13.5%, 93% { opacity: 0; } 95%, 100% { opacity: 1; } }
-      @keyframes hd-o-val { 0%, 11% { opacity: 0; } 13.5%, 93% { opacity: 1; } 95%, 100% { opacity: 0; } }
-      @keyframes hd-d-ph { 0%, 11% { opacity: 1; } 13.5%, 93% { opacity: 0; } 95%, 100% { opacity: 1; } }
-      @keyframes hd-d-val { 0%, 11% { opacity: 0; } 13.5%, 93% { opacity: 1; } 95%, 100% { opacity: 0; } }
-      
-      .sj-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-      .sj-label { font-family: "Space Mono", monospace; font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: var(--dim); }
-      .sj-count { font-family: "Space Mono", monospace; font-size: 10px; color: var(--dim); }
-
-      .saved-journeys {
-        animation: hd-sj 22s linear infinite;
-        overflow: hidden;
-      }
-      @keyframes hd-sj {
-        0%, 11% { opacity: 1; max-height: 400px; padding-bottom: 12px; }
-        14.5%, 92% { opacity: 0; max-height: 0px; padding-bottom: 0px; margin-bottom: 0px; }
-        94%, 100% { opacity: 0; max-height: 0px; padding-bottom: 0px; margin-bottom: 0px; }
-      }
-
-      .saved-card {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        padding: 12px 14px;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        position: relative;
-        overflow: hidden;
-      }
-      .sc-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-      .sc-path { flex: 1; min-width: 0; }
-      .sc-path-row { display: flex; align-items: center; gap: 10px; }
-      .sc-o { width: 10px; height: 10px; border-radius: 5px; border: 2px solid var(--text); }
-      .sc-d { width: 10px; height: 10px; background: var(--text); }
-      .sc-conn { width: 2px; height: 10px; margin-left: 4px; background: var(--border); }
-      .sc-name { font-size: 15px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 20px; }
-      .sc-remove { width: 28px; height: 28px; border: 1px solid var(--border); background: var(--bg); display: flex; align-items: center; justify-content: center; color: var(--dim); }
-      .sc-meta { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--border); padding-top: 9px; }
-      .sc-swatches { display: flex; align-items: center; gap: 4px; }
-      .sc-swatch { width: 8px; height: 8px; }
-      .sc-meta-text { font-family: "Space Mono", monospace; font-size: 10px; color: var(--dim); letter-spacing: 0.5px; }
-
-      .saved-card--active {
-        animation: hd-press-saved 22s linear infinite;
-      }
-      @keyframes hd-press-saved {
-        0%, 9.5% { transform: none; filter: none; }
-        10.5% { transform: scale(0.97); filter: brightness(0.82); }
-        12%, 100% { transform: none; filter: none; }
-      }
-      .tap--saved { animation: hd-tap-saved 22s linear infinite; }
-      @keyframes hd-tap-saved {
-        0%, 8.5% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
-        10% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-        12.5%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
-      }
-
-      .plan-result {
-        overflow: hidden;
-        animation: hd-result 22s linear infinite;
-      }
-      @keyframes hd-result {
-        0%, 11% { opacity: 0; transform: translateY(10px); max-height: 0; }
-        14.5%, 92% { opacity: 1; transform: translateY(0); max-height: 800px; }
-        94%, 100% { opacity: 0; transform: translateY(10px); max-height: 0; }
-      }
-      .summary { background: var(--surface); border: 1px solid var(--border); padding: 12px; }
-      .metrics { display: flex; align-items: flex-start; justify-content: space-between; }
-      .metric-label {
-        font-family: "Space Mono", monospace;
-        font-size: 8px;
-        font-weight: 700;
-        letter-spacing: 1px;
-        color: var(--dim);
-      }
-      .metric-value { font-size: 24px; line-height: 26px; font-weight: 600; color: var(--text); }
-      .metric-value em {
-        font-family: "Space Mono", monospace;
-        font-style: normal;
-        font-size: 10px;
-        color: var(--muted);
-      }
-      .meta-line { font-family: "Space Mono", monospace; font-size: 10px; color: var(--dim); margin-top: 6px; }
-      .action-row { display: flex; align-items: flex-start; gap: 6px; margin-top: 12px; }
-      .btn-start {
-        position: relative;
-        flex: 1;
-        height: 34px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        background: var(--accent);
-        color: var(--on-accent);
-        font-size: 12px;
-        font-weight: 700;
-        animation: hd-press 22s linear infinite;
-      }
-      @keyframes hd-press {
-        0%, 41% { transform: none; filter: none; }
-        41.8% { transform: scale(0.97); filter: brightness(0.82); }
-        43%, 100% { transform: none; filter: none; }
-      }
-      .btn-save {
-        width: 34px;
-        height: 34px;
-        border: 1px solid var(--border);
-        background: var(--bg);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--text);
-      }
-
-      /* — Itinerary, as the route screen draws it — */
-      /* Every row owns its piece of the rail so the line runs unbroken from the
-         origin dot to the destination block, changing colour at the interchange. */
-      .itin {
-        margin-top: 10px;
-        background: var(--surface);
-        border: 1px solid var(--border);
-        overflow: hidden;
-        padding-left: 11px;
-      }
-      .irow { display: flex; }
-      .irail { width: 22px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; position: relative; }
-      .irail i { width: 3px; flex: 1; }
-      .imark {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--text);
-      }
-      .imark--o { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--text); background: var(--surface); }
-      .imark--x { width: 17px; height: 17px; border: 2px solid var(--text); background: var(--surface); }
-      .imark--d { width: 12px; height: 12px; background: var(--text); }
-      .icontent { flex: 1; min-width: 0; padding: 10px 14px 10px 8px; }
-      .istation { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-      .istation b { font-size: 15px; font-weight: 600; color: var(--text); }
-      .istation .t { font-family: "Space Mono", monospace; font-size: 12px; color: var(--text); }
-      .ichange { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); margin-top: 3px; }
-      .ibadge {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        background: var(--line);
-        padding: 3px 7px;
-        font-family: "Space Mono", monospace;
-        font-size: 9px;
-        font-weight: 700;
-        letter-spacing: 1px;
-        color: var(--text);
-      }
-      .imeta { font-family: "Space Mono", monospace; font-size: 10px; color: var(--dim); margin-top: 5px; }
-      .iexpand { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 600; color: var(--dim); margin-top: 5px; }
-
-      /* The tap rings: where a finger lands, drawn inside the control it hits
-         so the two can never drift apart. */
-      .tap {
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        width: 30px;
-        height: 30px;
-        border-radius: 50%;
-        border: 2px solid rgba(229, 226, 225, 0.9);
-        background: rgba(229, 226, 225, 0.18);
-        opacity: 0;
-        transform: translate(-50%, -50%) scale(0.4);
-      }
-      .tap--start { animation: hd-tap-start 22s linear infinite; }
-      .tap--bcast { animation: hd-tap-bcast 22s linear infinite; }
-      @keyframes hd-tap-start {
-        0%, 39% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
-        40.5% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-        43%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
-      }
-      @keyframes hd-tap-bcast {
-        0%, 47.5% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
-        49% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-        51%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
-      }
-
-      /* — Map scene — */
-      .journey-bar {
-        position: absolute;
-        left: 12px;
-        right: 12px;
-        top: 44px;
-        background: var(--surface);
-        border: 1px solid var(--border);
-        overflow: hidden;
-      }
-      .journey-bar--demo { top: 12px; }
-      .journey-bar .row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; }
-      .journey-bar .station { font-size: 15px; font-weight: 600; color: var(--text); margin-top: 1px; }
-      .journey-bar .count { font-size: 20px; font-weight: 600; line-height: 1; }
-      .journey-bar .track { height: 3px; display: flex; }
-      .jcount { position: relative; width: 24px; height: 22px; }
-      .jcount span {
-        position: absolute;
-        inset: 0;
-        text-align: center;
-        font-size: 20px;
-        font-weight: 600;
-        line-height: 22px;
-        color: var(--text);
-      }
-      /* Base state is the last digit of the run, so the reduced-motion still
-         shows one number rather than all three stacked on each other. */
-      .jn5 { opacity: 0; animation: hd-n5 22s linear infinite; }
-      .jn4 { opacity: 0; animation: hd-n4 22s linear infinite; }
-      .jn3 { animation: hd-n3 22s linear infinite; }
-      /* Everything that tracks the journey holds its final value until 99%,
-         then snaps back inside the half-frame where the map scene is already
-         fully faded out. Ramping the reset any earlier plays the journey
-         backwards in front of the viewer. */
-      @keyframes hd-n5 { 0%, 52.5% { opacity: 1; } 53.5%, 98% { opacity: 0; } 99.5%, 100% { opacity: 1; } }
-      @keyframes hd-n4 { 0%, 52.5% { opacity: 0; } 53.5%, 63.6% { opacity: 1; } 64.6%, 100% { opacity: 0; } }
-      @keyframes hd-n3 { 0%, 63.6% { opacity: 0; } 64.6%, 98% { opacity: 1; } 99.5%, 100% { opacity: 0; } }
-
-      /* Two copies of the same leg row, one ghosted and one solid, with the
-         solid one clipped to how far along the journey is. clip-path rather
-         than a width-clipped wrapper so the legs stay put and the boundary
-         sweeps across them -- and so nothing has to know the bar's width. */
-      .jrail { position: relative; height: 3px; }
-      .jrail-ghost, .jrail-solid { position: absolute; inset: 0; display: flex; }
-      .jrail-solid { clip-path: inset(0 53% 0 0); animation: hd-jrail 22s linear infinite; }
-      @keyframes hd-jrail {
-        0%, 46.4% { clip-path: inset(0 92% 0 0); }
-        63.6% { clip-path: inset(0 62% 0 0); }
-        92%, 99% { clip-path: inset(0 53% 0 0); }
-        99.5%, 100% { clip-path: inset(0 92% 0 0); }
-      }
-
-      /* Pins ride the journey geometry itself rather than a separate set of
-         coordinates, so they can't wander off the lines they're meant to be on. */
-      .mpin {
-        position: absolute;
-        left: 0;
-        top: 0;
-        offset-rotate: 0deg;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: "Space Mono", monospace;
-        font-weight: 700;
-      }
-      .mpin--self {
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        background: #4169e1;
-        border: 2px solid var(--text);
-        offset-path: path("M232 388 L196 318 L160 245 L132 180 L118 278 L104 368");
-        offset-distance: 44%;
-        animation: hd-self 22s linear infinite;
-      }
-      /* Stops short of Rajiv Chowk on purpose: the bar, the notification and
-         the pin all have to agree that the interchange is still ahead. */
-      @keyframes hd-self {
-        0%, 46.4% { offset-distance: 8%; }
-        63.6% { offset-distance: 38%; }
-        92%, 99% { offset-distance: 47%; }
-        99.5%, 100% { offset-distance: 8%; }
-      }
-      .mpin--friend {
-        width: 20px;
-        height: 20px;
-        font-size: 9px;
-        background: var(--text);
-        color: var(--on-accent);
-        border: 2px solid var(--bg);
-      }
-      /* Rohit is already on the platform one stop short of the interchange and
-         waits there. Same path as the user, and from the moment they meet at
-         63.6% the two keyframe tracks are identical -- so they ride on
-         together instead of drifting apart. The translate offsets the badge so
-         both pins stay readable once they are on the same spot. */
-      .mpin--r {
-        offset-path: path("M232 388 L196 318 L160 245 L132 180 L118 278 L104 368");
-        offset-distance: 44%;
-        transform: translate(16px, -14px);
-        animation: hd-friend-r 22s linear infinite;
-      }
-      @keyframes hd-friend-r {
-        0%, 63.6% { offset-distance: 38%; }
-        92%, 99% { offset-distance: 47%; }
-        99.5%, 100% { offset-distance: 38%; }
-      }
-      /* Priya is coming down the Yellow Line the other way. One direction only:
-         the reset happens while the planner is on screen. */
-      .mpin--p {
-        offset-path: path("M150 16 L140 96 L132 180 L118 278");
-        offset-distance: 60%;
-        animation: hd-friend-p 22s linear infinite;
-      }
-      @keyframes hd-friend-p {
-        0%, 46.4% { offset-distance: 22%; }
-        92%, 99% { offset-distance: 74%; }
-        99.5%, 100% { offset-distance: 22%; }
-      }
-
-      .map-buttons { position: absolute; right: 10px; bottom: 14px; display: flex; flex-direction: column; gap: 8px; }
-      .map-btn {
-        position: relative;
-        width: 38px;
-        height: 38px;
-        border: 1px solid var(--border);
-        background: var(--surface);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--text);
-      }
-      .bcast-fill { position: absolute; inset: 0; background: var(--live); opacity: 1; animation: hd-bcast 22s linear infinite; }
-      .bcast-icon { position: relative; display: flex; color: var(--on-accent); animation: hd-bcast-icon 22s linear infinite; }
-      @keyframes hd-bcast { 0%, 49.5% { opacity: 0; } 51%, 98% { opacity: 1; } 99.5%, 100% { opacity: 0; } }
-      @keyframes hd-bcast-icon { 0%, 49.5% { color: #e5e2e1; } 51%, 98% { color: #181818; } 99.5%, 100% { color: #e5e2e1; } }
-      /* Gate and ring are separate elements because they both animate opacity:
-         the gate says *whether* it is transmitting, the ring is the transmission. */
-      .ping-gate { position: absolute; inset: -1px; opacity: 1; animation: hd-bcast 22s linear infinite; }
-      .ping { position: absolute; inset: 0; border: 2px solid var(--live); animation: hd-ping 1.8s ease-out infinite; }
-      @keyframes hd-ping {
-        0% { transform: scale(1); opacity: 0.7; }
-        /* Stops at 1.6 rather than the app's wider ring: any further and the
-           screen's edge clips it into a rectangle. */
-        100% { transform: scale(1.6); opacity: 0; }
-      }
-
-      /* — The tab bar's car follows the scene — */
-      .tab-car--demo { animation: hd-car 22s cubic-bezier(0.65, 0, 0.35, 1) infinite; }
-      @keyframes hd-car {
-        0%, 43.2% { transform: translateX(82px); }
-        46.4%, 95.5% { transform: translateX(16px); }
-        99%, 100% { transform: translateX(82px); }
-      }
-      .tab-map { color: var(--accent); animation: hd-tab-map 22s linear infinite; }
-      .tab-route { color: var(--dim); animation: hd-tab-route 22s linear infinite; }
-      @keyframes hd-tab-map {
-        0%, 43.2% { color: #8e9192; }
-        46.4%, 95.5% { color: #c8c6c5; }
-        99%, 100% { color: #8e9192; }
-      }
-      @keyframes hd-tab-route {
-        0%, 43.2% { color: #c8c6c5; }
-        46.4%, 95.5% { color: #8e9192; }
-        99%, 100% { color: #c8c6c5; }
-      }
-
-      /* — Notification shade — */
-      /* Sits over the tab bar too, because the system shade covers the app. */
-      .swipe {
-        position: absolute;
-        left: 50%;
-        top: 6px;
-        width: 34px;
-        height: 4px;
-        border-radius: 2px;
-        background: rgba(229, 226, 225, 0.75);
-        opacity: 0;
-        z-index: 7;
-        animation: hd-swipe 22s linear infinite;
-      }
-      @keyframes hd-swipe {
-        0%, 68.5% { opacity: 0; transform: translate(-50%, 0); }
-        70% { opacity: 1; transform: translate(-50%, 0); }
-        75% { opacity: 0.9; transform: translate(-50%, 130px); }
-        77%, 100% { opacity: 0; transform: translate(-50%, 150px); }
-      }
-      .scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.78); opacity: 0; z-index: 5; animation: hd-scrim 22s linear infinite; }
-      @keyframes hd-scrim { 0%, 69.5% { opacity: 0; } 74.5%, 92% { opacity: 1; } 95.5%, 100% { opacity: 0; } }
-      .shade {
-        position: absolute;
-        left: 0;
-        right: 0;
-        top: 0;
-        z-index: 6;
-        padding: 8px 8px 14px;
-        /* Its own surface, not just floating cards: without it the map shows
-           through the gaps between notifications and the pull-down reads as a
-           rendering fault rather than as system UI over the app. */
-        background: rgba(18, 17, 17, 0.96);
-        transform: translateY(-105%);
-        animation: hd-shade 22s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
-      }
-      @keyframes hd-shade {
-        0%, 70% { transform: translateY(-105%); }
-        75.5%, 92% { transform: translateY(0); }
-        95.5%, 100% { transform: translateY(-105%); }
-      }
-      .shade-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 2px 4px 10px;
-        font-family: "Space Mono", monospace;
-        font-size: 9px;
-        color: rgba(229, 226, 225, 0.7);
-      }
-      /* Rounded, unlike everything the app itself draws -- these are system
-         surfaces, and the corner radius is the cheapest way to say so. */
-      .notif { background: #2a2929; border-radius: 8px; padding: 10px; }
-      .notif-head { display: flex; align-items: center; gap: 5px; font-size: 9px; color: var(--dim); margin-bottom: 5px; }
-      .notif-title { font-size: 13px; font-weight: 600; color: var(--head); line-height: 1.25; }
-      .notif-body { font-size: 11px; color: var(--muted); line-height: 1.35; margin-top: 2px; }
-
-      /* The Android tracker: coloured legs, an interchange marker, and a head
-         that keeps creeping while you watch it. */
-      .notif-track { position: relative; height: 4px; margin-top: 10px; }
-      .nt-base, .nt-fill { position: absolute; inset: 0; display: flex; }
-      .nt-base { opacity: 0.28; }
-      .nt-fill { clip-path: inset(0 53% 0 0); animation: hd-nt 22s linear infinite; }
-      .nt-point {
-        position: absolute;
-        top: -2px;
-        left: 55%;
-        width: 8px;
-        height: 8px;
-        margin-left: -4px;
-        background: var(--yellow);
-        transform: rotate(45deg);
-      }
-      .nt-head {
-        position: absolute;
-        top: -3px;
-        left: 47%;
-        width: 3px;
-        height: 10px;
-        margin-left: -1.5px;
-        background: var(--head);
-        animation: hd-nt-head 22s linear infinite;
-      }
-      @keyframes hd-nt { 0%, 70% { clip-path: inset(0 62% 0 0); } 92%, 100% { clip-path: inset(0 53% 0 0); } }
-      @keyframes hd-nt-head { 0%, 70% { left: 38%; } 92%, 100% { left: 47%; } }
-
-      .notif-actions { margin-top: 8px; border-top: 1px solid #3a3939; padding-top: 7px; }
-      .notif-actions span {
-        font-family: "Space Mono", monospace;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 1px;
-        color: var(--accent);
-      }
-      .notif-alert {
-        overflow: hidden;
-        max-height: 0;
-        opacity: 0;
-        border-left: 3px solid var(--yellow);
-        animation: hd-alert 22s linear infinite;
-      }
-      /* Two seconds after the shade settles, which is the point of the beat:
-         you are looking at the ongoing notification when the interchange
-         alert arrives on top of it. */
-      @keyframes hd-alert {
-        0%, 84.5% { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; margin-bottom: 0; }
-        87%, 92% { max-height: 90px; opacity: 1; padding-top: 10px; padding-bottom: 10px; margin-bottom: 8px; }
-        93.5%, 100% { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; margin-bottom: 0; }
-      }
-
-      /* ── Line coverage strip ────────────────────────────────── */
-      .lines {
-        padding: 28px var(--gutter);
-        border-top: 1px solid var(--line);
-        border-bottom: 1px solid var(--line);
-        display: flex;
-        align-items: center;
-        gap: clamp(16px, 3vw, 36px);
-        flex-wrap: wrap;
-      }
-      .lines .eyebrow { white-space: nowrap; }
-      .chip { display: flex; align-items: center; gap: 7px; }
-      .chip i { width: 9px; height: 9px; }
-      .chip span { font-size: 13px; color: var(--muted); }
-
-      /* ── Features ───────────────────────────────────────────── */
-      .cards { display: flex; gap: 20px; flex-wrap: wrap; }
-      .card {
-        flex: 1 1 320px;
-        min-width: 280px;
-        border: 1px solid var(--line);
-        background: var(--surface);
-        padding: 28px;
-        transition: border-color 0.25s ease, transform 0.25s ease;
-      }
-      .card:hover { border-color: var(--border); transform: translateY(-3px); }
-      .card h3 { margin: 14px 0 8px; font-size: 19px; font-weight: 600; color: var(--head); }
-      .card > p { margin: 0 0 22px; font-size: 14px; line-height: 1.6; color: var(--muted); }
-      .demo-box { background: var(--bg); border: 1px solid var(--border); }
-      .avatar {
-        border-radius: 50%;
-        background: #353434;
-        color: var(--text);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 700;
-        flex-shrink: 0;
-      }
-      .tag { background: var(--line); padding: 3px 7px; font-family: "Space Mono", monospace; font-size: 10px; color: var(--text); }
-
-      /* ── Screens showcase ───────────────────────────────────── */
-      .showcase { display: flex; gap: clamp(24px, 5vw, 56px); flex-wrap: wrap; justify-content: center; }
-      .friends-screen { padding: 18px; height: 100%; }
-      .friend { background: var(--surface); border: 1px solid var(--border); padding: 10px; margin-bottom: 8px; }
-
-      /* ── How it works ───────────────────────────────────────── */
-      .steps { display: flex; flex-wrap: wrap; }
-      .step { flex: 1 1 260px; min-width: 240px; padding: 24px; border-top: 2px solid; }
-      .step .num { font-family: "Space Mono", monospace; font-size: 28px; font-weight: 700; }
-      .step h3 { margin: 14px 0 8px; font-size: 18px; font-weight: 600; color: var(--head); }
-      .step p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--muted); }
-
-      /* ── FAQ ────────────────────────────────────────────────── */
-      /* <details name> gives the one-open-at-a-time accordion with no script;
-         ::details-content is what lets it slide rather than snap, and browsers
-         without it simply fall back to the snap. */
-      #faq .section-head { margin-left: auto; margin-right: auto; text-align: center; }
-      .faq { max-width: 760px; margin-left: auto; margin-right: auto; width: 100%; }
-      .faq details { border-bottom: 1px solid var(--line); }
-      .faq summary {
-        position: relative;
-        padding: 20px 34px 20px 0;
-        cursor: pointer;
-        list-style: none;
-        font-size: 16px;
-        font-weight: 600;
-        color: var(--head);
-        transition: color 0.2s ease;
-      }
-      .faq summary:hover { color: #fff; }
-      .faq summary::-webkit-details-marker { display: none; }
-      /* A plus whose upright bar rotates flat into a minus. */
-      .faq summary::before,
-      .faq summary::after {
-        content: "";
-        position: absolute;
-        right: 4px;
-        top: 50%;
-        width: 13px;
-        height: 1.5px;
-        background: var(--dim);
-        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s ease;
-      }
-      .faq summary::before { transform: translateY(-50%); }
-      .faq summary::after { transform: translateY(-50%) rotate(90deg); }
-      .faq details[open] summary::after { transform: translateY(-50%) rotate(0deg); }
-      .faq details[open] summary::before,
-      .faq details[open] summary::after { background: var(--head); }
-      .faq p { margin: 0 0 20px; font-size: 14px; line-height: 1.65; color: var(--muted); max-width: 640px; }
-      .faq details::details-content {
-        block-size: 0;
-        overflow: hidden;
-        transition: block-size 0.34s cubic-bezier(0.4, 0, 0.2, 1), content-visibility 0.34s allow-discrete;
-      }
-      .faq details[open]::details-content { block-size: auto; }
-
-      /* ── Footer ─────────────────────────────────────────────── */
-      .outro { padding: clamp(56px, 7vw, 80px) var(--gutter) 40px; background: var(--surface); border-top: 1px solid var(--line); }
-      .outro-top {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 32px;
-        flex-wrap: wrap;
-        padding-bottom: 48px;
-        border-bottom: 1px solid var(--line);
-      }
-      .outro-top h2 {
-        margin: 0 0 12px;
-        font-size: clamp(26px, 3vw, 34px);
-        font-weight: 700;
-        letter-spacing: -0.6px;
-        color: var(--head);
-      }
-      .outro-top p { margin: 0; font-size: 15px; line-height: 1.6; color: var(--muted); }
-      .outro-bottom {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        flex-wrap: wrap;
-        padding-top: 28px;
-      }
-      .outro-bottom span { font-size: 13px; color: var(--dim); }
-      .outro-bottom .disclaimer { font-size: 12px; color: var(--faint); }
-
-      /* ── Scroll reveal ──────────────────────────────────────── */
-      /* Scroll-driven, so there is no observer to run and no state to keep.
-         The base state is fully visible: where view() isn't supported the
-         page simply doesn't animate rather than staying blank. */
-      @supports (animation-timeline: view()) {
-        @media (prefers-reduced-motion: no-preference) {
-          .reveal {
-            animation: reveal-in linear both;
-            animation-timeline: view();
-            animation-range: entry 8% cover 24%;
-          }
-          @keyframes reveal-in {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: none; }
-          }
-        }
-      }
-
-      /* The device frames are fixed-size by design; on the narrowest phones
-         scale rather than let them push the page sideways. */
-      @media (max-width: 359px) {
-        /* Scaling leaves the pre-scale height in the layout, so pull the
-           difference back with a negative margin -- otherwise the caption and
-           the next section sit a phone-fifth too low. */
-        .phone { transform: scale(0.8); transform-origin: top center; margin-bottom: -124px; }
-        .phone--sm { margin-bottom: -116px; }
-      }
-
-      /* A walkthrough is motion by definition; with motion turned down the base
-         styles already hold a legible still of the map mid-journey, and the
-         page stops scrolling itself. */
-      @media (prefers-reduced-motion: reduce) {
-        html { scroll-behavior: auto; }
-        .phone, .phone *, .phone *::before, .phone *::after,
-        .dot, .reveal { animation: none !important; }
-        .btn:hover, .card:hover { transform: none; }
-      }
-    </style>
+    <link rel="stylesheet" href="/styles.css" />
   </head>
 
   <body>
@@ -1103,7 +57,8 @@
 
       <nav class="nav-links">
         <a href="#features">Features</a>
-        <a href="#how-it-works">How it works</a>
+        <a href="#meet">Meet</a>
+        <a href="#privacy">Privacy</a>
         <a href="#faq">FAQ</a>
         <a href="https://github.com/codrjatin" target="_blank" rel="noopener noreferrer">Developer</a>
         <a class="nav-cta" href="#download">DOWNLOAD</a>
@@ -1486,11 +441,11 @@
                   <span>Route</span>
                 </div>
                 <div class="tab">
-                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <span class="tab-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                     <circle cx="9" cy="8" r="3.2" />
                     <path d="M3 20a6 6 0 0112 0" />
                     <path d="M16 5.6a3.2 3.2 0 010 6.2M17.8 20a6.4 6.4 0 00-1.6-4.3" />
-                  </svg>
+                  </svg><i class="tab-badge"></i></span>
                   <span>Friends</span>
                 </div>
                 <div class="tab">
@@ -1667,6 +622,86 @@
       </div>
     </section>
 
+    <!-- ── Meet ─────────────────────────────────────────────── -->
+    <section class="section split" id="meet">
+      <div class="split-copy reveal">
+        <p class="eyebrow">MEET</p>
+        <h2>"Come to Rajiv Chowk" — and the app does the arithmetic.</h2>
+        <p class="split-lede">
+          Ask a friend to meet you at a station and they don't get a message to interpret. They get the
+          decision itself: when you'd get there, when they'd get there, who waits and for how long — and,
+          the part that actually settles it, what it costs them to say yes.
+        </p>
+        <ul class="split-points">
+          <li>
+            <span class="split-point-k mono">THE STATION</span>
+            <span>Picked from where you both already are — a station on your route that they can reach.</span>
+          </li>
+          <li>
+            <span class="split-point-k mono">THE COST</span>
+            <span>Not "where", but "how much later you'd arrive". A five-minute detour is a different answer to a twenty-minute one.</span>
+          </li>
+          <li>
+            <span class="split-point-k mono">THIRTY SECONDS</span>
+            <span>A request expires on its own. Nobody is left staring at a question from four stations ago.</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="split-demo reveal">
+        <!-- The card as it appears over the map, countdown bar included. -->
+        <div class="meet-card">
+          <div class="meet-head">
+            <i class="meet-dot" style="background: var(--yellow)"></i>
+            <span><b>Priya</b> wants to meet</span>
+          </div>
+
+          <div class="meet-station">Rajiv Chowk</div>
+
+          <div class="meet-lines">
+            <div class="meet-line">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <circle cx="12" cy="4" r="2" />
+                <path d="M10 22l1.5-6-2.5-3 1-5 3 2 3 1M9 12L7 9M13 16l2 6" />
+              </svg>
+              <span>Priya arrives 10:14 &middot; heading to Hauz Khas</span>
+            </div>
+            <div class="meet-line">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3.5 2" />
+              </svg>
+              <span>You arrive 10:16 &middot; Priya waits 2 min</span>
+            </div>
+          </div>
+
+          <div class="meet-outcome">
+            <div class="meet-outcome-k mono">YOU'D STILL REACH HAUZ KHAS</div>
+            <div class="meet-outcome-row">
+              <span class="meet-outcome-t">10:42</span>
+              <span class="meet-outcome-d mono">+4 min</span>
+            </div>
+          </div>
+
+          <div class="meet-actions">
+            <span class="meet-decline mono">NOT NOW</span>
+            <span class="meet-accept mono">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true">
+                <path d="M4 12.5l5.5 5.5L20 7" />
+              </svg>
+              MEET THEM
+            </span>
+          </div>
+
+          <div class="meet-timer"><i></i></div>
+        </div>
+
+        <p class="split-caption mono">
+          A MEET REQUEST IS NEVER WRITTEN DOWN — IT TRAVELS ONLY BETWEEN THE TWO OF YOU, AND EXPIRES
+        </p>
+      </div>
+    </section>
+
     <!-- ── Screens showcase ─────────────────────────────────── -->
     <section style="padding: 0 var(--gutter) var(--section)">
       <div class="section-head reveal">
@@ -1756,11 +791,11 @@
                     <span>Route</span>
                   </div>
                   <div class="tab is-active">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <span class="tab-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                       <circle cx="9" cy="8" r="3.2" />
                       <path d="M3 20a6 6 0 0112 0" />
                       <path d="M16 5.6a3.2 3.2 0 010 6.2M17.8 20a6.4 6.4 0 00-1.6-4.3" />
-                    </svg>
+                    </svg><i class="tab-badge"></i></span>
                     <span>Friends</span>
                   </div>
                   <div class="tab">
@@ -1869,11 +904,11 @@
                     <span>Route</span>
                   </div>
                   <div class="tab">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <span class="tab-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                       <circle cx="9" cy="8" r="3.2" />
                       <path d="M3 20a6 6 0 0112 0" />
                       <path d="M16 5.6a3.2 3.2 0 010 6.2M17.8 20a6.4 6.4 0 00-1.6-4.3" />
-                    </svg>
+                    </svg><i class="tab-badge"></i></span>
                     <span>Friends</span>
                   </div>
                   <div class="tab">
@@ -1891,9 +926,193 @@
           </div>
           <figcaption>Live map</figcaption>
         </figure>
+
+        <figure class="device reveal" style="margin: 0">
+          <div class="phone phone--sm">
+            <div class="phone-status">
+              <span>9:30</span>
+              <div class="phone-punch"></div>
+              <div class="phone-icons">
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M8 13.3L.67 5.97a10.37 10.37 0 0114.66 0L8 13.3z" fill="#fff" />
+                </svg>
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                  <rect x="3.75" y="2" width="8.5" height="13" rx="1.5" fill="#fff" />
+                  <rect x="5.5" y="0.9" width="5" height="2" rx="0.5" fill="#fff" />
+                </svg>
+              </div>
+            </div>
+
+            <div class="phone-screen">
+              <div class="screen-body">
+                <!-- Same network fragment as the map screen, framed on the
+                     interchange the card is about. -->
+                <svg viewBox="0 0 244 429" style="position: absolute; inset: 0; width: 100%; height: 100%" aria-hidden="true">
+                  <path d="M9 392 L75 321 L103 250 L94 161 L131 89 L150 27" stroke="#FFDF00" stroke-width="3" fill="none" />
+                  <path d="M225 401 L178 339 L150 268 L131 214 L103 250" stroke="#4169E1" stroke-width="3" fill="none" />
+                  <path d="M28 36 L75 107 L94 161" stroke="#FF4040" stroke-width="3" fill="none" />
+                  <circle cx="94" cy="161" r="4" fill="#141313" stroke="#e5e2e1" stroke-width="2" />
+                  <circle cx="131" cy="214" r="4" fill="#141313" stroke="#e5e2e1" stroke-width="2" />
+                  <circle cx="75" cy="321" r="4" fill="#141313" stroke="#e5e2e1" stroke-width="2" />
+                  <!-- The tapped one, ringed. -->
+                  <circle cx="103" cy="250" r="9" fill="none" stroke="#e5e2e1" stroke-width="1" opacity="0.45" />
+                  <circle cx="103" cy="250" r="5.5" fill="#e5e2e1" stroke="#141313" stroke-width="2" />
+                </svg>
+
+                <div class="stn-card">
+                  <div class="stn-head">
+                    <span class="stn-name">Rajiv Chowk</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                  </div>
+
+                  <div class="stn-lines">
+                    <span class="stn-line"><i style="background: var(--blue)"></i>Blue Line</span>
+                    <span class="stn-line"><i style="background: var(--yellow)"></i>Yellow Line</span>
+                  </div>
+
+                  <div class="stn-route">
+                    <div class="stn-route-k mono">ON YOUR ROUTE</div>
+                    <div class="stn-stats">
+                      <div><span class="stn-stat-k">Arrive</span><span class="stn-stat-v mono">10:22</span></div>
+                      <div><span class="stn-stat-k">Stops in</span><span class="stn-stat-v mono">4</span></div>
+                      <div><span class="stn-stat-k">Left</span><span class="stn-stat-v mono">20 min</span></div>
+                    </div>
+                  </div>
+
+                  <div class="stn-friends">
+                    <div class="stn-route-k mono">ARRIVING HERE</div>
+                    <div class="stn-friend">
+                      <i class="stn-av" style="background: var(--yellow)">P</i>
+                      <span>Priya</span>
+                      <span class="stn-friend-t mono">10:14</span>
+                    </div>
+                    <div class="stn-friend">
+                      <i class="stn-av" style="background: var(--blue)">R</i>
+                      <span>Rohit</span>
+                      <span class="stn-friend-t mono">10:26</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tabbar">
+                <div class="tab-track"></div>
+                <div class="tab-car" style="transform: translateX(14px)"></div>
+                <div class="tab-row">
+                  <div class="tab is-active">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />
+                      <path d="M9 4v14M15 6v14" />
+                    </svg>
+                    <span>Map</span>
+                  </div>
+                  <div class="tab">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M21 3L3 10.5l7.5 3 3 7.5L21 3z" />
+                    </svg>
+                    <span>Route</span>
+                  </div>
+                  <div class="tab">
+                    <span class="tab-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <circle cx="9" cy="8" r="3.2" />
+                      <path d="M3 20a6 6 0 0112 0" />
+                      <path d="M16 5.6a3.2 3.2 0 010 6.2M17.8 20a6.4 6.4 0 00-1.6-4.3" />
+                    </svg><i class="tab-badge"></i></span>
+                    <span>Friends</span>
+                  </div>
+                  <div class="tab">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <circle cx="12" cy="12" r="3.2" />
+                      <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1" />
+                    </svg>
+                    <span>Settings</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="phone-nav"><i></i></div>
+          </div>
+          <figcaption>Station details</figcaption>
+        </figure>
       </div>
     </section>
 
+
+    <!-- ── Privacy / Ghost Mode ─────────────────────────────── -->
+    <section class="section privacy" id="privacy">
+      <div class="section-head reveal">
+        <p class="eyebrow">PRIVACY</p>
+        <h2>Your location is never written down.</h2>
+        <p class="dl-lede">
+          Not kept briefly. Not kept anonymised. There is no table it goes into. Where you are travels
+          straight from your phone to your friends' phones and exists nowhere afterwards — which means
+          there is no history for anyone to ask for, leak, or sell, including us.
+        </p>
+      </div>
+
+      <div class="priv-grid reveal">
+        <div class="priv-col">
+          <p class="priv-k mono">NEVER STORED</p>
+          <ul class="priv-list">
+            <li>Where you are, now or ever</li>
+            <li>Where you have been</li>
+            <li>The journeys you plan or start</li>
+            <li>Who you met, and where</li>
+          </ul>
+        </div>
+
+        <div class="priv-col">
+          <p class="priv-k mono">STORED, BECAUSE IT HAS TO BE</p>
+          <ul class="priv-list">
+            <li>Your name, email and avatar from Google sign-in — so a friend has something to add you by</li>
+            <li>Your friendships, and which are still pending</li>
+            <li>Crash reports, with identifiers stripped out, deleted automatically after 90 days</li>
+          </ul>
+        </div>
+
+        <div class="priv-col">
+          <p class="priv-k mono">HOW THAT WORKS</p>
+          <p class="priv-note">
+            Live position rides a realtime broadcast channel — in-memory fan-out to the friends
+            subscribed to it, with no database behind it. Only people you have both accepted can join
+            your channel, and that is enforced on the server rather than by the app asking nicely.
+          </p>
+          <p class="priv-note">
+            Meet requests go further: each pair of friends gets a channel of its own, so asking one
+            friend to meet is not readable by the rest.
+          </p>
+        </div>
+      </div>
+
+      <div class="ghost reveal">
+        <div class="ghost-demo">
+          <div class="ghost-banner">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M3 3l18 18M10.6 5.3A9.6 9.6 0 0112 5.2c5 0 9 4.3 10 6.8a15 15 0 01-3.3 4.3M6.6 6.8A15.4 15.4 0 002 12c1 2.5 5 6.8 10 6.8a9.9 9.9 0 004.2-.9" />
+              <path d="M9.9 9.9a3 3 0 004.2 4.2" />
+            </svg>
+            <span>Ghost Mode — you can't see friends, and they can't see you</span>
+            <span class="ghost-off mono">TURN OFF</span>
+          </div>
+        </div>
+
+        <div class="ghost-copy">
+          <h3>Ghost Mode cuts both ways.</h3>
+          <p>
+            Once you've added someone, Routro shares your position with your friends whenever the app is
+            open. Ghost Mode stops that — and stops you seeing them, deliberately. A switch that let you
+            watch while hidden would be a different kind of app.
+          </p>
+          <p>
+            It also switches itself off when you close the app, so it can't quietly leave you invisible
+            for a week without your knowing.
+          </p>
+        </div>
+      </div>
+    </section>
     <!-- ── How it works ─────────────────────────────────────── -->
     <section
       class="section"
@@ -1926,9 +1145,78 @@
           <span class="num" style="color: var(--red)">03</span>
           <h3>Meet at the platform</h3>
           <p>
-            See exactly which station your friends are near and which line they're on, then catch the
-            same train instead of the next one.
+            See which station a friend is near and which line they're on — then ask them to meet you
+            somewhere you'll both pass through, and catch the same train instead of the next one.
           </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Everything else ──────────────────────────────────── -->
+    <section class="section" id="more">
+      <div class="section-head reveal">
+        <p class="eyebrow">ALSO IN THE APP</p>
+        <h2>The parts that don't need a headline.</h2>
+      </div>
+
+      <div class="more-grid reveal">
+        <div class="more-item">
+          <h3>Real DMRC fares</h3>
+          <p>
+            Distance slabs along the route you're actually taking, not a straight line between two dots —
+            so the number matches the gate.
+          </p>
+        </div>
+        <div class="more-item">
+          <h3>Fastest, or fewest changes</h3>
+          <p>
+            Two answers to the same journey. Four minutes saved is not worth a second interchange with
+            luggage, and the app lets you decide that rather than deciding it for you.
+          </p>
+        </div>
+        <div class="more-item">
+          <h3>Saved journeys</h3>
+          <p>Your commute, pinned. One tap starts it, in whichever direction you're facing today.</p>
+        </div>
+        <div class="more-item">
+          <h3>Starts from where you are</h3>
+          <p>The origin fills itself in with your nearest station, marked <span class="tag">NEAREST</span>, and gets out of the way if you'd rather type.</p>
+        </div>
+        <div class="more-item">
+          <h3>Tap any station</h3>
+          <p>
+            Which lines meet there, when you'd arrive, how many stops in — and which friends are coming
+            through it.
+          </p>
+        </div>
+        <div class="more-item">
+          <h3>Routing works offline</h3>
+          <p>
+            The whole network is compiled into the app. Underground with no signal, the route still
+            computes; only your friends' dots need a connection.
+          </p>
+        </div>
+        <div class="more-item">
+          <h3>Alerts you can shape</h3>
+          <p>
+            Getting off, line changes, friends nearby, meet requests — four switches, on the assumption
+            that not everyone wants all four.
+          </p>
+        </div>
+        <div class="more-item">
+          <h3>Invite by link or QR</h3>
+          <p>
+            Hand someone a link or hold up a code. They land in the app with your request already
+            waiting — no typing an eight-character ID off a screen.
+          </p>
+        </div>
+        <div class="more-item">
+          <h3>Light and dark</h3>
+          <p>Follows the system, or pin it. The metro colours are the only saturated thing in either.</p>
+        </div>
+        <div class="more-item">
+          <h3>Updates arrive on their own</h3>
+          <p>Fixes land over the air on the next launch. You download an APK once.</p>
         </div>
       </div>
     </section>
@@ -1942,23 +1230,36 @@
 
       <div class="faq">
         <details name="faq" open>
-          <summary>Can my friends see my location all the time?</summary>
+          <summary>Who can see where I am?</summary>
           <p>
-            No. Sharing is a separate, explicit choice from following a journey — turning one on
-            never turns the other on for you. You can stop broadcasting with one tap, from the app or
-            straight from the notification.
+            Friends you have both accepted, and only while the app is open. Once you've added someone,
+            sharing is on by default — that is what makes the map worth opening — and Ghost Mode turns
+            it off in both directions at once. Nobody else can see you: the channel your position
+            travels on is one only your friends are allowed to join, and that is checked on the server,
+            not by the app choosing to behave.
           </p>
         </details>
         <details name="faq">
-          <summary>What data does Routro collect?</summary>
+          <summary>Is my location history stored anywhere?</summary>
           <p>
-            Your location history is never saved or stored anywhere. The only information kept on our
-            servers is your basic profile — your name and email address from Google sign-in — solely so
-            your friends can identify and connect with you.
+            No — there is no table it goes into. Your position travels over a realtime broadcast
+            channel straight to your friends and is gone. Meet requests work the same way and expire
+            after thirty seconds. What is kept is your profile (name, email and avatar from Google
+            sign-in, plus a short public ID), your friendships, and crash reports with identifiers
+            stripped out — and those delete themselves after 90 days.
           </p>
         </details>
         <details name="faq">
-          <summary>Does tracking a journey drain my battery?</summary>
+          <summary>What is Ghost Mode?</summary>
+          <p>
+            One switch that stops your friends seeing you and stops you seeing them. It is deliberately
+            symmetrical — being able to watch while invisible would make this a different app — and it
+            switches itself off when you close Routro, so you can't leave yourself hidden for a week by
+            accident.
+          </p>
+        </details>
+        <details name="faq">
+          <summary>Does following a journey drain my battery?</summary>
           <p>
             It uses a single low-priority foreground notification rather than constant background
             polling, and stops automatically when you arrive, or the moment you swipe the app away.
@@ -1973,10 +1274,36 @@
           </p>
         </details>
         <details name="faq">
+          <summary>Does it work underground, without signal?</summary>
+          <p>
+            Routing does. The whole network — every station, every track, the fare slabs — is compiled
+            into the app, so planning a route and counting stops needs no connection at all. Your
+            friends' positions are the part that needs one, and the app reconnects on its own when the
+            train reaches a platform with signal.
+          </p>
+        </details>
+        <details name="faq">
           <summary>Which metro networks does it cover?</summary>
           <p>
             The Delhi Metro (all lines), the Airport Express, NCR Metro in Gurugram and Noida, and the
             Delhi–Meerut RRTS — one graph, one app, no switching between line-specific apps.
+          </p>
+        </details>
+        <details name="faq">
+          <summary>Why is it not on the Play Store?</summary>
+          <p>
+            It will be. Until then the APK here is the whole distribution, signed with the same key
+            every release, with a checksum published beside it. Updates after the first install arrive
+            over the air, so this is a one-time download rather than a habit.
+          </p>
+        </details>
+        <details name="faq">
+          <summary>Which APK do I download?</summary>
+          <p>
+            The page tries to work that out for you, and gets it right often enough to lead with an
+            answer — but Android browsers frequently don't report the architecture at all, so the full
+            list is always one click away. If you'd rather not think about it, take the universal
+            build: it works on everything, at roughly twice the size.
           </p>
         </details>
         <details name="faq">
@@ -1989,8 +1316,108 @@
       </div>
     </section>
 
+    <!-- ── Download ─────────────────────────────────────────── -->
+    <section class="section dl-section" id="download">
+      <div class="section-head reveal">
+        <p class="eyebrow">DOWNLOAD</p>
+        <h2>One file, straight from the source.</h2>
+        <p class="dl-lede">
+          Routro isn't on the Play Store yet, so it installs from an APK you download here — the same
+          build, signed with the same key, every release.
+        </p>
+      </div>
+
+      <div class="dl reveal">
+        <div class="dl-main">
+          <!-- Filled in by main.js once the release and the device are known.
+               The markup ships with the values for the build almost everyone
+               needs, so a visitor with no JS still gets a working download and
+               an honest label rather than an empty button. -->
+          <a class="btn btn--lg" href="https://github.com/CodrJatin/routro-react-native/releases/latest" data-dl-primary>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M12 3v12M7 11l5 5 5-5M4 20h16" />
+            </svg>
+            <span data-dl-label>Download for Android</span>
+          </a>
+
+          <p class="dl-detected mono" data-dl-detected>CHECKING YOUR DEVICE&hellip;</p>
+
+          <dl class="dl-facts mono">
+            <div><dt>VERSION</dt><dd data-dl-version>&mdash;</dd></div>
+            <div><dt>SIZE</dt><dd data-dl-size>&mdash;</dd></div>
+            <div><dt>ANDROID</dt><dd>7.0 and up</dd></div>
+          </dl>
+        </div>
+
+        <!-- Detection is a guess dressed up as a fact unless the alternative
+             is one click away, so the full list is never more than that -- and
+             is open by default when nothing could be detected. -->
+        <details class="dl-variants" data-dl-variants>
+          <summary>
+            <span>Different device? Pick a build</span>
+          </summary>
+          <ul class="dl-list" data-dl-list>
+            <li class="dl-row" data-dl-abi="arm64-v8a">
+              <a href="https://github.com/CodrJatin/routro-react-native/releases/latest">
+                <span class="dl-abi mono">ARM64-V8A</span>
+                <span class="dl-note">Nearly every phone made since 2017</span>
+                <span class="dl-bytes mono" data-dl-bytes>&mdash;</span>
+              </a>
+            </li>
+            <li class="dl-row" data-dl-abi="armeabi-v7a">
+              <a href="https://github.com/CodrJatin/routro-react-native/releases/latest">
+                <span class="dl-abi mono">ARMEABI-V7A</span>
+                <span class="dl-note">Older 32-bit phones</span>
+                <span class="dl-bytes mono" data-dl-bytes>&mdash;</span>
+              </a>
+            </li>
+            <li class="dl-row" data-dl-abi="x86_64">
+              <a href="https://github.com/CodrJatin/routro-react-native/releases/latest">
+                <span class="dl-abi mono">X86_64</span>
+                <span class="dl-note">Emulators and Intel Chromebooks</span>
+                <span class="dl-bytes mono" data-dl-bytes>&mdash;</span>
+              </a>
+            </li>
+            <li class="dl-row" data-dl-abi="universal">
+              <a href="https://github.com/CodrJatin/routro-react-native/releases/latest">
+                <span class="dl-abi mono">UNIVERSAL</span>
+                <span class="dl-note">Works anywhere &mdash; carries every architecture at once</span>
+                <span class="dl-bytes mono" data-dl-bytes>&mdash;</span>
+              </a>
+            </li>
+          </ul>
+          <p class="dl-verify">
+            Every release ships a
+            <a href="https://github.com/CodrJatin/routro-react-native/releases/latest" data-dl-sums>SHA256SUMS.txt</a>
+            next to the APKs. <code>sha256sum -c SHA256SUMS.txt</code> tells you the file you got is the
+            file that was built.
+          </p>
+        </details>
+      </div>
+
+      <ol class="dl-steps reveal">
+        <li>
+          <span class="dl-step-n mono">01</span>
+          <p>Open the downloaded file. Android will ask whether to allow installs from your browser — that
+          prompt is what it looks like every time an app comes from outside the Play Store.</p>
+        </li>
+        <li>
+          <span class="dl-step-n mono">02</span>
+          <p>Sign in with Google. Routro needs an account only so friends have something to add you by.</p>
+        </li>
+        <li>
+          <span class="dl-step-n mono">03</span>
+          <p>Allow location while using the app. Without it the map still works; your position on it doesn't.</p>
+        </li>
+      </ol>
+
+      <p class="dl-updates">
+        Updates arrive over the air after the first install — you won't be downloading an APK every time.
+      </p>
+    </section>
+
     <!-- ── Final CTA / footer ───────────────────────────────── -->
-    <footer class="outro" id="download">
+    <footer class="outro">
       <div class="outro-top reveal">
         <div style="max-width: 480px">
           <h2>Go together. Not separately.</h2>
@@ -2015,52 +1442,6 @@
       </div>
     </footer>
 
-    <script>
-      // Download links, resolved exactly the way i/index.html does it -- kept
-      // in step with that file by hand, since the two are deployed together but
-      // share no bundle.
-      (function () {
-        var REPO = 'CodrJatin/routro-react-native';
-        var RELEASES_URL = 'https://github.com/' + REPO + '/releases/latest';
-        var LATEST_API = 'https://api.github.com/repos/' + REPO + '/releases/latest';
-
-        var links = [].slice.call(document.querySelectorAll('[data-install]'));
-
-        links.forEach(function (link) {
-          link.href = RELEASES_URL;
-        });
-
-        fetch(LATEST_API, { headers: { Accept: 'application/vnd.github+json' } })
-          .then(function (response) {
-            return response.ok ? response.json() : null;
-          })
-          .then(function (release) {
-            if (!release || !release.assets) return;
-
-            var apk = release.assets.filter(function (asset) {
-              return /\.apk$/i.test(asset.name);
-            })[0];
-            if (!apk) return;
-
-            links.forEach(function (link) {
-              link.href = apk.browser_download_url;
-            });
-          })
-          .catch(function () {
-            // Rate-limited, offline, or no releases yet -- fallback to releases/latest
-          });
-      })();
-
-      // Close the mobile menu once a link in it has been followed, so the
-      // anchor's target isn't left sitting behind an open panel.
-      (function () {
-        var toggle = document.getElementById('nav-toggle');
-        document.querySelectorAll('.nav-links a').forEach(function (link) {
-          link.addEventListener('click', function () {
-            toggle.checked = false;
-          });
-        });
-      })();
-    </script>
+    <script src="/main.js" defer></script>
   </body>
 </html>

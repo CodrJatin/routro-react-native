@@ -64,3 +64,5 @@ todo.md
 
 # Python
 scripts/__pycache__
+# Renamed + checksummed APKs from scripts/release-apks.ts
+/release

@@ -57,7 +57,8 @@
     "compile-graph": "tsx scripts/compile-graph.ts",
     "compile-tracks": "tsx scripts/compile-tracks.ts",
     "compile-data": "npm run compile-graph && npm run compile-tracks",
-    "test": "vitest run"
+    "test": "vitest run",
+    "release:apks": "tsx scripts/release-apks.ts"
   },
   "private": true
 }
