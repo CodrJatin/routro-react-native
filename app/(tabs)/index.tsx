@@ -26,6 +26,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import tracksGeoJSON from '../../assets/data/tracks.json';
 import { useAuth } from '../../src/auth/AuthProvider';
+import { AppSplash } from '../../src/components/AppSplash';
 import { showDialog } from '../../src/dialog/dialogStore';
 import { findRoute, getStation } from '../../src/engine/graph';
 import type { CompiledStation, StationId } from '../../src/engine/types';
@@ -106,6 +107,25 @@ export default function MapScreen() {
   const { colors, mode, radius } = useTheme();
   const styles = useMemo(() => createStyles(colors, radius), [colors, radius]);
   const insets = useSafeAreaInsets();
+
+  /**
+   * Holds the MapLibre view back until this screen has painted once.
+   *
+   * This is the first screen behind the auth gate, so mounting it is what the
+   * app is doing during the stretch right after sign-in. Instantiating the
+   * native map -- and handing it the bundled track geometry -- in the same
+   * commit as the rest of the tab meant nothing at all reached the screen until
+   * that finished: no tab bar, no chrome, just the window's background colour.
+   *
+   * One frame's delay is enough to break that up. The tab bar and the loading
+   * screen below paint on the first commit, the map arrives on the next, and
+   * the wait now looks like a wait rather than like a hang.
+   */
+  const [isMapMounted, setIsMapMounted] = useState(false);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setIsMapMounted(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   // Hydration is gated on too: until the stored preference has been read,
   // `isEnabled` is its default `false`, and rendering the basemap only to swap
@@ -530,6 +550,15 @@ export default function MapScreen() {
       zoom: 15,
       duration: 800,
     });
+  }
+
+  // Every hook above has already run, so this early return costs none of them.
+  if (!isMapMounted) {
+    return (
+      <View style={styles.container}>
+        <AppSplash message="Loading the map…" />
+      </View>
+    );
   }
 
   return (

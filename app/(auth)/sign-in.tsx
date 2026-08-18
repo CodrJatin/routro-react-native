@@ -37,9 +37,15 @@ export default function SignInScreen() {
   async function handleGoogleSubmit() {
     setError(null);
     setIsSubmitting(true);
-    const result = await signInWithGoogle();
-    setIsSubmitting(false);
-    if (result.error) setError(result.error);
+    try {
+      const result = await signInWithGoogle();
+      if (result.error) setError(result.error);
+    } catch (err) {
+      console.warn('[sign-in] unexpected error', err);
+      setError('Something went wrong. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (

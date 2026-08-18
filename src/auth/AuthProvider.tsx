@@ -64,11 +64,21 @@ async function completeAuthFromUrl(url: string): Promise<{ handled: boolean; err
   const refreshToken = params.get('refresh_token');
   if (!accessToken || !refreshToken) return { handled: false, error: null };
 
-  const { error } = await supabase.auth.setSession({
-    access_token: accessToken,
-    refresh_token: refreshToken,
-  });
-  return { handled: true, error: error?.message ?? null };
+  try {
+    const { error } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+    return { handled: true, error: error?.message ?? null };
+  } catch (err) {
+    // setSession can reject outright (network flake right after the OAuth
+    // redirect), not just resolve with `error` set. Left unguarded, that
+    // rejection had nothing downstream to catch it -- not signInWithGoogle's
+    // caller, and not the error boundary, which only sees render-time throws.
+    // The result was a screen that just went blank with no explanation.
+    console.warn('[auth] setSession rejected', err);
+    return { handled: true, error: 'Could not complete sign-in. Please try again.' };
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -265,24 +275,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profile,
 
       async signInWithGoogle() {
-        const redirectTo = Linking.createURL('auth/callback');
-        const { data, error } = await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: { redirectTo, skipBrowserRedirect: true },
-        });
-        if (error || !data?.url) {
-          return { error: error?.message ?? 'Failed to start Google sign-in.' };
-        }
+        try {
+          const redirectTo = Linking.createURL('auth/callback');
+          const { data, error } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: { redirectTo, skipBrowserRedirect: true },
+          });
+          if (error || !data?.url) {
+            return { error: error?.message ?? 'Failed to start Google sign-in.' };
+          }
 
-        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-        if (result.type !== 'success' || !result.url) {
-          // Either the user cancelled, or Android routed the redirect to the app
-          // as an intent -- in which case the deep-link listener above completes
-          // the sign-in. Neither case is an error worth surfacing here.
-          return { error: null };
-        }
+          const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+          if (result.type !== 'success' || !result.url) {
+            // Either the user cancelled, or Android routed the redirect to the app
+            // as an intent -- in which case the deep-link listener above completes
+            // the sign-in. Neither case is an error worth surfacing here.
+            return { error: null };
+          }
 
-        return { error: (await completeAuthFromUrl(result.url)).error };
+          return { error: (await completeAuthFromUrl(result.url)).error };
+        } catch (err) {
+          // The button's own caller (sign-in.tsx) turns this into a visible
+          // error strip and clears the spinner. Without this catch, a reject
+          // here (e.g. the browser session throwing) left the button spinning
+          // or the caller's own unhandled rejection with no UI to show for it.
+          console.warn('[auth] signInWithGoogle failed', err);
+          return { error: 'Could not sign in with Google. Please try again.' };
+        }
       },
 
       async signOut() {

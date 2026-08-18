@@ -8,6 +8,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../src/auth/AuthProvider';
 import { AppErrorBoundary } from '../src/components/AppErrorBoundary';
+import { AppSplash } from '../src/components/AppSplash';
 import { DialogHost } from '../src/dialog/DialogHost';
 import { installCrashCapture } from '../src/diagnostics/crashReport';
 import { installConsoleCapture } from '../src/diagnostics/logBuffer';
@@ -63,13 +64,13 @@ function RootNavigator() {
   const needsOnboarding = !hasOnboarded && !isAuthenticated;
 
   if (isConfigured && isLoading) {
-    return null;
+    return <AppSplash />;
   }
   // Held until the flag has actually been read. Rendering on the default of
   // `false` would flash the intro at every returning user for the frame or two
   // before the read lands.
   if (!isOnboardingHydrated) {
-    return null;
+    return <AppSplash />;
   }
 
   return (
@@ -131,17 +132,25 @@ export default function RootLayout() {
     console.error('Failed to load custom fonts, falling back to system fonts:', fontError);
   }
 
-  if (!fontsLoaded && !fontError) {
-    return null;
-  }
+  const isWaitingOnFonts = !fontsLoaded && !fontError;
 
+  // ThemeProvider now sits above the font gate rather than below it. It used to
+  // be the other way round, so the wait for fonts -- the longest single stretch
+  // of a cold start -- could only `return null`, with no theme in scope to
+  // render anything better. Hoisting it costs nothing (it reads AsyncStorage
+  // and defaults to dark meanwhile) and buys a branded loading screen for the
+  // whole of start-up instead of a blank window.
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
-          <AuthProvider>
-            <RootNavigator />
-          </AuthProvider>
+          {isWaitingOnFonts ? (
+            <AppSplash />
+          ) : (
+            <AuthProvider>
+              <RootNavigator />
+            </AuthProvider>
+          )}
           {/* Outside the navigator, and outside the auth gate: several of these
               are raised by stores rather than by a screen, and a dialog must
               outlive the screen that opened it -- including the frames where
