@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { AnimatedPressable } from '../components/AnimatedPressable';
 // MOCK FRIEND -- temporary dev fixture, delete with src/dev/mockFriend.ts
 import { isMockFriendId } from '../dev/mockFriend';
+import { confirmDialog, showDialog } from '../dialog/dialogStore';
 import { getStation } from '../engine/graph';
 import type { StationId } from '../engine/types';
 import { useTheme } from '../theme/ThemeProvider';
@@ -81,21 +82,15 @@ export function MeetButton({
   const isPending = outgoing?.outcome === 'pending' && outgoing.stationId === stationId;
   const isCoolingDown = cooldownMs > 0;
 
-  function handlePress() {
+  async function handlePress() {
     const stationName = getStation(stationId)?.name ?? 'this station';
-    Alert.alert(
-      'Ask to meet?',
-      `Ask ${friendName} to meet at ${stationName}. They get 30 seconds to answer.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Ask',
-          onPress: () => {
-            void send();
-          },
-        },
-      ],
-    );
+    const confirmed = await confirmDialog({
+      title: 'Ask to meet?',
+      message: `Ask ${friendName} to meet at ${stationName}. They get 30 seconds to answer.`,
+      confirmText: 'Ask',
+      cancelText: 'Cancel',
+    });
+    if (confirmed) await send();
   }
 
   /** Success needs no alert of its own: the button switches to ASKED the
@@ -104,13 +99,19 @@ export function MeetButton({
     setIsSending(true);
     const result = await sendMeetRequest(friendUserId, stationId);
     setIsSending(false);
-    if (!result.ok) Alert.alert(`Couldn't ask ${friendName}`, result.reason);
+    if (!result.ok) {
+      void showDialog({
+        title: `Couldn't ask ${friendName}`,
+        message: result.reason,
+        tone: 'danger',
+      });
+    }
   }
 
   return (
     <AnimatedPressable
       style={[styles.button, (isPending || isCoolingDown) && styles.buttonQuiet]}
-      onPress={handlePress}
+      onPress={() => void handlePress()}
       disabled={isSending || isPending || isCoolingDown}
       hitSlop={6}
       accessibilityRole="button"

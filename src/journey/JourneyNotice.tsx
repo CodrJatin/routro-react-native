@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Alert } from 'react-native';
+import { showDialog } from '../dialog/dialogStore';
 import { useJourneyStore } from './journeyStore';
 
 /**
@@ -16,7 +16,7 @@ export function JourneyNotice() {
 
   useEffect(() => {
     if (!endedNotice) return;
-    Alert.alert('Journey stopped', endedNotice);
+    void showDialog({ title: 'Journey stopped', message: endedNotice, tone: 'danger' });
     useJourneyStore.getState().setEndedNotice(null);
   }, [endedNotice]);
 

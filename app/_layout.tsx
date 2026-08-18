@@ -8,6 +8,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../src/auth/AuthProvider';
 import { AppErrorBoundary } from '../src/components/AppErrorBoundary';
+import { DialogHost } from '../src/dialog/DialogHost';
 import { installCrashCapture } from '../src/diagnostics/crashReport';
 import { installConsoleCapture } from '../src/diagnostics/logBuffer';
 import { useBasemapStore } from '../src/map/basemapStore';
@@ -141,6 +142,11 @@ export default function RootLayout() {
           <AuthProvider>
             <RootNavigator />
           </AuthProvider>
+          {/* Outside the navigator, and outside the auth gate: several of these
+              are raised by stores rather than by a screen, and a dialog must
+              outlive the screen that opened it -- including the frames where
+              the navigator above renders nothing at all. */}
+          <DialogHost />
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing,
   FadeIn,
@@ -11,6 +11,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { AnimatedPressable } from '../components/AnimatedPressable';
+import { showDialog } from '../dialog/dialogStore';
 import { MEET_REQUEST_TTL_MS } from '../realtime/meetMessage';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../theme/tokens';
@@ -94,7 +95,9 @@ export function MeetRequestCard({
     setIsAnswering(true);
     const result = await acceptMeetRequest(request.id);
     setIsAnswering(false);
-    if (!result.ok) Alert.alert("Couldn't accept", result.reason);
+    if (!result.ok) {
+      void showDialog({ title: "Couldn't accept", message: result.reason, tone: 'danger' });
+    }
   }
 
   async function handleDecline() {

@@ -1,4 +1,4 @@
-import { Alert } from 'react-native';
+import { confirmDialog, showDialog } from '../dialog/dialogStore';
 import type { RouteMode, StationId } from '../engine/types';
 import { startJourney } from './journeyController';
 import { useJourneyStore } from './journeyStore';
@@ -26,7 +26,11 @@ export async function confirmAndStartJourney(
 
   const result = await startJourney(originId, destinationId, mode);
   if (!result.ok) {
-    Alert.alert("Couldn't start the journey", result.reason);
+    void showDialog({
+      title: "Couldn't start the journey",
+      message: result.reason,
+      tone: 'danger',
+    });
     return 'failed';
   }
   return 'started';
@@ -35,29 +39,24 @@ export async function confirmAndStartJourney(
 /**
  * Resolves true only if the user chose to go ahead.
  *
- * `onDismiss` matters as much as the buttons: on Android the back button
- * closes an alert without pressing either, and without it that promise would
- * never settle -- leaving the caller's busy state spinning on a button the
- * user has already walked away from.
+ * Escaping the dialog counts as "not now" rather than leaving the promise
+ * unsettled -- otherwise the caller's busy state would spin forever on a button
+ * the user has already walked away from.
  */
 function askIntro(): Promise<boolean> {
-  return new Promise((resolve) => {
-    Alert.alert(
-      'Start this journey?',
-      // Trimmed when sharing became the default. The paragraph about friends
-      // seeing you move has moved to onboarding, where it belongs: it is true
-      // of the whole app now, not of this button, and repeating it here made
-      // the one genuinely new fact -- that something keeps running after you
-      // put the phone away -- the middle of a wall of text.
+  return confirmDialog({
+    title: 'Start this journey?',
+    // Trimmed when sharing became the default. The paragraph about friends
+    // seeing you move has moved to onboarding, where it belongs: it is true
+    // of the whole app now, not of this button, and repeating it here made
+    // the one genuinely new fact -- that something keeps running after you
+    // put the phone away -- the middle of a wall of text.
+    message:
       'Routro will show a notification with your progress and tell you when to get off — ' +
-        'including while the app is closed and your phone is locked. Friends keep seeing you ' +
-        'move for the whole journey.\n\n' +
-        'Stop any time from the notification, or by swiping the app away.',
-      [
-        { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },
-        { text: 'Start', onPress: () => resolve(true) },
-      ],
-      { onDismiss: () => resolve(false) },
-    );
+      'including while the app is closed and your phone is locked. Friends keep seeing you ' +
+      'move for the whole journey.\n\n' +
+      'Stop any time from the notification, or by swiping the app away.',
+    confirmText: 'Start',
+    cancelText: 'Not now',
   });
 }

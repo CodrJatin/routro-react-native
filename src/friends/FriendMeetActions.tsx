@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { AnimatedPressable } from '../components/AnimatedPressable';
 // MOCK FRIEND -- temporary dev fixture, delete with src/dev/mockFriend.ts
 import { isMockFriendId } from '../dev/mockFriend';
+import { showDialog } from '../dialog/dialogStore';
 import type { SelfRouteView } from '../route/useSelfRoute';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../theme/tokens';
@@ -146,7 +147,11 @@ export function FriendMeetActions({
       // that the cooldown would only refuse.
       setIsPickerOpen(false);
     } else {
-      Alert.alert(`Couldn't ask ${friendName}`, result.reason);
+      void showDialog({
+        title: `Couldn't ask ${friendName}`,
+        message: result.reason,
+        tone: 'danger',
+      });
     }
   }
 

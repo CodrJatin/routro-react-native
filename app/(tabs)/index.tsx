@@ -12,7 +12,6 @@ import * as Location from 'expo-location';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import {
-  Alert,
   Animated,
   AppState,
   type AppStateStatus,
@@ -27,6 +26,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import tracksGeoJSON from '../../assets/data/tracks.json';
 import { useAuth } from '../../src/auth/AuthProvider';
+import { showDialog } from '../../src/dialog/dialogStore';
 import { findRoute, getStation } from '../../src/engine/graph';
 import type { CompiledStation, StationId } from '../../src/engine/types';
 import { friendColorFor } from '../../src/friends/friendColor';
@@ -144,7 +144,11 @@ export default function MapScreen() {
   // of them mean sharing has stopped.
   useEffect(() => {
     if (!broadcastNotice) return;
-    Alert.alert(broadcastNotice.title, broadcastNotice.message);
+    void showDialog({
+      title: broadcastNotice.title,
+      message: broadcastNotice.message,
+      tone: 'danger',
+    });
     useLocationStore.getState().setBroadcastNotice(null);
   }, [broadcastNotice]);
 
@@ -402,17 +406,18 @@ export default function MapScreen() {
     setFocusedFriendId(null);
   }
 
-  function showLocationDeniedAlert(canAskAgain: boolean) {
-    Alert.alert(
-      'Location permission needed',
-      'Routro needs location access to show where you are on the map.',
-      canAskAgain
+  function showLocationDeniedDialog(canAskAgain: boolean) {
+    void showDialog({
+      title: 'Location permission needed',
+      message: 'Routro needs location access to show where you are on the map.',
+      tone: 'danger',
+      buttons: canAskAgain
         ? [{ text: 'OK' }]
         : [
             { text: 'Not now', style: 'cancel' },
             { text: 'Open settings', onPress: () => void Linking.openSettings() },
           ],
-    );
+    });
   }
 
   async function handleCenterOnMyLocation() {
@@ -425,7 +430,7 @@ export default function MapScreen() {
       // to the only route left rather than firing a request that resolves
       // denied before the user sees anything.
       if (!canAskForLocation) {
-        showLocationDeniedAlert(false);
+        showLocationDeniedDialog(false);
         return;
       }
       isRequestingLocation.current = true;
@@ -434,7 +439,7 @@ export default function MapScreen() {
         setPermission(status);
         setCanAskForLocation(canAskAgain);
         if (status !== Location.PermissionStatus.GRANTED) {
-          showLocationDeniedAlert(canAskAgain);
+          showLocationDeniedDialog(canAskAgain);
         }
       } finally {
         isRequestingLocation.current = false;
@@ -471,10 +476,11 @@ export default function MapScreen() {
   async function offerLocationServices() {
     const enabled = await Location.hasServicesEnabledAsync().catch(() => true);
     if (enabled) {
-      Alert.alert(
-        'Still looking for you',
-        'Location is on, but no fix has come through yet. That can take a moment indoors or underground.',
-      );
+      void showDialog({
+        title: 'Still looking for you',
+        message:
+          'Location is on, but no fix has come through yet. That can take a moment indoors or underground.',
+      });
       return;
     }
 
@@ -489,14 +495,15 @@ export default function MapScreen() {
       return;
     }
 
-    Alert.alert(
-      'Location is off',
-      'Switch location on in your device settings to see where you are on the map.',
-      [
+    void showDialog({
+      title: 'Location is off',
+      message: 'Switch location on in your device settings to see where you are on the map.',
+      tone: 'danger',
+      buttons: [
         { text: 'Not now', style: 'cancel' },
         { text: 'Open settings', onPress: () => void Linking.openSettings() },
       ],
-    );
+    });
   }
 
   /**
