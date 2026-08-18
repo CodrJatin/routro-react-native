@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 import { AppState, Platform } from 'react-native';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import { refreshSessionIfDue } from '../auth/sessionRefresh';
 import { supabase } from '../lib/supabase';
 import { useSelfPositionStore } from '../location/selfPosition';
 import { haversineMeters } from '../engine/geo';
@@ -16,6 +17,7 @@ import type {
   LocationNotice,
   PresenceStatus,
 } from './locationStore';
+import { rejoinDelayFor } from './rejoinBackoff';
 import { parseSharedJourney, type SharedJourney } from './sharedJourney';
 
 /**
@@ -75,8 +77,12 @@ const REJOIN_WAIT_MS = 8000;
 const FOREGROUND_WAIT_MS = 90_000;
 
 /**
- * A dropped connection is retried for as long as the user is signed in. There
- * is no attempt limit and no give-up state.
+ * Why a dropped connection here is retried forever, rather than a few times.
+ *
+ * The ladder itself is shared with the friend and meet channels; see
+ * `rejoinBackoff.ts` for the timings and the general argument. This is the
+ * part specific to the own channel, and it is the more expensive half of the
+ * lesson.
  *
  * The original behaviour was the opposite extreme: the first `CLOSED` tore the
  * watcher down and cleared `isBroadcasting`. `CLOSED` is not an error -- it is
@@ -89,32 +95,13 @@ const FOREGROUND_WAIT_MS = 90_000;
  *
  * A bounded ladder was the first attempt at a fix and was still wrong, just
  * more slowly: a tunnel longer than the budget ended sharing anyway, and the
- * user had to notice and re-enable it. The argument for a limit was that a lit
- * toggle over a dead connection is a lie -- but the banner already says the
- * connection is down, so nothing is being hidden, and the honest thing is to
- * keep trying and recover the moment there is signal.
+ * user had to notice and re-enable it.
  *
  * Fixes continue to be collected throughout. `sendFix` drops what it cannot
  * transmit, which is cheaper and more honest than realtime-js's silent
  * per-message REST fallback, so a long outage costs nothing but the retries
  * themselves.
  */
-const RECONNECT_DELAYS_MS = [3000, 7000];
-
-/**
- * The steady interval the retries settle into once the quick attempts above
- * are used up.
- *
- * The ramp exists only to catch a momentary blip -- the gap between two
- * carriages of signal -- in seconds rather than making the user wait out a
- * full interval for something that was already over. Past that it is a real
- * outage, and there is nothing to be gained by backing off further: a longer
- * tunnel would only mean a slower recovery, which is precisely backwards. At
- * two service ticks apart this costs effectively nothing -- a rejoin on a
- * socket that is already down is a local no-op, not a network round trip --
- * and it is the same whether or not a journey is running.
- */
-const RECONNECT_INTERVAL_MS = 10_000;
 
 function topicFor(userId: string): string {
   return `user-location:${userId}`;
@@ -269,7 +256,7 @@ class LocationChannelManager {
   private lastSentFix: LocPayload | null = null;
   private lastSentAt = 0;
   /** Which reconnect attempt has been made, 0 when the connection is healthy
-   * Never reset by giving up -- only by recovering. See `RECONNECT_DELAYS_MS`. */
+   * Never reset by giving up -- only by recovering. See `rejoinBackoff.ts`. */
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   /** True while a rejoin is actually executing, as opposed to merely
@@ -436,7 +423,7 @@ class LocationChannelManager {
       }
 
       // Everything below is the connection being down. None of it is fatal --
-      // see `RECONNECT_DELAYS_MS` for why the first one used to be, and what
+      // see the note above `topicFor` for why the first one used to be, and what
       // that cost. The error message is still kept, because `setBroadcasting`
       // reports it when a *user-initiated* start can't reach the service.
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
@@ -476,7 +463,7 @@ class LocationChannelManager {
 
   /**
    * The connection went down. Retry it rather than giving sharing up on the
-   * spot -- see `RECONNECT_DELAYS_MS` for what the old behaviour cost.
+   * spot -- see the note above `topicFor` for what the old behaviour cost.
    *
    * The ladder is self-driving: each attempt calls `rejoinOwnChannel`, whose
    * subscribe callback lands back here on failure with the counter one higher,
@@ -496,7 +483,7 @@ class LocationChannelManager {
     if (this.reconnectTimer !== null || this.reconnectDueAt !== 0) return;
 
     const attempt = ++this.reconnectAttempt;
-    const delay = RECONNECT_DELAYS_MS[attempt - 1] ?? RECONNECT_INTERVAL_MS;
+    const delay = rejoinDelayFor(attempt);
     console.warn(`[location] connection lost, retry ${attempt} in ${delay}ms`);
 
     this.reconnectDueAt = Date.now() + delay;
@@ -1230,6 +1217,12 @@ class LocationChannelManager {
    * the JS intervals in the foreground costs nothing.
    */
   tick(): void {
+    // First, because everything below it needs a token the server will still
+    // accept. supabase-js refreshes on a JS timer like everything else here,
+    // so a journey long enough to outlive the access token used to lose its
+    // private channels and never get them back -- the retry ladder rejoining
+    // forever with the same expired credential. See `sessionRefresh.ts`.
+    void refreshSessionIfDue();
     this.resendHeartbeatIfDue();
     void this.checkServicesStillOn();
     this.sendSupabaseHeartbeatIfDue();
@@ -1502,7 +1495,7 @@ class LocationChannelManager {
     if (existing && (existing.timer !== null || existing.dueAt !== 0)) return;
 
     const attempt = (existing?.attempt ?? 0) + 1;
-    const delay = RECONNECT_DELAYS_MS[attempt - 1] ?? RECONNECT_INTERVAL_MS;
+    const delay = rejoinDelayFor(attempt);
     const timer = setTimeout(() => {
       const entry = this.friendRetries.get(friendId);
       if (entry) entry.timer = null;

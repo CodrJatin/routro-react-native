@@ -1,6 +1,19 @@
+import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
+
+/**
+ * `expo-image`, not react-native's `Image`, and the difference is the cache.
+ *
+ * Avatars are remote URLs from the OAuth provider that never change and are
+ * drawn constantly -- on every friend pin, in the focus stack, on the Friends
+ * tab, several of them at once, remounting as the map redraws. The RN loader
+ * keeps them in memory only, so each of those remounts could reach for the
+ * network again, on a phone whose connection is the thing this whole app is
+ * fighting. `cachePolicy="memory-disk"` makes the second request the last one,
+ * across launches as well as across mounts.
+ */
 
 export function Avatar({
   label,
@@ -24,6 +37,8 @@ export function Avatar({
       <Image
         source={{ uri: imageUrl }}
         style={[styles.circle, { width: size, height: size, borderRadius: size / 2 }]}
+        cachePolicy="memory-disk"
+        contentFit="cover"
         onError={() => setHasError(true)}
       />
     );

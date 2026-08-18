@@ -63,6 +63,10 @@ let hasAskedForNotifications = false;
 export function initMeetController(): void {
   meetChannelManager.setHandlers({
     onMessage: (friendId, message) => handleMessage(friendId, message),
+    // Mirrored into the store rather than read back off the manager, so the
+    // Meet button re-renders when a channel joins or fails. See `reachable`.
+    onReachabilityChange: (friendId, canReach) =>
+      useMeetStore.getState().setReachable(friendId, canReach),
   });
 
   // React Native stops running JS timers in the background, so the one-second

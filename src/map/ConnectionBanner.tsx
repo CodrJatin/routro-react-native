@@ -65,6 +65,7 @@ export function ConnectionBanner() {
   const styles = useMemo(() => createStyles(colors, radius), [colors, radius]);
 
   const connectionState = useLocationStore((state) => state.connectionState);
+  const isOnline = useLocationStore((state) => state.isOnline);
   const isDown = connectionState === 'reconnecting';
 
   // Two stages, not one: `isDown` is the truth, `isVisible` is whether it has
@@ -146,28 +147,41 @@ export function ConnectionBanner() {
     // touches outside the banner still reach the map underneath.
     <Animated.View style={[styles.banner, { opacity: fade }]}>
       <Animated.View style={[styles.dot, { opacity: pulse }]} />
-      <Text style={styles.text}>Reconnecting — friend locations may be behind</Text>
-      {/* The automatic retries are already running; this only brings the next
-          one forward. It earns its place because the user often knows
-          something the app cannot: they have just left the tunnel, or turned
-          wifi back on, and waiting out the interval for news they already have
-          is the frustrating part. */}
-      <Pressable
-        onPress={handleRetry}
-        disabled={isRetrying}
-        hitSlop={10}
-        accessibilityRole="button"
-        accessibilityLabel="Retry connection now"
-        accessibilityState={{ disabled: isRetrying, busy: isRetrying }}
-        style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
-      >
-        {isRetrying ? (
-          <ActivityIndicator size="small" color={colors.onSurfaceVariant} />
-        ) : (
-          <Ionicons name="refresh" size={14} color={colors.onSurfaceVariant} />
-        )}
-        <Text style={styles.retryText}>Retry</Text>
-      </Pressable>
+      {/* The two cases read the same from inside the reconnect ladder and mean
+          completely different things to the person holding the phone. One is
+          "wait, this is being handled"; the other is "the device has no
+          internet", which the app cannot fix and the user usually can. Saying
+          "Reconnecting" to someone with wifi switched off was the app blaming
+          itself for their setting. */}
+      <Text style={styles.text}>
+        {isOnline
+          ? 'Reconnecting — friend locations may be behind'
+          : 'No internet connection — friend locations are paused'}
+      </Text>
+      {/* Offered only when there is something for it to do. The automatic
+          retries are already running, and this only brings the next one
+          forward -- which earns its place when the user knows something the
+          app does not, but is a button that cannot possibly work while the
+          device itself is offline. The network watcher retries on its own the
+          instant the radio returns, so nothing is lost by withholding it. */}
+      {isOnline && (
+        <Pressable
+          onPress={handleRetry}
+          disabled={isRetrying}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Retry connection now"
+          accessibilityState={{ disabled: isRetrying, busy: isRetrying }}
+          style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
+        >
+          {isRetrying ? (
+            <ActivityIndicator size="small" color={colors.onSurfaceVariant} />
+          ) : (
+            <Ionicons name="refresh" size={14} color={colors.onSurfaceVariant} />
+          )}
+          <Text style={styles.retryText}>Retry</Text>
+        </Pressable>
+      )}
     </Animated.View>
   );
 }

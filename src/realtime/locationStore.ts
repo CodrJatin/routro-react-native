@@ -10,7 +10,7 @@ export type PresenceStatus = 'offline' | 'online' | 'broadcasting';
  * other is "you had this and we are getting it back".
  *
  * There is deliberately no terminal error state. Retrying does not stop while
- * the user is signed in (see `RECONNECT_DELAYS_MS` in `locationChannel.ts`), so
+ * the user is signed in (see `rejoinBackoff.ts`), so
  * a state meaning "gave up" would never be reachable, and having one invited
  * the UI to imply an outage was permanent when it was simply ongoing.
  */
@@ -67,6 +67,20 @@ export interface FriendLocation {
 interface LocationState {
   isBroadcasting: boolean;
   connectionState: ConnectionState;
+  /**
+   * Whether the device believes it has a working internet connection.
+   *
+   * Kept beside `connectionState` rather than folded into it as a fourth
+   * value, because the two answer different questions and both are worth
+   * having at once: one is about this device's radio, the other about the
+   * channel on top of it. Collapsing them would also mean a network event
+   * writing into a state machine that is otherwise driven entirely by channel
+   * callbacks, and those callbacks would immediately overwrite it.
+   *
+   * Defaults to true. An unknown network is treated as present, so nothing is
+   * suppressed on a platform or a moment that cannot answer.
+   */
+  isOnline: boolean;
   /** Something about location the user needs telling, so the map can say it.
    * Cleared once shown. */
   broadcastNotice: LocationNotice | null;
@@ -93,6 +107,7 @@ interface LocationState {
    * loaded. Only ever used for display -- never for identity. */
   friendNames: Record<string, string>;
   setBroadcasting: (value: boolean) => void;
+  setOnline: (isOnline: boolean) => void;
   setFriendNames: (names: Record<string, string>) => void;
   setConnectionState: (state: ConnectionState) => void;
   upsertFriendLocation: (loc: Omit<FriendLocation, 'receivedAt' | 'movedAt' | 'previous'>) => void;
@@ -109,6 +124,7 @@ interface LocationState {
 export const useLocationStore = create<LocationState>((set) => ({
   isBroadcasting: false,
   connectionState: 'connecting',
+  isOnline: true,
   broadcastNotice: null,
   friendLocations: {},
   friendPresence: {},
@@ -116,6 +132,8 @@ export const useLocationStore = create<LocationState>((set) => ({
   friendNames: {},
 
   setBroadcasting: (value) => set({ isBroadcasting: value }),
+
+  setOnline: (isOnline) => set({ isOnline }),
 
   setFriendNames: (friendNames) => set({ friendNames }),
 

@@ -9,6 +9,11 @@
 -- These policies are what actually enforce "only mutual friends can see my
 -- location" -- the client-side filter in the app is defense in depth, not
 -- the primary control.
+--
+-- One caveat on the word "enforce", spelled out in 0006: Realtime evaluates
+-- these when a channel is joined and caches the result for the life of the
+-- connection. Revoking a friendship therefore takes effect on the next
+-- authorization check, not on the next message.
 
 -- A user may read broadcast/presence events on a 'user-location:*' topic if
 -- it's their own channel, or if they have an accepted friendship with the

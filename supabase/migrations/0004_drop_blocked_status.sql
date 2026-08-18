@@ -9,7 +9,10 @@
 --
 -- Unfriending (delete) remains the escape hatch, and it does revoke location
 -- access for real: the RLS policy on realtime.messages requires an
--- 'accepted' row to exist.
+-- 'accepted' row to exist. "For real" means at the next authorization check
+-- rather than instantly, though -- Realtime caches a channel's grant for the
+-- life of the connection. See the note in 0006 for what that does and does
+-- not guarantee against a peer running a modified client.
 
 -- Defensive: nothing should be able to have written this, but a constraint
 -- swap fails on any row that violates the new form.

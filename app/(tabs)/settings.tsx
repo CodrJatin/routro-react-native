@@ -16,6 +16,7 @@ import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanim
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { Avatar } from '../../src/components/Avatar';
+import { CopyDiagnostics } from '../../src/diagnostics/CopyDiagnostics';
 import { SegmentedToggle } from '../../src/components/SegmentedToggle';
 import { JourneySimulatorPanel } from '../../src/dev/JourneySimulatorPanel';
 // MOCK FRIEND -- temporary dev fixture, delete with src/dev/mockFriend.ts
@@ -48,7 +49,12 @@ export default function SettingsScreen() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
 
-  const appVersion = Constants.expoConfig?.version ?? '1.0.0';
+  // No hardcoded fallback version. A literal here is a second copy of app.json's
+  // `version` that nothing keeps in step, so it goes stale at the next release
+  // and then confidently reports a number this build is not -- which is worse
+  // than admitting the manifest could not be read. Matches what the diagnostics
+  // report says for the same missing value.
+  const appVersion = Constants.expoConfig?.version ?? 'unknown';
 
   // The OS shows its own "Copied" toast on clipboard writes (Android 13+'s
   // system clipboard notification); no app-level feedback needed on top of it.
@@ -244,6 +250,9 @@ export default function SettingsScreen() {
               </View>
               <Ionicons name="open-outline" size={16} color={colors.textSecondary} />
             </Pressable>
+            {/* Under the version, because the two are read together: a report
+                is only useful alongside the build it came from. */}
+            <CopyDiagnostics />
           </View>
         </View>
 

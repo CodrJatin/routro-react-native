@@ -16,6 +16,7 @@ import { hasSpentLocationPrompt, markLocationPromptSpent } from '../sharing/loca
 import { locationChannelManager } from './locationChannel';
 import { meetChannelManager } from './meetChannel';
 import { useLocationStore } from './locationStore';
+import { useNetworkWatcher } from './useNetworkWatcher';
 
 /** Mounted once inside the authenticated (tabs) layout. Joins the user's own
  * presence/location channel, keeps friend-channel subscriptions in sync with
@@ -39,6 +40,10 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   const { rows } = useFriendshipsContext();
   const isGhost = useGhostModeStore((state) => state.isGhost);
   const connectionState = useLocationStore((state) => state.connectionState);
+
+  // Mirrors the device's network state into the store, and pulls the next
+  // reconnect forward the moment the radio comes back. See `useNetworkWatcher`.
+  useNetworkWatcher();
 
   const acceptedFriendIds = userId
     ? rows

@@ -14,6 +14,7 @@ import type { RouteMode, RouteResult, StationId } from '../engine/types';
 import { useSelfPositionStore } from '../location/selfPosition';
 import { logFixAccuracy, watchOptions } from '../location/watchOptions';
 import { locationChannelManager } from '../realtime/locationChannel';
+import { meetChannelManager } from '../realtime/meetChannel';
 import type { RouteClock } from '../route/routeClock';
 import { getRouteProgress, type RouteProgress } from '../route/routeProgress';
 import { flipSavedJourneyAfterArrival } from '../route/savedJourneysStore';
@@ -41,7 +42,7 @@ const TICK_INTERVAL_MS = 5000;
 
 /** How long to wait before rebuilding a watcher the provider dropped, and how
  * many times to try before the journey is actually ended. Same reasoning as
- * `RECONNECT_DELAYS_MS` in `locationChannel.ts`: a provider hiccup -- entering a
+ * the channel ladder in `realtime/rejoinBackoff.ts`: a provider hiccup -- entering a
  * tunnel, a fused-provider restart, a moment of no satellites -- is a normal
  * event on a metro, and ending a journey on the first one meant the app gave
  * up on the ride at exactly the point it was most needed. */
@@ -570,6 +571,10 @@ function subscribe(): void {
     // The service's tick is the app's only working clock while backgrounded,
     // so everything periodic hangs off it -- not just the notification.
     locationChannelManager.tick();
+    // Meet channels repair on the same clock, and for the same reason: being
+    // asked to meet someone is at its most useful mid-journey, which is
+    // exactly when the JS timer behind that retry is not running.
+    meetChannelManager.tick();
     void retryWatcherIfDue();
     void refresh();
   });

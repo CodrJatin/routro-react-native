@@ -5,7 +5,6 @@ import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanim
 import { AnimatedPressable } from '../components/AnimatedPressable';
 // MOCK FRIEND -- temporary dev fixture, delete with src/dev/mockFriend.ts
 import { isMockFriendId } from '../dev/mockFriend';
-import { meetChannelManager } from '../realtime/meetChannel';
 import type { SelfRouteView } from '../route/useSelfRoute';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../theme/tokens';
@@ -64,6 +63,9 @@ export function FriendMeetActions({
   const outgoing = useMeetStore((state) => state.outgoing[friendUserId] ?? null);
   const meet = useMeetStore((state) => state.meets[friendUserId] ?? null);
   const lastRequestAt = useMeetStore((state) => state.lastRequestAt[friendUserId]);
+  // Subscribed rather than asked, so a channel that joins (or fails) after
+  // this first rendered actually reaches the screen.
+  const isReachable = useMeetStore((state) => Boolean(state.reachable[friendUserId]));
 
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [index, setIndex] = useState(0);
@@ -123,7 +125,7 @@ export function FriendMeetActions({
   const isPending = outgoing?.outcome === 'pending';
   const isCoolingDown = cooldownMs > 0;
   const canReach =
-    meetChannelManager.canReach(friendUserId) ||
+    isReachable ||
     // MOCK FRIEND -- delete with src/dev/mockFriend.ts.
     isMockFriendId(friendUserId);
   const selected = candidates[index] ?? null;

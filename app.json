@@ -8,7 +8,9 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#0B0F14",
-    "runtimeVersion": "1.0.0",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
     "updates": {
       "url": "https://u.expo.dev/e7ccff26-968f-48d3-9001-e17eea50d354"
     },
@@ -30,9 +32,7 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION"
       ],
       "intentFilters": [
         {
@@ -74,7 +74,8 @@
           "icon": "./assets/android-icon-monochrome.png",
           "color": "#3dd68c"
         }
-      ]
+      ],
+      "expo-image"
     ],
     "extra": {
       "router": {},

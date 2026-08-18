@@ -1,8 +1,11 @@
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import type { Profile } from '../auth/AuthProvider';
 // MOCK FRIEND -- temporary dev fixture, delete with src/dev/mockFriend.ts
 import { useMockFriendRows } from '../dev/mockFriend';
 import { supabase } from '../lib/supabase';
+import { rejoinDelayFor } from '../realtime/rejoinBackoff';
 
 export type FriendshipStatus = 'pending' | 'accepted';
 
@@ -136,8 +139,28 @@ export function useFriendships(selfUserId: string | undefined) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasLoadedOnce = useRef(false);
+  /**
+   * Ticket for the most recently *started* fetch.
+   *
+   * This hook refetches from more places than it looks: two realtime bindings,
+   * every mutation, a rejoin, and now the return to foreground -- several of
+   * which fire together. Accepting a request, for instance, updates the row
+   * and then refetches, while the postgres_changes event for that same update
+   * arrives and refetches again. Two queries are then in flight over a list
+   * that has just changed, and nothing ordered the responses: the slower one
+   * wins by landing last, whichever it is. Losing that race writes the list as
+   * it was *before* the change the user just made, and it stays that way until
+   * something else happens to refetch.
+   *
+   * A monotonic ticket is enough to fix it because these are whole-list reads.
+   * There is no merging to do -- the newest response is simply the truth, and
+   * every older one is noise, however recently it was asked for.
+   */
+  const latestRequest = useRef(0);
 
   const refetch = useCallback(async () => {
+    const requestId = ++latestRequest.current;
+
     if (!selfUserId) {
       setRows([]);
       setIsLoading(false);
@@ -153,6 +176,16 @@ export function useFriendships(selfUserId: string | undefined) {
       )
       .or(`requester_id.eq.${selfUserId},addressee_id.eq.${selfUserId}`)
       .order('created_at', { ascending: false });
+
+    // Overtaken while this was in flight. Everything below is skipped, not
+    // just the rows: publishing this response's error would report a failure
+    // the newer request may be about to disprove, and clearing the spinner
+    // would end it while the request it belongs to is still running. A stale
+    // answer is stale in all of its fields.
+    //
+    // The newer request is what clears these -- it always resolves, on the
+    // error path as well as the success one, so nothing is left hanging.
+    if (requestId !== latestRequest.current) return;
 
     if (fetchError) {
       // Keep whatever rows we already had -- a failed refresh shouldn't
@@ -170,6 +203,13 @@ export function useFriendships(selfUserId: string | undefined) {
 
   useEffect(() => {
     refetch();
+    // Invalidates anything still in flight. Without this a response for the
+    // previous user could land on the next one: `selfUserId` changing rebuilds
+    // `refetch`, but the old query is already out and holds a ticket that is
+    // still the newest until the replacement fetch starts.
+    return () => {
+      latestRequest.current += 1;
+    };
   }, [refetch]);
 
   /** Keeps the list live. Without this the rows were fetched once on mount:
@@ -179,41 +219,106 @@ export function useFriendships(selfUserId: string | undefined) {
    *
    * Two bindings rather than one because PostgREST filters can't express
    * OR -- a row is relevant if we're on either side of it. DELETE events
-   * only carry filterable columns because 0003 sets REPLICA IDENTITY FULL. */
+   * only carry filterable columns because 0003 sets REPLICA IDENTITY FULL.
+   *
+   * A failed join is repaired rather than merely logged, on the same ladder as
+   * the location and meet channels. This one is worth repairing for a reason
+   * the others aren't: it is the channel that decides *who* the other two
+   * subscribe to. Left dead, the friends list silently stops being live, and
+   * every downstream consequence -- a newly accepted friend who never appears
+   * on the map, an unfriended one who never goes away -- reads as a bug
+   * somewhere else entirely. */
   useEffect(() => {
     if (!selfUserId) return;
 
-    const channel = supabase
-      .channel(`friendships:${selfUserId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'friendships',
-          filter: `requester_id=eq.${selfUserId}`,
-        },
-        () => void refetch(),
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'friendships',
-          filter: `addressee_id=eq.${selfUserId}`,
-        },
-        () => void refetch(),
-      )
-      .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.warn(`[friends] friendship sync channel failed to join: ${status}`);
-        }
-      });
+    let isCancelled = false;
+    let channel: RealtimeChannel | null = null;
+    let attempt = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const join = () => {
+      channel = supabase
+        .channel(`friendships:${selfUserId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'friendships',
+            filter: `requester_id=eq.${selfUserId}`,
+          },
+          () => void refetch(),
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'friendships',
+            filter: `addressee_id=eq.${selfUserId}`,
+          },
+          () => void refetch(),
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            attempt = 0;
+            return;
+          }
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn(`[friends] friendship sync channel failed to join: ${status}`);
+            scheduleRejoin();
+          }
+        });
+    };
+
+    const scheduleRejoin = () => {
+      // realtime-js emits several failures per drop; only the first may
+      // advance the ramp.
+      if (isCancelled || retryTimer !== null) return;
+      const delay = rejoinDelayFor(++attempt);
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (isCancelled) return;
+        const previous = channel;
+        channel = null;
+        if (previous) void supabase.removeChannel(previous);
+        // Before rejoining, not after: postgres_changes has no replay, so
+        // anything that happened while this was down is simply not coming.
+        // The rejoined channel only promises to deliver what happens next.
+        void refetch();
+        join();
+      }, delay);
+    };
+
+    join();
 
     return () => {
-      supabase.removeChannel(channel);
+      isCancelled = true;
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      if (channel) supabase.removeChannel(channel);
     };
+  }, [selfUserId, refetch]);
+
+  /**
+   * Re-reads the list on the way back into the app.
+   *
+   * Backgrounding stops every JS timer, which takes supabase-js's socket
+   * keepalive with it; the server drops the connection, and postgres_changes
+   * has no replay to catch up with. So a request accepted, or a friendship
+   * ended, while the app was away arrives nowhere -- and unlike a momentary
+   * drop, nothing reports an error, because from this side the channel simply
+   * went quiet. `locationChannelManager.ensureConnected` repairs the transport
+   * on foreground for exactly the same reason; this repairs the data.
+   *
+   * One query, only on a real return to the app -- 'inactive' is deliberately
+   * not treated as a departure, matching LocationProvider.
+   */
+  useEffect(() => {
+    if (!selfUserId) return;
+    const subscription = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next === 'active') void refetch();
+    });
+    return () => subscription.remove();
   }, [selfUserId, refetch]);
 
   async function sendRequest(handle: string): Promise<MutationResult> {

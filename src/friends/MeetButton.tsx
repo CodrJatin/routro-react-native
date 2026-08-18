@@ -6,7 +6,6 @@ import { AnimatedPressable } from '../components/AnimatedPressable';
 import { isMockFriendId } from '../dev/mockFriend';
 import { getStation } from '../engine/graph';
 import type { StationId } from '../engine/types';
-import { meetChannelManager } from '../realtime/meetChannel';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ColorTokens, TypeStyle } from '../theme/tokens';
 import { sendMeetRequest } from './meetController';
@@ -42,6 +41,9 @@ export function MeetButton({
   const outgoing = useMeetStore((state) => state.outgoing[friendUserId] ?? null);
   const meet = useMeetStore((state) => state.meets[friendUserId] ?? null);
   const lastRequestAt = useMeetStore((state) => state.lastRequestAt[friendUserId]);
+  // Subscribed rather than asked, so a channel that joins (or fails) after
+  // this first rendered actually reaches the screen.
+  const canReach = useMeetStore((state) => Boolean(state.reachable[friendUserId]));
 
   const [isSending, setIsSending] = useState(false);
   const [cooldownMs, setCooldownMs] = useState(() => meetCooldownRemainingMs(friendUserId));
@@ -65,7 +67,7 @@ export function MeetButton({
   // couldn't be opened for, sits in.
   // MOCK FRIEND -- the fixture has no channel and never will; delete the second
   // half of this with src/dev/mockFriend.ts.
-  if (!meetChannelManager.canReach(friendUserId) && !isMockFriendId(friendUserId)) return null;
+  if (!canReach && !isMockFriendId(friendUserId)) return null;
 
   if (meet && meet.stationId === stationId) {
     return (

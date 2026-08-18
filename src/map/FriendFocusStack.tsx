@@ -1,5 +1,6 @@
+import { Image } from 'expo-image';
 import { useEffect, useMemo, useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { AnimatedPressable } from '../components/AnimatedPressable';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import type { Profile } from '../auth/AuthProvider';
@@ -106,6 +107,8 @@ function FriendAvatarThumb({ profile, styles }: { profile: Profile; styles: Retu
       <Image
         source={{ uri: profile.avatar_url }}
         style={styles.avatarImage}
+        cachePolicy="memory-disk"
+        contentFit="cover"
         onError={() => setHasError(true)}
       />
     );

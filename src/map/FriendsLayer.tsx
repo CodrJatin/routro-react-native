@@ -1,16 +1,21 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { Marker } from '@maplibre/maplibre-react-native';
-import { useEffect, useMemo, useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { memo, useEffect, useMemo, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import type { Profile } from '../auth/AuthProvider';
 import { useAuth } from '../auth/AuthProvider';
 import { friendColorFor } from '../friends/friendColor';
 import { useFriendJourneys } from '../friends/friendJourney';
 import { useFriendshipsContext } from '../friends/FriendshipsProvider';
 import { otherParty } from '../friends/useFriendships';
-import { useFriendStatuses, useLocationStore } from '../realtime/locationStore';
+import {
+  useFriendStatuses,
+  useLocationStore,
+  type FriendLocation,
+} from '../realtime/locationStore';
 import { useTheme } from '../theme/ThemeProvider';
-import { useInterpolatedPositions } from './useInterpolatedPositions';
+import { useInterpolatedPosition } from './useInterpolatedPosition';
 
 const PIN_SIZE = 34;
 /** Deliberately smaller than the friend pin. A destination is context for the
@@ -40,6 +45,13 @@ function initialsOf(profile: Profile): string {
  * Staleness and removal come from the shared `useFriendStatuses` selector in
  * locationStore.ts, so this and the Friends tab can never disagree about who
  * is live.
+ *
+ * Note what this component deliberately does *not* do: animate. Each pin owns
+ * its own frame loop (see `FriendPin`), so this renders only when the store
+ * changes, and a friend moving across the map costs their marker rather than
+ * the whole layer. The destination flags below are static for the same
+ * reason -- they used to be redrawn sixty times a second alongside pins that
+ * had nothing to do with them.
  */
 export function FriendsLayer() {
   const { colors } = useTheme();
@@ -83,8 +95,6 @@ export function FriendsLayer() {
     [friendLocations, statuses, profilesByUserId],
   );
 
-  const positions = useInterpolatedPositions(pins.map((pin) => pin.location));
-
   const friendJourneys = useFriendJourneys();
 
   // Where each visible friend is headed. Gated on the same pin list rather
@@ -117,31 +127,66 @@ export function FriendsLayer() {
       ))}
 
       {pins.map(({ location, profile, isStale }) => (
-        <Marker
+        <FriendPin
           key={location.userId}
-          id={`friend-${location.userId}`}
-          lngLat={positions[location.userId] ?? [location.lon, location.lat]}
-        >
-          <View
-            style={[
-              styles.pin,
-              {
-                borderColor: friendColorFor(location.userId),
-                backgroundColor: colors.surface,
-              },
-              // Faded rather than removed: a friend whose last fix is going
-              // cold still reads as "was here a moment ago" until the hard
-              // TTL drops them entirely.
-              isStale && styles.stale,
-            ]}
-          >
-            <FriendPinAvatar profile={profile} textColor={colors.textPrimary} />
-          </View>
-        </Marker>
+          location={location}
+          profile={profile}
+          isStale={isStale}
+          surfaceColor={colors.surface}
+          textColor={colors.textPrimary}
+        />
       ))}
     </>
   );
 }
+
+/**
+ * One friend's pin, and the only thing that re-renders while it is moving.
+ *
+ * The frame loop lives here rather than in `FriendsLayer` for exactly that
+ * reason. Driven from the layer, a single friend crossing the map re-rendered
+ * every other pin, every avatar and every destination flag sixty times a
+ * second, all to move one marker. Here a frame costs this subtree and nothing
+ * else.
+ *
+ * Memoised so the other half of the problem is covered too: when the layer
+ * *does* re-render -- a fix arriving for someone else, a presence change --
+ * only the pin whose data actually changed goes with it. `location` is a fresh
+ * object per fix for that friend alone, and `profile` comes from a memoised
+ * map, so the comparison is as cheap as it looks.
+ */
+const FriendPin = memo(function FriendPin({
+  location,
+  profile,
+  isStale,
+  surfaceColor,
+  textColor,
+}: {
+  location: FriendLocation;
+  profile: Profile;
+  isStale: boolean;
+  surfaceColor: string;
+  textColor: string;
+}) {
+  const position = useInterpolatedPosition(location);
+
+  return (
+    <Marker id={`friend-${location.userId}`} lngLat={position}>
+      <View
+        style={[
+          styles.pin,
+          { borderColor: friendColorFor(location.userId), backgroundColor: surfaceColor },
+          // Faded rather than removed: a friend whose last fix is going cold
+          // still reads as "was here a moment ago" until the hard TTL drops
+          // them entirely.
+          isStale && styles.stale,
+        ]}
+      >
+        <FriendPinAvatar profile={profile} textColor={textColor} />
+      </View>
+    </Marker>
+  );
+});
 
 /** Avatar image when there is one, initials when there isn't -- or when it
  * fails to load, so a broken avatar_url never leaves a blank pin. */
@@ -154,6 +199,8 @@ function FriendPinAvatar({ profile, textColor }: { profile: Profile; textColor: 
       <Image
         source={{ uri: profile.avatar_url }}
         style={styles.avatar}
+        cachePolicy="memory-disk"
+        contentFit="cover"
         onError={() => setHasError(true)}
       />
     );

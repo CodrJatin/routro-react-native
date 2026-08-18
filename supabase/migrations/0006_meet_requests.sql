@@ -15,7 +15,28 @@
 -- in-memory fan-out only. A request lives 30 seconds and then it is gone.
 
 -- Read: only the two people the topic is named after, and only while they are
--- actually friends. Unfriending therefore closes the channel immediately.
+-- actually friends.
+--
+-- "Only while they are actually friends" needs one qualification, because an
+-- earlier version of this comment claimed unfriending closed the channel
+-- immediately and that is not what Realtime does. Policies here are evaluated
+-- when a channel is joined and cached for the life of the connection -- the
+-- database is not consulted per message. A cached grant is only recalculated
+-- when a new JWT reaches the server on the `access_token` message, and the
+-- connection is dropped outright when the JWT expires with no replacement.
+--
+-- So for a client running this app, unfriending does take effect at once, but
+-- the client is what makes that true: it learns of the deleted row through
+-- postgres_changes and drops the channel itself (see `syncFriendSubscriptions`
+-- in src/realtime/locationChannel.ts). A modified client that simply held its
+-- socket open would keep receiving until its token was next refreshed, which
+-- is bounded by the project's JWT expiry -- one hour by default. Shortening
+-- that expiry is the only lever that narrows the window; nothing in this file
+-- can.
+--
+-- Worth stating plainly rather than leaving the stronger claim in place: this
+-- is a real limit on what "unfriend" guarantees against a hostile peer, and
+-- the same applies to the location policies in 0002.
 create policy "realtime: read meet channel shared with an accepted friend"
   on realtime.messages for select
   to authenticated

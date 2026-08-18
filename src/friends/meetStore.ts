@@ -85,6 +85,16 @@ interface MeetState {
    * running after a request expires or is declined, which is exactly when
    * someone is tempted to ask again. */
   lastRequestAt: Record<string, number>;
+  /**
+   * Friends whose meet channel is actually joined right now.
+   *
+   * Transport state rather than meet state, and it lives here because this is
+   * what the Meet button has to consult before offering to send anything --
+   * and because it changes asynchronously, so the button has to re-render when
+   * it does. Asserted by `meetChannelManager` through the controller; nothing
+   * here infers it.
+   */
+  reachable: Record<string, true>;
   isHydrated: boolean;
 
   hydrate: () => Promise<void>;
@@ -94,6 +104,7 @@ interface MeetState {
   settleOutgoing: (friendUserId: string, id: string, outcome: OutgoingOutcome) => void;
   dropOutgoing: (friendUserId: string) => void;
   markRequestSent: (friendUserId: string, at: number) => void;
+  setReachable: (friendUserId: string, canReach: boolean) => void;
   setMeet: (meet: AcceptedMeet) => void;
   clearMeet: (friendUserId: string) => void;
   /** Everything about one person: they were unfriended, or went away. */
@@ -107,6 +118,7 @@ export const useMeetStore = create<MeetState>((set, get) => ({
   outgoing: {},
   meets: {},
   lastRequestAt: {},
+  reachable: {},
   isHydrated: false,
 
   hydrate: async () => {
@@ -194,6 +206,17 @@ export const useMeetStore = create<MeetState>((set, get) => ({
     });
     persistMeets();
   },
+
+  setReachable: (friendUserId, canReach) =>
+    set((state) => {
+      if (Boolean(state.reachable[friendUserId]) === canReach) return state;
+      const reachable = { ...state.reachable };
+      if (canReach) reachable[friendUserId] = true;
+      else delete reachable[friendUserId];
+      // Not persisted, unlike the meets below it: which channels happen to be
+      // joined is true of this moment on this device and of nothing else.
+      return { reachable };
+    }),
 
   forgetFriend: (userId) => {
     set((state) => {

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useReducer } from 'react';
 import { SELF_POSITION_STALE_AFTER_MS, type SelfPosition } from '../location/selfPosition';
 import { useTheme } from '../theme/ThemeProvider';
 import { glideAt, type Glide } from './glide';
-import { useGlideFrames } from './useGlideFrames';
+import { useGlideFrame } from './useGlideFrame';
 
 /** How often the pin re-checks whether its fix has gone stale. Only matters
  * while nothing is moving -- a gliding pin is already re-rendering per frame. */
@@ -45,14 +45,13 @@ export function UserLocationPin({ position }: { position: SelfPosition | null })
     };
   }, [position]);
 
-  const glides = useMemo(() => (glide ? [glide] : []), [glide]);
-  useGlideFrames(glides);
+  useGlideFrame(glide);
 
   const isStale = useIsStale(position);
 
   if (!glide) return null;
 
-  // Deliberately not memoised: `useGlideFrames` re-renders this component once
+  // Deliberately not memoised: `useGlideFrame` re-renders this component once
   // per frame while the pin is moving, and the render *is* the clock -- a memo
   // would have to be keyed on the time it was trying to read.
   const geojson: GeoJSON.FeatureCollection<GeoJSON.Point> = {
