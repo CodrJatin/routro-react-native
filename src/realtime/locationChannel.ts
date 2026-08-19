@@ -71,6 +71,12 @@ const SERVICES_ENABLE_POLL_MS = 300;
 /** How long to wait on a freshly recreated channel. Longer than the first
  * wait: this one starts from a cold join, not a possibly-recovering one. */
 const REJOIN_WAIT_MS = 8000;
+
+/** How long to wait for the socket itself after asking it to reconnect, and
+ * how often to look. Only ever used from the foreground, where JS timers run.
+ * See `waitForSocketConnected` for why anything is waited for at all. */
+const SOCKET_CONNECT_WAIT_MS = 5000;
+const SOCKET_CONNECT_POLL_MS = 150;
 /** A system location prompt can send the user into Settings for a while, so
  * the wait for the app to come back has to be generous -- 5s timed out
  * before someone could realistically flip the toggle and return. */
@@ -235,6 +241,10 @@ class LocationChannelManager {
   private sharedJourney: SharedJourney | null = null;
   /** Last time `tick()` sent the realtime keepalive. */
   private lastSupabaseHeartbeatAt = 0;
+  /** True while `cleanupOwnChannel` is deliberately taking the channel down,
+   * so the CLOSED that causes is not mistaken for the connection dropping.
+   * See `handleConnectionLost`. */
+  private isTearingDownOwnChannel = false;
   /** Set while the app is backgrounded. Checked after the location watcher
    * is created, so an enable that was in flight across a backgrounding tears
    * its watcher back down -- without cancelling enables that merely paused
@@ -457,6 +467,13 @@ class LocationChannelManager {
   private async rejoinOwnChannel(options: { keepBroadcasting?: boolean } = {}): Promise<void> {
     const userId = this.ownUserId;
     if (!userId) return;
+    // Before the cleanup, not after. Removing a channel fires its subscribe
+    // callback with CLOSED, and that callback is only silenced by the
+    // generation having moved on -- so tearing down first and bumping later
+    // (inside `joinOwn`) let our own teardown arrive as a genuine connection
+    // loss, log one, and schedule a reconnect against the rejoin already under
+    // way. `leaveOwn` has always bumped first, for exactly this reason.
+    ++this.generation;
     await this.cleanupOwnChannel(options); // clears ownUserId, hence the capture above
     await this.joinOwn(userId, options);
   }
@@ -478,6 +495,14 @@ class LocationChannelManager {
    * rejoin goes out immediately.
    */
   private handleConnectionLost(): void {
+    // Our own teardown, rather than the connection going away.
+    // `cleanupOwnChannel` removes the channel, which fires its callback with
+    // CLOSED; counting that as a drop means every deliberate rejoin reports a
+    // failure it caused itself. The generation bump in `rejoinOwnChannel`
+    // already covers the paths that run through it -- this covers the callback
+    // whatever route it arrives by, including one not written yet.
+    if (this.isTearingDownOwnChannel) return;
+
     // An attempt is already pending -- realtime-js emits several of these per
     // drop, and each must not push the ramp along a rung on its own.
     if (this.reconnectTimer !== null || this.reconnectDueAt !== 0) return;
@@ -629,6 +654,11 @@ class LocationChannelManager {
    */
   private cleanupOwnChannel(options: { keepBroadcasting?: boolean } = {}): Promise<void> {
     const run = async () => {
+      // Held across the whole teardown, awaits included: `untrack` and
+      // `removeChannel` below are what fire the CLOSED this suppresses. A
+      // plain flag rather than a counter is enough because these runs are
+      // serialised through `cleanupInFlight`, so two never overlap.
+      this.isTearingDownOwnChannel = true;
       if (!options.keepBroadcasting) {
         this.stopLocationWatcher();
         // Must clear the flag too, not just the watcher: it is what the
@@ -663,7 +693,18 @@ class LocationChannelManager {
     // Chain onto whatever cleanup is already in flight so two overlapping
     // calls (e.g. a fast sign-out/sign-in) always run start-to-finish in
     // order, rather than interleaving their awaits.
-    const next = this.cleanupInFlight.then(run, run);
+    //
+    // The flag is cleared here rather than at the end of `run`, and that is
+    // not tidiness. A throw anywhere in the teardown would skip a clear
+    // written inline and leave the flag stuck true -- at which point
+    // `handleConnectionLost` returns early forever and the connection never
+    // reconnects again for the life of the process. Failing that way to fix a
+    // spurious log would be a far worse trade than the bug it replaced.
+    const next = this.cleanupInFlight
+      .then(run, run)
+      .finally(() => {
+        this.isTearingDownOwnChannel = false;
+      });
     this.cleanupInFlight = next.catch(() => {});
     return next;
   }
@@ -1235,13 +1276,39 @@ class LocationChannelManager {
     this.runFriendRejoinsIfDue();
   }
 
-  /** Keeps the realtime socket from being dropped by the server. See
-   * SUPABASE_HEARTBEAT_MS -- supabase-js's own keepalive is a JS timer and
-   * stops with everything else when the app backgrounds. */
+  /**
+   * Keeps the realtime socket from being dropped by the server while the app's
+   * own timers are stopped. See SUPABASE_HEARTBEAT_MS.
+   *
+   * Two guards, and both are load-bearing rather than defensive. phoenix's
+   * `sendHeartbeat` is not re-entrant -- given one already in flight it calls
+   * `heartbeatTimeout()`, which errors every channel and tears the socket
+   * down. So a heartbeat sent at the wrong moment does not merely duplicate
+   * work; it kills the connection it was meant to preserve, and every channel
+   * on it reports CHANNEL_ERROR at once with nothing to say why.
+   *
+   * The foreground check is the structural half. phoenix's own keepalive runs
+   * at `CONNECTION_TIMEOUTS.HEARTBEAT_INTERVAL`, which is 25000 -- the same
+   * number as ours. Identical periods do not drift past each other; they hold
+   * whatever phase they started in, so a pair that happens to line up stays
+   * lined up and takes the socket down every 25 seconds for as long as the app
+   * is open. Backgrounded there is no such race, because phoenix's timer is
+   * precisely what has stopped, and covering that is the whole reason this
+   * method exists.
+   *
+   * The pending check is the direct half: it tests the precondition itself, so
+   * it still holds if the interval above is ever retuned, or if the two clocks
+   * meet across a foreground/background transition.
+   */
   private sendSupabaseHeartbeatIfDue(): void {
     if (!this.ownChannel) return;
     if (Date.now() - this.lastSupabaseHeartbeatAt < SUPABASE_HEARTBEAT_MS) return;
+    // Stamped even when nothing is sent, so leaving the foreground cannot
+    // produce a beat sooner than a full interval after the last slot -- which
+    // is the window where phoenix may still have one outstanding.
     this.lastSupabaseHeartbeatAt = Date.now();
+    if (AppState.currentState === 'active') return;
+    if (supabase.realtime.pendingHeartbeatRef) return;
     void supabase.realtime.sendHeartbeat().catch((error: unknown) => {
       // realtime-js tears the socket down itself when a heartbeat goes
       // unanswered, so there is nothing to do here but say so.
@@ -1365,6 +1432,26 @@ class LocationChannelManager {
     return this.wasBroadcastingBeforeBackground;
   }
 
+  /** Resolves once the realtime socket reports itself connected, or false on
+   * timeout. Polled rather than event-driven because realtime-js exposes no
+   * "socket open" hook we can await; the budget is generous enough for a cold
+   * reconnect on a slow link (the observed one takes about two seconds) and
+   * short enough that a genuinely unreachable server does not hold the
+   * foreground path open. Timing out is not fatal -- the caller goes ahead and
+   * rejoins anyway, and the retry ladder covers it from there. */
+  private waitForSocketConnected(timeoutMs = SOCKET_CONNECT_WAIT_MS): Promise<boolean> {
+    if (supabase.realtime.isConnected()) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const startedAt = Date.now();
+      const poll = () => {
+        if (supabase.realtime.isConnected()) return resolve(true);
+        if (Date.now() - startedAt >= timeoutMs) return resolve(false);
+        setTimeout(poll, SOCKET_CONNECT_POLL_MS);
+      };
+      setTimeout(poll, SOCKET_CONNECT_POLL_MS);
+    });
+  }
+
   /**
    * Confirms the realtime socket and the own channel are actually up, and
    * rebuilds them if not. Called when the app returns to the foreground.
@@ -1386,6 +1473,18 @@ class LocationChannelManager {
     if (!supabase.realtime.isConnected()) {
       console.warn('[location] realtime socket down on foreground, reconnecting');
       supabase.realtime.connect();
+      // Waited for, not fired and forgotten. `connect()` is asynchronous, and
+      // subscribing a channel before the socket is up does not fail -- phoenix
+      // buffers the join and sends it on open, which looks like it worked.
+      // What it does not buffer is the push's own 10-second timeout, which
+      // starts when the push is made. So a join issued here while the socket
+      // was still down reported TIMED_OUT ten seconds later, long after the
+      // connection had recovered, and that arrived as a `connection lost` and
+      // a retry ladder run against a connection that was healthy the whole
+      // time -- which flipped `connectionState`, which re-ran the auto-share
+      // effect, which restarted broadcasting. Every real drop cost a recovery
+      // and then a phantom one behind it.
+      await this.waitForSocketConnected();
     }
 
     // A channel left sitting in a non-joined state after the socket went away.
@@ -1452,7 +1551,7 @@ class LocationChannelManager {
         // show: no journey, not sharing, or a build that predates this.
         this.handlers.onFriendJourney(friendId, parseSharedJourney(entry?.journey));
       })
-      .subscribe((status) => {
+      .subscribe((status, error) => {
         if (status === 'SUBSCRIBED') {
           this.clearFriendRetry(friendId);
           return;
@@ -1470,7 +1569,10 @@ class LocationChannelManager {
         // that one does not cover: a single channel failing on its own, an
         // authorization check that momentarily said no being the likely one.
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.warn(`[location] friend channel for ${friendId} failed to join: ${status}`);
+          console.warn(
+            `[location] friend channel for ${friendId} failed to join: ${status}` +
+              `${error ? ` -- ${error.message}` : ''}`,
+          );
           this.handlers.onFriendPresence(friendId, 'offline');
           this.handlers.onFriendJourney(friendId, null);
           this.scheduleFriendRejoin(friendId);

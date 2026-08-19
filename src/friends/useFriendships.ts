@@ -259,13 +259,16 @@ export function useFriendships(selfUserId: string | undefined) {
           },
           () => void refetch(),
         )
-        .subscribe((status) => {
+        .subscribe((status, joinError) => {
           if (status === 'SUBSCRIBED') {
             attempt = 0;
             return;
           }
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            console.warn(`[friends] friendship sync channel failed to join: ${status}`);
+            console.warn(
+              `[friends] friendship sync channel failed to join: ${status}` +
+                `${joinError ? ` -- ${joinError.message}` : ''}`,
+            );
             scheduleRejoin();
           }
         });

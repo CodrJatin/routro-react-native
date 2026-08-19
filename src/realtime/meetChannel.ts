@@ -167,7 +167,7 @@ class MeetChannelManager {
         if (!message) return;
         this.handlers.onMessage(friendId, message);
       })
-      .subscribe((status) => {
+      .subscribe((status, error) => {
         if (status === 'SUBSCRIBED') {
           this.clearRetry(friendId);
           this.setReachable(friendId, true);
@@ -185,7 +185,10 @@ class MeetChannelManager {
         // not cover: a single channel failing on its own, an authorization
         // check that momentarily said no being the likely one.
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.warn(`[meet] channel for ${friendId} failed to join: ${status}`);
+          console.warn(
+            `[meet] channel for ${friendId} failed to join: ${status}` +
+              `${error ? ` -- ${error.message}` : ''}`,
+          );
           this.setReachable(friendId, false);
           this.scheduleRejoin(friendId);
         }
