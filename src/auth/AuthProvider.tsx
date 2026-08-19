@@ -52,6 +52,11 @@ const AuthContext = createContext<AuthContextValue | null>(null);
  * reconnects deliberately do not. */
 const PROFILE_RETRY_DELAYS_MS = [2000, 5000, 15_000];
 
+/** The last OAuth redirect consumed by `completeAuthFromUrl`. Module scope, not
+ * a ref: the point is that it outlives any one caller, and the whole process
+ * only ever sees one redirect per sign-in. */
+let lastHandledUrl: string | null = null;
+
 /** Pulls the implicit-flow tokens out of an OAuth redirect URL and installs the
  * session. `handled` is false for unrelated deep links (share intents, etc). */
 async function completeAuthFromUrl(url: string): Promise<{ handled: boolean; error: string | null }> {
@@ -63,6 +68,17 @@ async function completeAuthFromUrl(url: string): Promise<{ handled: boolean; err
   const accessToken = params.get('access_token');
   const refreshToken = params.get('refresh_token');
   if (!accessToken || !refreshToken) return { handled: false, error: null };
+
+  // On Android the same redirect arrives twice -- once as the intent the
+  // deep-link listener sees, once as openAuthSessionAsync's return value -- and
+  // both callers race into setSession with the same token pair. That produced
+  // two SIGNED_IN events, and the profile read fired off the first one while
+  // the second was still swapping the client's token underneath it. The second
+  // call is also handing back a refresh token the first may already have
+  // rotated away. Claiming the URL synchronously, before the first await,
+  // is what makes this a guard rather than a wider window.
+  if (url === lastHandledUrl) return { handled: true, error: null };
+  lastHandledUrl = url;
 
   try {
     const { error } = await supabase.auth.setSession({
