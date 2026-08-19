@@ -54,13 +54,28 @@ export interface JourneyServiceTickEvent {
   at: number;
 }
 
+export interface JourneyServiceLocationEvent {
+  lat: number;
+  lon: number;
+  /** Radius of uncertainty in metres, or null where the provider omits it. */
+  accuracy: number | null;
+  /** When the fix was taken, ms since epoch on the device clock. */
+  at: number;
+}
+
 type JourneyServiceEvents = {
   onAction: (event: JourneyServiceActionEvent) => void;
   onTick: (event: JourneyServiceTickEvent) => void;
+  onLocation: (event: JourneyServiceLocationEvent) => void;
 };
 
 declare class JourneyServiceNativeModule extends NativeModule<JourneyServiceEvents> {
-  startAsync(content: JourneyNotificationContent, tickIntervalMs: number): Promise<void>;
+  startAsync(
+    content: JourneyNotificationContent,
+    tickIntervalMs: number,
+    locationIntervalMs: number,
+  ): Promise<void>;
+  startLocationUpdatesAsync(intervalMs: number): Promise<string | null>;
   updateAsync(content: JourneyNotificationContent): Promise<boolean>;
   stopAsync(): Promise<void>;
   isRunning(): boolean;
@@ -80,13 +95,21 @@ export const isJourneyServiceAvailable = native !== null;
  * Only works from the foreground -- Android 12+ blocks starting a foreground
  * service from the background. Rejects with `ERR_FOREGROUND_SERVICE_START` if
  * called anyway.
+ *
+ * `locationIntervalMs` starts the journey's GPS feed from inside the service,
+ * so fixes begin arriving without waiting on a second round trip that could
+ * land before the service exists. `startJourneyServiceLocationUpdates` is the
+ * same feed's restart, and is what a caller uses from then on.
  */
 export async function startJourneyService(
   content: JourneyNotificationContent,
-  { tickIntervalMs = 0 }: { tickIntervalMs?: number } = {},
+  {
+    tickIntervalMs = 0,
+    locationIntervalMs = 0,
+  }: { tickIntervalMs?: number; locationIntervalMs?: number } = {},
 ): Promise<boolean> {
   if (!native) return false;
-  await native.startAsync(content, tickIntervalMs);
+  await native.startAsync(content, tickIntervalMs, locationIntervalMs);
   return true;
 }
 
@@ -102,6 +125,31 @@ export async function updateJourneyService(
 ): Promise<boolean> {
   if (!native) return false;
   return native.updateAsync(content);
+}
+
+/**
+ * Starts -- or restarts -- the journey's GPS feed, delivered through
+ * `addJourneyServiceLocationListener`.
+ *
+ * **Use this instead of `Location.watchPositionAsync` for anything that has to
+ * keep receiving fixes in the background.** expo-location's Android module
+ * removes every watch it owns from `OnActivityEntersBackground` and re-requests
+ * them on foreground, which is driven by the activity's lifecycle and knows
+ * nothing about foreground services -- so a watcher started from JS goes
+ * silent, with no error, the moment the phone is pocketed. The service's own
+ * client is not on that lifecycle. See `JourneyLocationUpdates.kt`.
+ *
+ * Resolves to null once fixes are on their way, or to why they are not -- no
+ * journey running, or the request refused (permission withdrawn mid-journey
+ * being the realistic case). A caller therefore finds out rather than waiting
+ * forever for a fix that is never coming, which is the whole complaint against
+ * the arrangement this replaced.
+ */
+export async function startJourneyServiceLocationUpdates(
+  intervalMs: number,
+): Promise<string | null> {
+  if (!native) return "This device can't follow a journey.";
+  return native.startLocationUpdatesAsync(intervalMs);
 }
 
 export async function stopJourneyService(): Promise<void> {
@@ -137,3 +185,13 @@ export function addJourneyServiceTickListener(
   if (!native) return { remove: () => {} };
   return native.addListener('onTick', listener);
 }
+
+/** Fixes from the service's own location client. See
+ * `startJourneyServiceLocationUpdates`, which is what turns them on. */
+export function addJourneyServiceLocationListener(
+  listener: (event: JourneyServiceLocationEvent) => void,
+): { remove: () => void } {
+  if (!native) return { remove: () => {} };
+  return native.addListener('onLocation', listener);
+}
+

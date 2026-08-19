@@ -2,17 +2,19 @@ import * as Location from 'expo-location';
 import { PermissionsAndroid, Platform } from 'react-native';
 import {
   addJourneyServiceActionListener,
+  addJourneyServiceLocationListener,
   addJourneyServiceTickListener,
   isJourneyServiceAvailable,
   isJourneyServiceRunning,
   startJourneyService,
+  startJourneyServiceLocationUpdates,
   stopJourneyService,
   updateJourneyService,
 } from '../../modules/journey-service';
 import { findRoute } from '../engine/graph';
 import type { RouteMode, RouteResult, StationId } from '../engine/types';
 import { useSelfPositionStore } from '../location/selfPosition';
-import { logFixAccuracy, watchOptions } from '../location/watchOptions';
+import { LOCATION_INTERVAL_MS, logFixAccuracy, watchOptions } from '../location/watchOptions';
 import { locationChannelManager } from '../realtime/locationChannel';
 import { meetChannelManager } from '../realtime/meetChannel';
 import type { RouteClock } from '../route/routeClock';
@@ -71,6 +73,10 @@ export type StartJourneyResult = { ok: true } | { ok: false; reason: string };
 // to be on top when the journey started.
 let route: RouteResult | null = null;
 let watcher: Location.LocationSubscription | null = null;
+/** Subscription to the foreground service's own location feed, on the
+ * platforms where that is the source. Held separately from `watcher` because
+ * the two are different kinds of handle. */
+let serviceFixSubscription: { remove: () => void } | null = null;
 let tickSubscription: { remove: () => void } | null = null;
 let actionSubscription: { remove: () => void } | null = null;
 let arrivedAt: number | null = null;
@@ -195,7 +201,10 @@ export async function startJourney(
   const content = buildJourneyNotification(nextRoute, progress, clockFor(progress));
 
   try {
-    await startJourneyService(content, { tickIntervalMs: TICK_INTERVAL_MS });
+    await startJourneyService(content, {
+      tickIntervalMs: TICK_INTERVAL_MS,
+      locationIntervalMs: LOCATION_INTERVAL_MS,
+    });
   } catch (error) {
     route = null;
     return {
@@ -461,9 +470,77 @@ function hasArrived(progress: RouteProgress | null): boolean {
   );
 }
 
+/**
+ * A fix has arrived, from whichever source is running.
+ *
+ * Shared by both of them so the journey behaves identically either way -- the
+ * position store, the broadcast and the notification all move on exactly the
+ * same event.
+ */
+function handleFix(lat: number, lon: number, at: number, accuracy: number | null): void {
+  // Arriving at all is the proof the provider recovered, so the failure count
+  // goes back to zero here rather than on the watcher being created -- a
+  // watcher that installs cleanly and then delivers nothing is the failure
+  // this is counting.
+  watcherFailures = 0;
+  logFixAccuracy('journey', accuracy);
+  // The journey's watcher is the app's live position while it runs -- the map
+  // and route planner read the same store, so they can't place the user at a
+  // different station than the notification does.
+  useSelfPositionStore.getState().setLive(lat, lon);
+  // Broadcast off the same fix rather than a watcher of its own -- see
+  // `setExternalFixSource`. A no-op unless the user is sharing.
+  locationChannelManager.submitFix(lat, lon, at);
+  void refresh();
+}
+
+/**
+ * Installs the journey's location source, and rebuilds it on every retry.
+ *
+ * Two implementations, chosen by what the platform actually has.
+ *
+ * Where the native service exists -- Android, which is the only place a
+ * journey can be followed in the background at all -- the fixes come from the
+ * service's own location client. They must: expo-location's Android module
+ * removes every `watchPositionAsync` watch it owns from
+ * `OnActivityEntersBackground` and re-requests them on foreground. That is
+ * driven by the activity's lifecycle and knows nothing about foreground
+ * services, so a watcher started from JS goes silent the instant the phone is
+ * pocketed, delivers no error while it does, and springs back to life when the
+ * app is reopened -- which is precisely the shape of the bug this replaced.
+ * (It was dormant for a while: the same teardown existed in earlier versions
+ * but was never wired to anything, so the app was relying on a bug for its
+ * background behaviour without knowing it.)
+ *
+ * Everywhere else -- iOS, tests, a build without the module linked -- it stays
+ * on expo-location, which is correct there: without the service there is no
+ * background journey to keep alive, and the watcher only ever runs with the
+ * app open.
+ */
 async function startWatcher(): Promise<void> {
   stopWatcher();
   const myGeneration = generation;
+
+  if (isJourneyServiceAvailable) {
+    // Subscribed before the request, so a fix that arrives immediately has
+    // somewhere to land.
+    serviceFixSubscription = addJourneyServiceLocationListener(
+      ({ lat, lon, at, accuracy }) => {
+        if (myGeneration !== generation) return;
+        handleFix(lat, lon, at, accuracy);
+      },
+    );
+
+    const failure = await startJourneyServiceLocationUpdates(LOCATION_INTERVAL_MS);
+    if (myGeneration !== generation) {
+      // Journey ended while the request was in flight -- drop the listener
+      // rather than leaving one attached to a journey nobody is following.
+      stopWatcher();
+      return;
+    }
+    if (failure) await handleWatcherFailure(failure);
+    return;
+  }
 
   try {
     const subscription = await Location.watchPositionAsync(
@@ -474,26 +551,12 @@ async function startWatcher(): Promise<void> {
       // before the app had drawn a frame.
       watchOptions(),
       (position) => {
-        // Arriving at all is the proof the provider recovered, so the failure
-        // count goes back to zero here rather than on the watcher being
-        // created -- a watcher that installs cleanly and then delivers nothing
-        // is the failure this is counting.
-        watcherFailures = 0;
-        logFixAccuracy('journey', position.coords.accuracy);
-        // The journey's watcher is the app's live position while it runs --
-        // the map and route planner read the same store, so they can't place
-        // the user at a different station than the notification does.
-        useSelfPositionStore
-          .getState()
-          .setLive(position.coords.latitude, position.coords.longitude);
-        // Broadcast off the same fix rather than a watcher of its own -- see
-        // `setExternalFixSource`. A no-op unless the user is sharing.
-        locationChannelManager.submitFix(
+        handleFix(
           position.coords.latitude,
           position.coords.longitude,
           position.timestamp,
+          position.coords.accuracy,
         );
-        void refresh();
       },
       (reason) => {
         void handleWatcherFailure(`Location stopped: ${reason}`);
@@ -558,6 +621,8 @@ async function retryWatcherIfDue(): Promise<void> {
 function stopWatcher(): void {
   watcher?.remove();
   watcher = null;
+  serviceFixSubscription?.remove();
+  serviceFixSubscription = null;
   watcherRetryDueAt = 0;
   if (watcherRetryTimer !== null) {
     clearTimeout(watcherRetryTimer);

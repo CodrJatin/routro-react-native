@@ -22,4 +22,10 @@ dependencies {
   // expo-modules-core, declared here so this module's own requirements are
   // visible rather than inherited by accident.
   implementation "androidx.core:core-ktx:1.17.0"
+
+  // FusedLocationProviderClient, for the journey's own location updates.
+  // Reaches the classpath transitively via expo-location's `api` dependency
+  // anyway; pinned to the same version here so this module does not silently
+  // depend on another package's choice. See JourneyLocationUpdates.
+  implementation "com.google.android.gms:play-services-location:21.0.1"
 }

@@ -20,7 +20,7 @@ class JourneyServiceModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("JourneyService")
 
-    Events("onAction", "onTick")
+    Events("onAction", "onTick", "onLocation")
 
     OnCreate {
       JourneyServiceBus.listener = { action ->
@@ -29,11 +29,23 @@ class JourneyServiceModule : Module() {
       JourneyServiceBus.tickListener = { at ->
         sendEvent("onTick", mapOf("at" to at))
       }
+      JourneyServiceBus.locationListener = { fix ->
+        sendEvent(
+          "onLocation",
+          mapOf(
+            "lat" to fix.latitude,
+            "lon" to fix.longitude,
+            "accuracy" to fix.accuracy,
+            "at" to fix.at
+          )
+        )
+      }
     }
 
     OnDestroy {
       JourneyServiceBus.listener = null
       JourneyServiceBus.tickListener = null
+      JourneyServiceBus.locationListener = null
     }
 
     /**
@@ -42,7 +54,10 @@ class JourneyServiceModule : Module() {
      * for an exemption. That constraint is why journeys begin on an explicit
      * "Start journey" tap rather than starting themselves.
      */
-    AsyncFunction("startAsync") { content: JourneyNotificationContent, tickIntervalMs: Long ->
+    AsyncFunction("startAsync") {
+        content: JourneyNotificationContent,
+        tickIntervalMs: Long,
+        locationIntervalMs: Long ->
       val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
       JourneyNotification.ensureChannel(context)
 
@@ -50,6 +65,7 @@ class JourneyServiceModule : Module() {
         action = JourneyForegroundService.ACTION_START
         content.writeTo(this)
         putExtra(JourneyForegroundService.EXTRA_TICK_INTERVAL_MS, tickIntervalMs)
+        putExtra(JourneyForegroundService.EXTRA_LOCATION_INTERVAL_MS, locationIntervalMs)
       }
 
       try {
@@ -77,6 +93,24 @@ class JourneyServiceModule : Module() {
         val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
         context.stopService(Intent(context, JourneyForegroundService::class.java))
       }
+    }
+
+    /**
+     * Starts (or restarts) the journey's GPS feed, at the same interval the
+     * app's other watchers use.
+     *
+     * Separate from `startAsync` on purpose: this is also the retry, so a
+     * provider that stopped mid-journey is rebuilt through exactly the call
+     * that built it in the first place.
+     *
+     * Resolves to null once updates are running, or to why they are not -- the
+     * caller retries a few times and then ends the journey rather than
+     * following one it cannot see.
+     */
+    AsyncFunction("startLocationUpdatesAsync") { intervalMs: Long ->
+      val service = JourneyForegroundService.instance
+        ?: return@AsyncFunction "The journey notification is no longer running."
+      service.startLocationUpdates(intervalMs)
     }
 
     Function("isRunning") {

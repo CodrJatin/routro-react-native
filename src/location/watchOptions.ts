@@ -9,6 +9,15 @@ import * as Location from 'expo-location';
  * They all write to the same store, so the user's position must not change
  * character depending on which one happens to be the live one.
  *
+ * A fourth source reads these same numbers without going through this file:
+ * on Android the journey's fixes come from the foreground service's own
+ * location client (`JourneyLocationUpdates.kt`), which cannot use an
+ * expo-location watch because that module tears its watches down whenever the
+ * activity is backgrounded. `journeyController` hands it `LOCATION_INTERVAL_MS`
+ * and the Kotlin mirrors the accuracy and the distance filter, so a journey
+ * fix is the same fix by a different route -- change one of these and change
+ * that too.
+ *
  * It did. Each file carried its own copy of these numbers and they drifted:
  * the map's watcher filtered at 0 metres while the other two filtered at 15,
  * so turning sharing on -- or starting a journey -- silently swapped the live
@@ -21,7 +30,8 @@ import * as Location from 'expo-location';
  * option and simply delivers what the accuracy setting produces.
  *
  * Also the journey service's tick interval, deliberately -- see
- * `TICK_INTERVAL_MS` in `journeyController.ts` for what else hangs off it.
+ * `TICK_INTERVAL_MS` in `journeyController.ts` for what else hangs off it --
+ * and the interval that same service requests its own location updates at.
  */
 export const LOCATION_INTERVAL_MS = 5000;
 
